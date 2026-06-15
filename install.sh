@@ -58,17 +58,11 @@ path_has_dir() {
 LOCAL_BIN="${HOME}/.local/bin"
 LOCAL_BIN_LINK="$LOCAL_BIN/segmentstream"
 INSTALLED_BIN="$INSTALL_DIR/segmentstream"
-PATH_LINK_AVAILABLE=0
+LOCAL_BIN_LINKED=0
 
 maybe_link_local_bin() {
   INSTALLED_BIN="$INSTALL_DIR/segmentstream"
 
-  if path_has_dir "$INSTALL_DIR"; then
-    return 0
-  fi
-  if ! path_has_dir "$LOCAL_BIN"; then
-    return 0
-  fi
   if [ ! -d "$LOCAL_BIN" ] || [ ! -w "$LOCAL_BIN" ]; then
     return 0
   fi
@@ -76,7 +70,7 @@ maybe_link_local_bin() {
   if [ -L "$LOCAL_BIN_LINK" ]; then
     current_target="$(readlink "$LOCAL_BIN_LINK" 2>/dev/null || true)"
     if [ "$current_target" = "$INSTALLED_BIN" ]; then
-      PATH_LINK_AVAILABLE=1
+      LOCAL_BIN_LINKED=1
       return 0
     fi
 
@@ -84,7 +78,7 @@ maybe_link_local_bin() {
       "$HOME/.segmentstream/bin/segmentstream")
         rm "$LOCAL_BIN_LINK"
         ln -s "$INSTALLED_BIN" "$LOCAL_BIN_LINK"
-        PATH_LINK_AVAILABLE=1
+        LOCAL_BIN_LINKED=1
         printf 'Linked segmentstream into %s\n' "$LOCAL_BIN_LINK"
         return 0
         ;;
@@ -101,7 +95,7 @@ maybe_link_local_bin() {
   fi
 
   ln -s "$INSTALLED_BIN" "$LOCAL_BIN_LINK"
-  PATH_LINK_AVAILABLE=1
+  LOCAL_BIN_LINKED=1
   printf 'Linked segmentstream into %s\n' "$LOCAL_BIN_LINK"
 }
 
@@ -208,9 +202,15 @@ EOF
 
 printf 'segmentstream installed to %s/segmentstream\n' "$INSTALL_DIR"
 
-if ! path_has_dir "$INSTALL_DIR" && [ "$PATH_LINK_AVAILABLE" -ne 1 ]; then
-  printf '\n%s is not on your PATH.\n' "$INSTALL_DIR"
+if ! path_has_dir "$INSTALL_DIR" && { [ "$LOCAL_BIN_LINKED" -ne 1 ] || ! path_has_dir "$LOCAL_BIN"; }; then
+  if [ "$LOCAL_BIN_LINKED" -eq 1 ]; then
+    path_dir="$LOCAL_BIN"
+  else
+    path_dir="$INSTALL_DIR"
+  fi
+
+  printf '\n%s is not on your PATH.\n' "$path_dir"
   printf 'Add it for your current shell with:\n'
-  printf '  export PATH="%s:$PATH"\n' "$INSTALL_DIR"
+  printf '  export PATH="%s:$PATH"\n' "$path_dir"
   printf '\nAdd that line to your shell profile to make it permanent.\n'
 fi
