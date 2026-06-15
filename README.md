@@ -20,11 +20,10 @@ segmentstream update --check
 
 ## Release
 
-Push a semver tag to publish GitHub Release assets:
+Publish a GitHub Release with a semver tag to build and attach release assets:
 
-```sh
-git tag v0.1.0
-git push origin v0.1.0
-```
+1. Open https://github.com/segmentstream/segmentstream-cli/releases/new
+2. Create or choose a tag like `v0.1.0`.
+3. Publish the release.
 
-The release workflow uses GoReleaser to publish platform archives and `checksums.txt`.
+The release workflow runs when the release is published and uses GoReleaser to attach platform archives and `checksums.txt`.
