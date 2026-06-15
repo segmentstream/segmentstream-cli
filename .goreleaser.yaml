@@ -1,0 +1,38 @@
+version: 2
+
+project_name: segmentstream
+
+builds:
+  - id: segmentstream
+    main: ./cmd/segmentstream
+    binary: segmentstream
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - darwin
+      - linux
+    goarch:
+      - amd64
+      - arm64
+    ldflags:
+      - -s -w
+      - -X github.com/segmentstream/segmentstream-cli/internal/version.Version={{ .Version }}
+      - -X github.com/segmentstream/segmentstream-cli/internal/version.Commit={{ .Commit }}
+      - -X github.com/segmentstream/segmentstream-cli/internal/version.Date={{ .Date }}
+
+archives:
+  - id: segmentstream
+    ids:
+      - segmentstream
+    formats:
+      - tar.gz
+    name_template: "segmentstream_{{ .Os }}_{{ .Arch }}"
+
+checksum:
+  name_template: checksums.txt
+
+snapshot:
+  version_template: "{{ incpatch .Version }}-next"
+
+changelog:
+  use: github
