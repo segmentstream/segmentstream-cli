@@ -25,6 +25,86 @@ fail() {
   exit 1
 }
 
+download() {
+  url="$1"
+  output="$2"
+  label="$3"
+  attempts="${SEGMENTSTREAM_INSTALL_RETRIES:-30}"
+  delay="${SEGMENTSTREAM_INSTALL_RETRY_DELAY:-5}"
+  attempt=1
+
+  while [ "$attempt" -le "$attempts" ]; do
+    if curl -fsSL "$url" -o "$output"; then
+      return 0
+    fi
+
+    if [ "$attempt" -eq "$attempts" ]; then
+      fail "could not download $label after $attempts attempts"
+    fi
+
+    printf 'Waiting for %s to become available (%s/%s)...\n' "$label" "$attempt" "$attempts" >&2
+    sleep "$delay"
+    attempt=$((attempt + 1))
+  done
+}
+
+path_has_dir() {
+  case ":$PATH:" in
+    *":$1:"*) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
+LOCAL_BIN="${HOME}/.local/bin"
+LOCAL_BIN_LINK="$LOCAL_BIN/segmentstream"
+INSTALLED_BIN="$INSTALL_DIR/segmentstream"
+PATH_LINK_AVAILABLE=0
+
+maybe_link_local_bin() {
+  INSTALLED_BIN="$INSTALL_DIR/segmentstream"
+
+  if path_has_dir "$INSTALL_DIR"; then
+    return 0
+  fi
+  if ! path_has_dir "$LOCAL_BIN"; then
+    return 0
+  fi
+  if [ ! -d "$LOCAL_BIN" ] || [ ! -w "$LOCAL_BIN" ]; then
+    return 0
+  fi
+
+  if [ -L "$LOCAL_BIN_LINK" ]; then
+    current_target="$(readlink "$LOCAL_BIN_LINK" 2>/dev/null || true)"
+    if [ "$current_target" = "$INSTALLED_BIN" ]; then
+      PATH_LINK_AVAILABLE=1
+      return 0
+    fi
+
+    case "$current_target" in
+      "$HOME/.segmentstream/bin/segmentstream")
+        rm "$LOCAL_BIN_LINK"
+        ln -s "$INSTALLED_BIN" "$LOCAL_BIN_LINK"
+        PATH_LINK_AVAILABLE=1
+        printf 'Linked segmentstream into %s\n' "$LOCAL_BIN_LINK"
+        return 0
+        ;;
+      *)
+        printf '\n%s already exists and points to %s; leaving it unchanged.\n' "$LOCAL_BIN_LINK" "$current_target" >&2
+        return 0
+        ;;
+    esac
+  fi
+
+  if [ -e "$LOCAL_BIN_LINK" ]; then
+    printf '\n%s already exists; leaving it unchanged.\n' "$LOCAL_BIN_LINK" >&2
+    return 0
+  fi
+
+  ln -s "$INSTALLED_BIN" "$LOCAL_BIN_LINK"
+  PATH_LINK_AVAILABLE=1
+  printf 'Linked segmentstream into %s\n' "$LOCAL_BIN_LINK"
+}
+
 while [ "$#" -gt 0 ]; do
   case "$1" in
     --install-dir)
@@ -98,8 +178,8 @@ ARCHIVE_PATH="$TMP_DIR/$ASSET"
 CHECKSUMS_PATH="$TMP_DIR/checksums.txt"
 
 printf 'Installing segmentstream %s for %s/%s\n' "$VERSION" "$OS" "$ARCH"
-curl -fsSL "$CHECKSUMS_URL" -o "$CHECKSUMS_PATH"
-curl -fsSL "$ARCHIVE_URL" -o "$ARCHIVE_PATH"
+download "$CHECKSUMS_URL" "$CHECKSUMS_PATH" "checksums.txt"
+download "$ARCHIVE_URL" "$ARCHIVE_PATH" "$ASSET"
 
 EXPECTED="$(awk -v asset="$ASSET" 'NF >= 2 && $NF == asset {print $1}' "$CHECKSUMS_PATH" | head -n 1)"
 [ -n "$EXPECTED" ] || fail "checksum for $ASSET was not found"
@@ -112,6 +192,7 @@ chmod +x "$TMP_DIR/segmentstream"
 
 mkdir -p "$INSTALL_DIR"
 mv "$TMP_DIR/segmentstream" "$INSTALL_DIR/segmentstream"
+maybe_link_local_bin
 
 mkdir -p "$METADATA_DIR"
 cat > "$METADATA_DIR/install.json" <<EOF
@@ -127,12 +208,9 @@ EOF
 
 printf 'segmentstream installed to %s/segmentstream\n' "$INSTALL_DIR"
 
-case ":$PATH:" in
-  *":$INSTALL_DIR:"*) ;;
-  *)
-    printf '\n%s is not on your PATH.\n' "$INSTALL_DIR"
-    printf 'Add it for your current shell with:\n'
-    printf '  export PATH="%s:$PATH"\n' "$INSTALL_DIR"
-    printf '\nAdd that line to your shell profile to make it permanent.\n'
-    ;;
-esac
+if ! path_has_dir "$INSTALL_DIR" && [ "$PATH_LINK_AVAILABLE" -ne 1 ]; then
+  printf '\n%s is not on your PATH.\n' "$INSTALL_DIR"
+  printf 'Add it for your current shell with:\n'
+  printf '  export PATH="%s:$PATH"\n' "$INSTALL_DIR"
+  printf '\nAdd that line to your shell profile to make it permanent.\n'
+fi

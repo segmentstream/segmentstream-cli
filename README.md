@@ -9,6 +9,7 @@ curl -fsSL https://raw.githubusercontent.com/segmentstream/segmentstream-cli/mai
 ```
 
 The installer places the binary in `$HOME/.segmentstream/bin` by default and prints PATH guidance if needed.
+If `$HOME/.local/bin` already exists, is writable, and is on PATH, the installer creates a safe symlink there.
 
 ## Commands
 
@@ -27,3 +28,4 @@ Publish a GitHub Release with a semver tag to build and attach release assets:
 3. Publish the release.
 
 The release workflow runs when the release is published and uses GoReleaser to attach platform archives and `checksums.txt`.
+The installer waits for those assets, so it is safe to run shortly after publishing a release.
