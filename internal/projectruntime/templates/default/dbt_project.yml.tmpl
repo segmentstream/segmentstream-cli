@@ -1,0 +1,26 @@
+name: segmentstream
+version: "1.0"
+config-version: 2
+
+profile: segmentstream
+
+model-paths:
+  - dbt/models
+analysis-paths:
+  - dbt/analyses
+test-paths:
+  - dbt/tests
+seed-paths:
+  - dbt/seeds
+macro-paths:
+  - dbt/macros
+
+target-path: dbt/target
+clean-targets:
+  - dbt/target
+  - dbt/dbt_packages
+
+models:
+  segmentstream:
+    +materialized: view
+

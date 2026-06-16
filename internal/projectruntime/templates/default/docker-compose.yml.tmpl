@@ -1,0 +1,23 @@
+services:
+  segmentstream:
+    build:
+      context: .
+    working_dir: /workspace/.segmentstream
+    volumes:
+      - ..:/workspace
+      - ${HOME}/.segmentstream:/home/segmentstream/.segmentstream:ro
+    environment:
+      DBT_PROFILES_DIR: /workspace/.segmentstream
+      GOOGLE_APPLICATION_CREDENTIALS: /home/segmentstream/.segmentstream/gcloud/application_default_credentials.json
+    ports:
+      - "3000:3000"
+    command:
+      - dagster
+      - dev
+      - --host
+      - 0.0.0.0
+      - --port
+      - "3000"
+      - --python-file
+      - dagster/definitions.py
+

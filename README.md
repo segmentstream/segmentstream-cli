@@ -15,8 +15,39 @@ If `$HOME/.local/bin` already exists, is writable, and is on PATH, the installer
 
 ```sh
 segmentstream version
+segmentstream init
+segmentstream prepare
 segmentstream update
 segmentstream update --check
+```
+
+`segmentstream init` creates a v1 `segmentstream.yml`, `README.md`, and
+`AGENTS.md` in the current directory if they do not already exist, ensures
+`.segmentstream/` is listed in `.gitignore`, and prepares the generated local
+runtime.
+
+`segmentstream prepare` reads `segmentstream.yml` and recreates the disposable
+project-local `.segmentstream/` runtime directory with Docker Compose, dbt, and
+Dagster files. Do not edit files inside `.segmentstream/`; update
+`segmentstream.yml` instead and run `segmentstream prepare` again.
+
+The generated project `README.md` explains the project structure, generated
+runtime boundary, commands, and v1 BigQuery warehouse configuration.
+
+The generated `AGENTS.md` tells LLM/code agents to read `README.md` before
+editing SegmentStream project files.
+
+Example `segmentstream.yml`:
+
+```yaml
+version: 1
+
+warehouse:
+  type: bigquery
+  auth: default-bigquery
+  project: your-gcp-project
+  dataset: segmentstream
+  location: US
 ```
 
 ## Release

@@ -1,0 +1,13 @@
+segmentstream:
+  target: default
+  outputs:
+    default:
+      type: bigquery
+      method: oauth
+      project: {{ .Warehouse.Project }}
+      dataset: {{ .Warehouse.Dataset }}
+      location: {{ .Warehouse.Location }}
+      threads: 4
+      priority: interactive
+      retries: 1
+
