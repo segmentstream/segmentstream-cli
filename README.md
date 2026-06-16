@@ -15,9 +15,16 @@ If `$HOME/.local/bin` already exists, is writable, and is on PATH, the installer
 
 ```sh
 segmentstream version
+segmentstream auth bigquery
 segmentstream update
 segmentstream update --check
 ```
+
+`segmentstream auth bigquery` uses the installed Google Cloud SDK to open Google
+authentication in the browser. It runs gcloud with an isolated SegmentStream
+config directory and stores BigQuery ADC credentials at
+`$HOME/.segmentstream/gcloud/application_default_credentials.json`. The gcloud
+ADC login requests the required `cloud-platform` scope plus BigQuery scope.
 
 ## Release
 
