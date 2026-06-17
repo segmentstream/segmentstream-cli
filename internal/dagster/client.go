@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"net"
 	"net/http"
 	"sort"
@@ -45,10 +46,23 @@ type graphQLClient struct {
 }
 
 func NewClient(baseURL string) Client {
+	// Disable HTTP keep-alives so each GraphQL request uses a fresh connection.
+	// On macOS, Docker Desktop proxies host->container traffic through a
+	// userspace network stack that reaps idle connections aggressively; reusing
+	// a pooled connection it has already closed surfaces as
+	// `Post ".../graphql": EOF`. LaunchBackfill is a non-idempotent mutation
+	// that must not be retried, so we prevent the stale-connection race instead
+	// of retrying through it.
+	transport := http.DefaultTransport.(*http.Transport).Clone()
+	transport.DisableKeepAlives = true
+
 	return &graphQLClient{
 		client: graphql.NewClient(
 			strings.TrimRight(baseURL, "/")+graphQLPath,
-			&http.Client{Timeout: 10 * time.Second},
+			&http.Client{
+				Timeout:   10 * time.Second,
+				Transport: transport,
+			},
 		),
 	}
 }
@@ -314,6 +328,14 @@ func isTransientGraphQLError(err error) bool {
 		return true
 	}
 	if isUnavailableGraphQLError(err) {
+		return true
+	}
+	// A dropped connection (the server or Docker Desktop's proxy closing a
+	// socket) surfaces as io.EOF. Retrying is safe for the idempotent query
+	// operations that use this classifier. The LaunchBackfill mutation uses
+	// isUnavailableGraphQLError and is deliberately excluded so an ambiguous
+	// EOF never launches a second backfill.
+	if errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF) {
 		return true
 	}
 
