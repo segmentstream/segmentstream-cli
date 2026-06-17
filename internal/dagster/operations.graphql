@@ -1,0 +1,40 @@
+query SegmentStreamReady {
+  version
+}
+
+query SegmentStreamAssets {
+  assetNodes {
+    assetKey {
+      path
+    }
+    isMaterializable
+    isPartitioned
+  }
+}
+
+mutation SegmentStreamLaunchBackfill($backfillParams: LaunchBackfillParams!) {
+  launchPartitionBackfill(backfillParams: $backfillParams) {
+    __typename
+    ... on LaunchBackfillSuccess {
+      backfillId
+    }
+    ... on Error {
+      message
+    }
+  }
+}
+
+query SegmentStreamBackfillStatus($backfillID: String!) {
+  partitionBackfillOrError(backfillId: $backfillID) {
+    __typename
+    ... on PartitionBackfill {
+      status
+      error {
+        message
+      }
+    }
+    ... on Error {
+      message
+    }
+  }
+}

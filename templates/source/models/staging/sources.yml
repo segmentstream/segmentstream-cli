@@ -1,0 +1,11 @@
+version: 2
+
+sources:
+  - name: __SOURCE_NAME___raw
+    description: Raw tables for the __SOURCE_NAME__ source.
+    database: "{{ var('__SOURCE_NAME___raw_project', env_var('SEGMENTSTREAM_BQ_PROJECT')) }}"
+    schema: "{{ var('__SOURCE_NAME___raw_dataset', env_var('SEGMENTSTREAM_BQ_DATASET')) }}"
+    tables:
+      - name: events
+        identifier: "{{ var('__SOURCE_NAME___raw_events_table', '__SOURCE_NAME___events') }}"
+        description: Raw event records for the __SOURCE_NAME__ source.
