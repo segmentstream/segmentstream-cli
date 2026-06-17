@@ -3,6 +3,7 @@ package projectruntime
 import (
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -23,6 +24,7 @@ func TestPrepareCreatesExpectedRuntimeFiles(t *testing.T) {
 		"docker-compose.yml",
 		"dbt_project.yml",
 		"profiles.yml",
+		".env",
 		filepath.Join("dagster", "definitions.py"),
 		filepath.Join("dbt", "models"),
 		filepath.Join("dbt", "macros"),
@@ -37,11 +39,11 @@ func TestPrepareCreatesExpectedRuntimeFiles(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(profiles), "project: example-project") {
-		t.Fatalf("profiles.yml does not contain rendered project:\n%s", string(profiles))
+	if !strings.Contains(string(profiles), `project: "{{ env_var('SEGMENTSTREAM_BQ_PROJECT') }}"`) {
+		t.Fatalf("profiles.yml does not contain BigQuery project env var:\n%s", string(profiles))
 	}
-	if !strings.Contains(string(profiles), "dataset: segmentstream") {
-		t.Fatalf("profiles.yml does not contain rendered dataset:\n%s", string(profiles))
+	if strings.Contains(string(profiles), "example-project") {
+		t.Fatalf("profiles.yml should be static, got rendered project:\n%s", string(profiles))
 	}
 }
 
@@ -64,7 +66,7 @@ func TestPrepareRemovesStaleRuntimeFiles(t *testing.T) {
 	}
 }
 
-func TestPrepareRendersQuotedHostSegmentStreamHomeMount(t *testing.T) {
+func TestPrepareWritesRuntimeEnvAndStaticComposeFile(t *testing.T) {
 	root := t.TempDir()
 
 	if err := Prepare(root, testConfig()); err != nil {
@@ -79,6 +81,9 @@ func TestPrepareRendersQuotedHostSegmentStreamHomeMount(t *testing.T) {
 	if err := yaml.Unmarshal(compose, &parsed); err != nil {
 		t.Fatalf("docker-compose.yml is not valid YAML: %v\n%s", err, string(compose))
 	}
+	if !strings.Contains(string(compose), `source: "${SEGMENTSTREAM_HOST_HOME}"`) {
+		t.Fatalf("docker-compose.yml does not use static host env var mount:\n%s", string(compose))
+	}
 
 	home, err := os.UserHomeDir()
 	if err != nil {
@@ -88,9 +93,19 @@ func TestPrepareRendersQuotedHostSegmentStreamHomeMount(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := `source: '` + strings.ReplaceAll(filepath.ToSlash(hostHome), "'", "''") + `'`
-	if !strings.Contains(string(compose), want) {
-		t.Fatalf("docker-compose.yml does not contain quoted host mount %q:\n%s", want, string(compose))
+	env, err := os.ReadFile(filepath.Join(root, RuntimeDirName, ".env"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		`SEGMENTSTREAM_HOST_HOME=` + strconv.Quote(filepath.ToSlash(hostHome)),
+		`SEGMENTSTREAM_BQ_PROJECT="example-project"`,
+		`SEGMENTSTREAM_BQ_DATASET="segmentstream"`,
+		`SEGMENTSTREAM_BQ_LOCATION="US"`,
+	} {
+		if !strings.Contains(string(env), want) {
+			t.Fatalf(".env does not contain %q:\n%s", want, string(env))
+		}
 	}
 }
 

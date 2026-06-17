@@ -1,29 +1,19 @@
 package projectruntime
 
 import (
-	"bytes"
-	"embed"
 	"errors"
 	"fmt"
 	"io/fs"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
-	"text/template"
 
 	"github.com/segmentstream/segmentstream-cli/internal/project"
+	"github.com/segmentstream/segmentstream-cli/templates"
 )
 
 const RuntimeDirName = ".segmentstream"
-
-//go:embed templates/default/**
-var templateFS embed.FS
-
-type templateData struct {
-	Config                project.Config
-	Warehouse             project.Warehouse
-	HostSegmentStreamHome string
-}
 
 func Prepare(projectRoot string, config project.Config) error {
 	root, err := filepath.Abs(projectRoot)
@@ -46,12 +36,10 @@ func Prepare(projectRoot string, config project.Config) error {
 		return fmt.Errorf("create %s: %w", RuntimeDirName, err)
 	}
 
-	data := templateData{
-		Config:                config,
-		Warehouse:             config.Warehouse,
-		HostSegmentStreamHome: hostHome,
+	if err := copyProjectTemplate(runtimeDir); err != nil {
+		return err
 	}
-	if err := renderTemplates(runtimeDir, data); err != nil {
+	if err := writeRuntimeEnv(runtimeDir, config, hostHome); err != nil {
 		return err
 	}
 	if err := ensureRuntimeDirs(runtimeDir); err != nil {
@@ -73,11 +61,7 @@ func hostSegmentStreamHome() (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("resolve user SegmentStream directory: %w", err)
 	}
-	return yamlQuote(filepath.ToSlash(path)), nil
-}
-
-func yamlQuote(value string) string {
-	return "'" + strings.ReplaceAll(value, "'", "''") + "'"
+	return filepath.ToSlash(path), nil
 }
 
 func validateRuntimeDir(projectRoot, runtimeDir string) error {
@@ -96,57 +80,66 @@ func validateRuntimeDir(projectRoot, runtimeDir string) error {
 	return nil
 }
 
-func renderTemplates(runtimeDir string, data templateData) error {
-	const root = "templates/default"
+func copyProjectTemplate(runtimeDir string) error {
+	const root = "project"
 
-	return fs.WalkDir(templateFS, root, func(path string, entry fs.DirEntry, walkErr error) error {
+	return fs.WalkDir(templates.Project, root, func(templatePath string, entry fs.DirEntry, walkErr error) error {
 		if walkErr != nil {
 			return walkErr
 		}
-		if path == root {
+		if templatePath == root {
 			return nil
 		}
 
-		relative, err := filepath.Rel(root, path)
-		if err != nil {
-			return fmt.Errorf("resolve template path %s: %w", path, err)
-		}
+		relative := strings.TrimPrefix(templatePath, root+"/")
 		relative = filepath.FromSlash(relative)
-		target := filepath.Join(runtimeDir, strings.TrimSuffix(relative, ".tmpl"))
+		target := filepath.Join(runtimeDir, relative)
 
 		if entry.IsDir() {
 			return os.MkdirAll(target, 0o755)
 		}
 
-		contents, err := templateFS.ReadFile(path)
+		contents, err := fs.ReadFile(templates.Project, templatePath)
 		if err != nil {
-			return fmt.Errorf("read template %s: %w", path, err)
-		}
-		rendered, err := renderTemplate(path, contents, data)
-		if err != nil {
-			return err
+			return fmt.Errorf("read template %s: %w", templatePath, err)
 		}
 		if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
 			return fmt.Errorf("create directory for %s: %w", target, err)
 		}
-		if err := os.WriteFile(target, rendered, 0o644); err != nil {
+		if err := os.WriteFile(target, contents, 0o644); err != nil {
 			return fmt.Errorf("write %s: %w", target, err)
 		}
 		return nil
 	})
 }
 
-func renderTemplate(name string, contents []byte, data templateData) ([]byte, error) {
-	parsed, err := template.New(name).Parse(string(contents))
-	if err != nil {
-		return nil, fmt.Errorf("parse template %s: %w", name, err)
+func writeRuntimeEnv(runtimeDir string, config project.Config, hostHome string) error {
+	env := map[string]string{
+		"SEGMENTSTREAM_HOST_HOME":   hostHome,
+		"SEGMENTSTREAM_BQ_PROJECT":  config.Warehouse.Project,
+		"SEGMENTSTREAM_BQ_DATASET":  config.Warehouse.Dataset,
+		"SEGMENTSTREAM_BQ_LOCATION": config.Warehouse.Location,
 	}
 
-	var output bytes.Buffer
-	if err := parsed.Execute(&output, data); err != nil {
-		return nil, fmt.Errorf("render template %s: %w", name, err)
+	var output strings.Builder
+	for _, key := range []string{
+		"SEGMENTSTREAM_HOST_HOME",
+		"SEGMENTSTREAM_BQ_PROJECT",
+		"SEGMENTSTREAM_BQ_DATASET",
+		"SEGMENTSTREAM_BQ_LOCATION",
+	} {
+		value := env[key]
+		if strings.ContainsAny(value, "\r\n") {
+			return fmt.Errorf("write runtime environment: %s contains a newline", key)
+		}
+		fmt.Fprintf(&output, "%s=%s\n", key, strconv.Quote(value))
 	}
-	return output.Bytes(), nil
+
+	path := filepath.Join(runtimeDir, ".env")
+	if err := os.WriteFile(path, []byte(output.String()), 0o600); err != nil {
+		return fmt.Errorf("write runtime environment: %w", err)
+	}
+	return nil
 }
 
 func ensureRuntimeDirs(runtimeDir string) error {

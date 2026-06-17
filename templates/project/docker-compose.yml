@@ -6,12 +6,15 @@ services:
     volumes:
       - ..:/workspace
       - type: bind
-        source: {{ .HostSegmentStreamHome }}
+        source: "${SEGMENTSTREAM_HOST_HOME}"
         target: /home/segmentstream/.segmentstream
         read_only: true
     environment:
       DBT_PROFILES_DIR: /workspace/.segmentstream
       GOOGLE_APPLICATION_CREDENTIALS: /home/segmentstream/.segmentstream/gcloud/application_default_credentials.json
+      SEGMENTSTREAM_BQ_PROJECT: "${SEGMENTSTREAM_BQ_PROJECT}"
+      SEGMENTSTREAM_BQ_DATASET: "${SEGMENTSTREAM_BQ_DATASET}"
+      SEGMENTSTREAM_BQ_LOCATION: "${SEGMENTSTREAM_BQ_LOCATION}"
     ports:
       - "3000:3000"
     command:

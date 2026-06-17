@@ -23,4 +23,3 @@ clean-targets:
 models:
   segmentstream:
     +materialized: view
-

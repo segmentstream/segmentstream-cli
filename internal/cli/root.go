@@ -32,7 +32,6 @@ func newRootCommand(out, errOut io.Writer, runner commandRunner) *cobra.Command 
 	root.AddCommand(newVersionCommand(out))
 	root.AddCommand(newUpdateCommand(out, errOut))
 	root.AddCommand(newInitCommand(out))
-	root.AddCommand(newPrepareCommand(out))
 	root.AddCommand(newRunCommand(out, runner))
 
 	return root
@@ -75,21 +74,6 @@ func newInitCommand(out io.Writer) *cobra.Command {
 				return err
 			} else if created {
 				fmt.Fprintf(out, "Created %s\n", project.AgentGuideFileName)
-			}
-			return prepareProject(projectRoot, out)
-		},
-	}
-}
-
-func newPrepareCommand(out io.Writer) *cobra.Command {
-	return &cobra.Command{
-		Use:   "prepare",
-		Short: "Regenerate the SegmentStream local runtime",
-		Args:  cobra.NoArgs,
-		RunE: func(cmd *cobra.Command, args []string) error {
-			projectRoot, err := os.Getwd()
-			if err != nil {
-				return fmt.Errorf("find current directory: %w", err)
 			}
 			return prepareProject(projectRoot, out)
 		},

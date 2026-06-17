@@ -24,44 +24,64 @@ var composeProgressInterval = 15 * time.Second
 func newRunCommand(out io.Writer, runner commandRunner) *cobra.Command {
 	return &cobra.Command{
 		Use:   "run",
-		Short: "Start the SegmentStream local runtime",
+		Short: "Run SegmentStream analytics",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			projectRoot, err := os.Getwd()
 			if err != nil {
 				return fmt.Errorf("find current directory: %w", err)
 			}
-
-			config, err := project.LoadConfig(projectRoot)
-			if err != nil {
-				return err
-			}
-			fmt.Fprintln(out, "Checking Docker...")
-			if err := preflightDocker(cmd.Context(), runner); err != nil {
-				return err
-			}
-			fmt.Fprintf(out, "Preparing %s runtime...\n", projectruntime.RuntimeDirName)
-			if err := projectruntime.Prepare(projectRoot, config); err != nil {
-				return err
-			}
-
-			runtimeDir := filepath.Join(projectRoot, projectruntime.RuntimeDirName)
-			fmt.Fprintln(out, "Starting SegmentStream runtime...")
-			fmt.Fprintln(out, "First start can take a few minutes while Docker downloads and builds the local environment.")
-
-			output, err := runWithProgress(cmd.Context(), out, runner, commandInvocation{
-				Name: "docker",
-				Args: []string{"compose", "up", "-d", "--build"},
-				Dir:  runtimeDir,
-			})
-			if err != nil {
-				return commandError("Docker Compose failed to start the SegmentStream runtime.", output, err)
-			}
-
-			fmt.Fprintf(out, "Started SegmentStream runtime at %s\n", runtimeURL)
-			return nil
+			return runAnalytics(cmd.Context(), projectRoot, out, runner)
 		},
 	}
+}
+
+func runAnalytics(ctx context.Context, projectRoot string, out io.Writer, runner commandRunner) error {
+	config, err := project.LoadConfig(projectRoot)
+	if err != nil {
+		return err
+	}
+	fmt.Fprintln(out, "Checking Docker...")
+	if err := preflightDocker(ctx, runner); err != nil {
+		return err
+	}
+	fmt.Fprintf(out, "Preparing %s runtime...\n", projectruntime.RuntimeDirName)
+	if err := projectruntime.Prepare(projectRoot, config); err != nil {
+		return err
+	}
+
+	runtimeDir := filepath.Join(projectRoot, projectruntime.RuntimeDirName)
+	fmt.Fprintln(out, "Starting SegmentStream runtime...")
+	fmt.Fprintln(out, "First start can take a few minutes while Docker downloads and builds the local environment.")
+
+	output, err := runWithProgress(ctx, out, runner, commandInvocation{
+		Name: "docker",
+		Args: []string{"compose", "up", "-d", "--build", "--force-recreate"},
+		Dir:  runtimeDir,
+	})
+	if err != nil {
+		return commandError("Docker Compose failed to start the SegmentStream runtime.", output, err)
+	}
+
+	fmt.Fprintf(out, "Started SegmentStream runtime at %s\n", runtimeURL)
+	fmt.Fprintln(out, "Running SegmentStream materialization...")
+
+	output, err = runner.Run(ctx, commandInvocation{
+		Name: "docker",
+		Args: []string{
+			"compose", "exec", "-T", "segmentstream",
+			"dbt", "build",
+			"--project-dir", "/workspace/.segmentstream",
+			"--profiles-dir", "/workspace/.segmentstream",
+		},
+		Dir: runtimeDir,
+	})
+	if err != nil {
+		return commandError("SegmentStream materialization failed.", output, err)
+	}
+
+	fmt.Fprintln(out, "Finished SegmentStream materialization")
+	return nil
 }
 
 func runWithProgress(ctx context.Context, out io.Writer, runner commandRunner, invocation commandInvocation) (string, error) {

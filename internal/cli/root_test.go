@@ -69,6 +69,9 @@ func TestInitCreatesProjectConfigGitignoreAndRuntime(t *testing.T) {
 	if !strings.Contains(out.String(), "Created AGENTS.md") {
 		t.Fatalf("init output = %q, want agent guide creation message", out.String())
 	}
+	if !strings.Contains(out.String(), "Prepared .segmentstream runtime") {
+		t.Fatalf("init output = %q, want runtime preparation message", out.String())
+	}
 }
 
 func TestInitDoesNotOverwriteExistingConfig(t *testing.T) {
@@ -103,12 +106,12 @@ warehouse:
 		t.Fatalf("segmentstream.yml was overwritten:\n%s", string(data))
 	}
 
-	profiles, err := os.ReadFile(filepath.Join(root, ".segmentstream", "profiles.yml"))
+	env, err := os.ReadFile(filepath.Join(root, ".segmentstream", ".env"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(profiles), "project: existing-project") {
-		t.Fatalf("profiles.yml did not render existing config:\n%s", string(profiles))
+	if !strings.Contains(string(env), `SEGMENTSTREAM_BQ_PROJECT="existing-project"`) {
+		t.Fatalf(".env did not render existing config:\n%s", string(env))
 	}
 	if !strings.Contains(out.String(), "Using existing segmentstream.yml") {
 		t.Fatalf("init output = %q, want existing config message", out.String())
@@ -165,10 +168,7 @@ func TestInitDoesNotOverwriteExistingReadme(t *testing.T) {
 	}
 }
 
-func TestPrepareFailsWhenConfigIsMissing(t *testing.T) {
-	root := t.TempDir()
-	withWorkingDirectory(t, root)
-
+func TestPrepareCommandIsNotRegistered(t *testing.T) {
 	var out bytes.Buffer
 	var errOut bytes.Buffer
 	cmd := NewRootCommand(&out, &errOut)
@@ -176,37 +176,10 @@ func TestPrepareFailsWhenConfigIsMissing(t *testing.T) {
 
 	err := cmd.Execute()
 	if err == nil {
-		t.Fatal("expected prepare to fail")
+		t.Fatal("expected prepare command to be unavailable")
 	}
-	if !strings.Contains(err.Error(), "segmentstream.yml was not found") {
-		t.Fatalf("error = %v, want missing config message", err)
-	}
-}
-
-func TestPrepareFailsWhenConfigIsInvalid(t *testing.T) {
-	root := t.TempDir()
-	withWorkingDirectory(t, root)
-	if err := os.WriteFile(filepath.Join(root, "segmentstream.yml"), []byte(`version: 2
-warehouse:
-  type: bigquery
-  auth: production-bigquery
-  project: example-project
-  dataset: segmentstream
-`), 0o644); err != nil {
-		t.Fatal(err)
-	}
-
-	var out bytes.Buffer
-	var errOut bytes.Buffer
-	cmd := NewRootCommand(&out, &errOut)
-	cmd.SetArgs([]string{"prepare"})
-
-	err := cmd.Execute()
-	if err == nil {
-		t.Fatal("expected prepare to fail")
-	}
-	if !strings.Contains(err.Error(), "unsupported version 2") {
-		t.Fatalf("error = %v, want unsupported version message", err)
+	if !strings.Contains(err.Error(), "unknown command") {
+		t.Fatalf("error = %v, want unknown command message", err)
 	}
 }
 

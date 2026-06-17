@@ -78,9 +78,6 @@ func TestEnsureAgentGuideCreatesGuide(t *testing.T) {
 	if !strings.Contains(string(data), "README.md") {
 		t.Fatalf("agent guide does not mention README.md:\n%s", string(data))
 	}
-	if !strings.Contains(string(data), "segmentstream prepare") {
-		t.Fatalf("agent guide does not mention prepare:\n%s", string(data))
-	}
 	if !strings.Contains(string(data), "segmentstream run") {
 		t.Fatalf("agent guide does not mention run:\n%s", string(data))
 	}

@@ -161,7 +161,7 @@ func TestRunFailsWhenDockerComposeV2IsUnavailable(t *testing.T) {
 	assertFileMissing(t, filepath.Join(root, ".segmentstream"))
 }
 
-func TestRunPreparesRuntimeAndStartsDockerCompose(t *testing.T) {
+func TestRunPreparesRuntimeStartsDockerComposeAndRunsMaterialization(t *testing.T) {
 	root := t.TempDir()
 	withWorkingDirectory(t, root)
 	writeValidConfig(t, root)
@@ -171,6 +171,7 @@ func TestRunPreparesRuntimeAndStartsDockerCompose(t *testing.T) {
 			{output: "docker info"},
 			{output: "Docker Compose version v2.32.0"},
 			{output: "compose started noisily"},
+			{output: "dbt materialization output"},
 		},
 	}
 	var out bytes.Buffer
@@ -183,12 +184,18 @@ func TestRunPreparesRuntimeAndStartsDockerCompose(t *testing.T) {
 	}
 
 	assertFileExists(t, filepath.Join(root, ".segmentstream", "docker-compose.yml"))
-	if len(runner.calls) != 3 {
-		t.Fatalf("docker calls = %v, want 3 calls", runner.calls)
+	if len(runner.calls) != 4 {
+		t.Fatalf("docker calls = %v, want 4 calls", runner.calls)
 	}
 	assertCommand(t, runner.calls[0], "docker", []string{"info", "--format", "{{json .ServerVersion}}"}, "")
 	assertCommand(t, runner.calls[1], "docker", []string{"compose", "version"}, "")
-	assertCommand(t, runner.calls[2], "docker", []string{"compose", "up", "-d", "--build"}, filepath.Join(root, ".segmentstream"))
+	assertCommand(t, runner.calls[2], "docker", []string{"compose", "up", "-d", "--build", "--force-recreate"}, filepath.Join(root, ".segmentstream"))
+	assertCommand(t, runner.calls[3], "docker", []string{
+		"compose", "exec", "-T", "segmentstream",
+		"dbt", "build",
+		"--project-dir", "/workspace/.segmentstream",
+		"--profiles-dir", "/workspace/.segmentstream",
+	}, filepath.Join(root, ".segmentstream"))
 
 	got := out.String()
 	for _, want := range []string{
@@ -197,13 +204,20 @@ func TestRunPreparesRuntimeAndStartsDockerCompose(t *testing.T) {
 		"Starting SegmentStream runtime...",
 		"First start can take a few minutes",
 		"Started SegmentStream runtime at http://localhost:3000",
+		"Running SegmentStream materialization...",
+		"Finished SegmentStream materialization",
 	} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("run output = %q, want %q", got, want)
 		}
 	}
-	if strings.Contains(got, "compose started noisily") {
-		t.Fatalf("run output = %q, want compose output suppressed", got)
+	for _, notWant := range []string{
+		"compose started noisily",
+		"dbt materialization output",
+	} {
+		if strings.Contains(got, notWant) {
+			t.Fatalf("run output = %q, want command output suppressed", got)
+		}
 	}
 }
 
@@ -223,6 +237,7 @@ func TestRunShowsProgressWhileDockerComposeRuns(t *testing.T) {
 			{},
 			{},
 			{delay: 25 * time.Millisecond},
+			{},
 		},
 	}
 	var out bytes.Buffer
@@ -264,6 +279,38 @@ func TestRunIncludesComposeOutputOnFailure(t *testing.T) {
 	for _, want := range []string{
 		"Docker Compose failed to start the SegmentStream runtime",
 		"failed to solve image",
+	} {
+		if !strings.Contains(err.Error(), want) {
+			t.Fatalf("error = %v, want %q", err, want)
+		}
+	}
+}
+
+func TestRunIncludesMaterializationOutputOnFailure(t *testing.T) {
+	root := t.TempDir()
+	withWorkingDirectory(t, root)
+	writeValidConfig(t, root)
+
+	runner := &stubCommandRunner{
+		results: []stubCommandResult{
+			{},
+			{},
+			{},
+			{output: "dbt build failed", err: errors.New("exit status 1")},
+		},
+	}
+	var out bytes.Buffer
+	var errOut bytes.Buffer
+	cmd := newRootCommand(&out, &errOut, runner)
+	cmd.SetArgs([]string{"run"})
+
+	err := cmd.Execute()
+	if err == nil {
+		t.Fatal("expected run to fail")
+	}
+	for _, want := range []string{
+		"SegmentStream materialization failed",
+		"dbt build failed",
 	} {
 		if !strings.Contains(err.Error(), want) {
 			t.Fatalf("error = %v, want %q", err, want)

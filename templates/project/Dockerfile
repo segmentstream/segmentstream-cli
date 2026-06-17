@@ -9,4 +9,3 @@ RUN pip install \
     "dagster-webserver>=1.7,<1.8"
 
 WORKDIR /workspace/.segmentstream
-
