@@ -3,6 +3,7 @@ package dagster
 import (
 	"context"
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -64,6 +65,68 @@ func TestMaterializableAssetsRetriesTransientStartupFailure(t *testing.T) {
 	}
 	if len(assets) != 1 || assets[0].Key[0] != "events" {
 		t.Fatalf("assets = %+v, want events asset", assets)
+	}
+}
+
+func TestMaterializableAssetsRetriesEOF(t *testing.T) {
+	withFastGraphQLRetries(t)
+
+	attempts := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		attempts++
+		if attempts == 1 {
+			closeWithoutResponse(t, w, r)
+			return
+		}
+		writeGraphQLData(t, w, map[string]any{
+			"assetNodes": []map[string]any{
+				{
+					"assetKey":         map[string]any{"path": []string{"events"}},
+					"isMaterializable": true,
+					"isPartitioned":    true,
+				},
+			},
+		})
+	}))
+	defer server.Close()
+
+	client := NewClient(server.URL)
+	assets, err := client.MaterializableAssets(context.Background())
+	if err != nil {
+		t.Fatalf("MaterializableAssets failed: %v", err)
+	}
+	if attempts != 2 {
+		t.Fatalf("asset attempts = %d, want retry after EOF", attempts)
+	}
+	if len(assets) != 1 || assets[0].Key[0] != "events" {
+		t.Fatalf("assets = %+v, want events asset", assets)
+	}
+}
+
+func TestLaunchBackfillDoesNotRetryEOF(t *testing.T) {
+	withFastGraphQLRetries(t)
+
+	attempts := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		attempts++
+		closeWithoutResponse(t, w, r)
+	}))
+	defer server.Close()
+
+	client := NewClient(server.URL)
+	if _, err := client.LaunchBackfill(context.Background(), []AssetNode{
+		{Key: []string{"events"}, IsPartitioned: true},
+	}, DateRange{
+		StartDate:        "2026-05-19",
+		EndInclusiveDate: "2026-06-17",
+	}); err == nil {
+		t.Fatal("expected EOF error from LaunchBackfill")
+	}
+	// A dropped connection on a mutation leaves the backfill in an unknown
+	// state; retrying could launch a second backfill. The launch must fail
+	// closed rather than retry.
+	if attempts != 1 {
+		t.Fatalf("launch attempts = %d, want no retry on EOF to avoid double-start", attempts)
 	}
 }
 
@@ -239,6 +302,25 @@ func TestWaitForBackfillFailsTerminalStatus(t *testing.T) {
 type graphQLTestRequest struct {
 	Query     string         `json:"query"`
 	Variables map[string]any `json:"variables"`
+}
+
+// closeWithoutResponse drains the request and closes the connection without
+// writing a response, so the client observes `Post ...: EOF` — the failure
+// macOS users hit when Docker Desktop's proxy drops an idle connection.
+func closeWithoutResponse(t *testing.T, w http.ResponseWriter, r *http.Request) {
+	t.Helper()
+	_, _ = io.Copy(io.Discard, r.Body)
+	hijacker, ok := w.(http.Hijacker)
+	if !ok {
+		t.Fatal("response writer does not support hijacking")
+	}
+	conn, _, err := hijacker.Hijack()
+	if err != nil {
+		t.Fatalf("hijack connection: %v", err)
+	}
+	if err := conn.Close(); err != nil {
+		t.Fatalf("close connection: %v", err)
+	}
 }
 
 func writeGraphQLData(t *testing.T, w http.ResponseWriter, data map[string]any) {
