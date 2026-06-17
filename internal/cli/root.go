@@ -33,6 +33,7 @@ func newRootCommand(out, errOut io.Writer, runner commandRunner) *cobra.Command 
 	root.AddCommand(newUpdateCommand(out, errOut))
 	root.AddCommand(newInitCommand(out))
 	root.AddCommand(newRunCommand(out, runner))
+	root.AddCommand(newSourceCommand(out))
 
 	return root
 }

@@ -24,10 +24,17 @@ func TestEnsureProjectReadmeCreatesReadme(t *testing.T) {
 	}
 	for _, want := range []string{
 		"SegmentStream Project",
-		"Project Structure",
-		"BigQuery Warehouse Configuration",
+		"Getting Started",
+		"Docker Compose V2",
+		"gcloud",
+		"Git",
+		"Run The Pipeline",
+		"produces tables in",
 		"segmentstream run",
+		"Create A Source",
+		"segmentstream source init ga4",
 		"warehouse.auth",
+		"sources/",
 		".segmentstream/",
 	} {
 		if !strings.Contains(string(data), want) {
@@ -80,6 +87,9 @@ func TestEnsureAgentGuideCreatesGuide(t *testing.T) {
 	}
 	if !strings.Contains(string(data), "segmentstream run") {
 		t.Fatalf("agent guide does not mention run:\n%s", string(data))
+	}
+	if !strings.Contains(string(data), "segmentstream source init") {
+		t.Fatalf("agent guide does not mention source init:\n%s", string(data))
 	}
 }
 

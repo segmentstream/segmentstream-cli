@@ -183,6 +183,56 @@ func TestPrepareCommandIsNotRegistered(t *testing.T) {
 	}
 }
 
+func TestSourceInitCreatesLocalSourceTemplate(t *testing.T) {
+	root := t.TempDir()
+	withWorkingDirectory(t, root)
+	writeValidConfig(t, root)
+
+	var out bytes.Buffer
+	var errOut bytes.Buffer
+	cmd := NewRootCommand(&out, &errOut)
+	cmd.SetArgs([]string{"source", "init", "ga4"})
+
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("source init command failed: %v", err)
+	}
+
+	assertFileExists(t, filepath.Join(root, "sources", "ga4", "dbt_project.yml"))
+	assertFileExists(t, filepath.Join(root, "sources", "ga4", "models", "exports", "ga4__events.sql"))
+	assertFileExists(t, filepath.Join(root, "sources", "ga4", "models", "exports", "schema.yml"))
+	assertFileExists(t, filepath.Join(root, "sources", "ga4", "models", "staging", "stg_ga4__events.sql"))
+	assertFileExists(t, filepath.Join(root, "sources", "ga4", "models", "staging", "sources.yml"))
+
+	for _, want := range []string{
+		`Created source "ga4" at sources/ga4`,
+		"sources:",
+		"  - name: ga4",
+		"    path: ./sources/ga4",
+	} {
+		if !strings.Contains(out.String(), want) {
+			t.Fatalf("source init output = %q, want %q", out.String(), want)
+		}
+	}
+}
+
+func TestSourceInitFailsWhenProjectIsMissing(t *testing.T) {
+	root := t.TempDir()
+	withWorkingDirectory(t, root)
+
+	var out bytes.Buffer
+	var errOut bytes.Buffer
+	cmd := NewRootCommand(&out, &errOut)
+	cmd.SetArgs([]string{"source", "init", "ga4"})
+
+	err := cmd.Execute()
+	if err == nil {
+		t.Fatal("expected source init to fail")
+	}
+	if !strings.Contains(err.Error(), "segmentstream.yml was not found") {
+		t.Fatalf("error = %v, want missing config message", err)
+	}
+}
+
 func withWorkingDirectory(t *testing.T, dir string) {
 	t.Helper()
 	previous, err := os.Getwd()
