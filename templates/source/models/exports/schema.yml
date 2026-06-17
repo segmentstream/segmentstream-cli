@@ -13,17 +13,19 @@ models:
           export_name: events
           contract: events_v1
     columns:
-      - name: source_event_id
-        description: Stable event identifier from the upstream source when available.
+      - name: event_id
+        description: Stable event identifier from the upstream source.
+        data_tests:
+          - not_null
       - name: anonymous_id
         description: Anonymous user or device identifier.
-      - name: user_id
-        description: Authenticated user identifier when available.
       - name: event_name
         description: Event name.
+      - name: page_url
+        description: Page URL associated with the event when available.
+      - name: page_referrer
+        description: Referrer URL associated with the event when available.
       - name: event_timestamp
         description: Event timestamp in UTC.
       - name: event_date
         description: Date partition for this exported event row.
-        data_tests:
-          - not_null

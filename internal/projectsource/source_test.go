@@ -73,11 +73,22 @@ func TestInitCreatesSourceTemplate(t *testing.T) {
 		"source_name: ga4",
 		"export_name: events",
 		"contract: events_v1",
+		"name: event_id",
+		"name: page_url",
+		"name: page_referrer",
 		"name: event_date",
 		"not_null",
 	} {
 		if !strings.Contains(string(schema), want) {
 			t.Fatalf("schema.yml does not contain %q:\n%s", want, string(schema))
+		}
+	}
+	for _, notWant := range []string{
+		"name: source_event_id",
+		"name: user_id",
+	} {
+		if strings.Contains(string(schema), notWant) {
+			t.Fatalf("schema.yml should not contain %q:\n%s", notWant, string(schema))
 		}
 	}
 
@@ -91,6 +102,9 @@ func TestInitCreatesSourceTemplate(t *testing.T) {
 	for _, want := range []string{
 		"segmentstream_start_date",
 		"segmentstream_end_date",
+		"event_id",
+		"page_url",
+		"page_referrer",
 		"from {{ ref('stg_events_ga4') }}",
 		"where event_date >= date('{{ segmentstream_start_date }}')",
 		"and event_date < date('{{ segmentstream_end_date }}')",
@@ -102,6 +116,8 @@ func TestInitCreatesSourceTemplate(t *testing.T) {
 	for _, notWant := range []string{
 		"is_incremental()",
 		"_dbt_max_partition",
+		"source_event_id",
+		"user_id",
 	} {
 		if strings.Contains(string(model), notWant) {
 			t.Fatalf("model should not contain %q:\n%s", notWant, string(model))
@@ -114,10 +130,21 @@ func TestInitCreatesSourceTemplate(t *testing.T) {
 	}
 	for _, want := range []string{
 		"from {{ source('ga4_raw', 'events') }}",
+		"cast(event_id as string) as event_id",
+		"cast(page_url as string) as page_url",
+		"cast(page_referrer as string) as page_referrer",
 		"date(cast(event_timestamp as timestamp)) as event_date",
 	} {
 		if !strings.Contains(string(staging), want) {
 			t.Fatalf("staging model does not contain %q:\n%s", want, string(staging))
+		}
+	}
+	for _, notWant := range []string{
+		"source_event_id",
+		"user_id",
+	} {
+		if strings.Contains(string(staging), notWant) {
+			t.Fatalf("staging model should not contain %q:\n%s", notWant, string(staging))
 		}
 	}
 }
