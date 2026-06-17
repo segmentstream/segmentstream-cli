@@ -18,6 +18,10 @@ func Execute() error {
 }
 
 func NewRootCommand(out, errOut io.Writer) *cobra.Command {
+	return newRootCommand(out, errOut, osCommandRunner{})
+}
+
+func newRootCommand(out, errOut io.Writer, runner commandRunner) *cobra.Command {
 	root := &cobra.Command{
 		Use:           "segmentstream",
 		Short:         "CLI for SegmentStream marketing analytics",
@@ -29,6 +33,7 @@ func NewRootCommand(out, errOut io.Writer) *cobra.Command {
 	root.AddCommand(newUpdateCommand(out, errOut))
 	root.AddCommand(newInitCommand(out))
 	root.AddCommand(newPrepareCommand(out))
+	root.AddCommand(newRunCommand(out, runner))
 
 	return root
 }

@@ -17,6 +17,7 @@ If `$HOME/.local/bin` already exists, is writable, and is on PATH, the installer
 segmentstream version
 segmentstream init
 segmentstream prepare
+segmentstream run
 segmentstream update
 segmentstream update --check
 ```
@@ -30,6 +31,11 @@ runtime.
 project-local `.segmentstream/` runtime directory with Docker Compose, dbt, and
 Dagster files. Do not edit files inside `.segmentstream/`; update
 `segmentstream.yml` instead and run `segmentstream prepare` again.
+
+`segmentstream run` validates Docker, prepares `.segmentstream/`, and starts
+the local Dagster/dbt runtime at http://localhost:3000 using Docker Compose.
+The first run can take a few minutes while Docker downloads and builds the
+local environment; later runs should be faster.
 
 The generated project `README.md` explains the project structure, generated
 runtime boundary, commands, and v1 BigQuery warehouse configuration.

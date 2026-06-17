@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/segmentstream/segmentstream-cli/internal/project"
+	"gopkg.in/yaml.v3"
 )
 
 func TestPrepareCreatesExpectedRuntimeFiles(t *testing.T) {
@@ -60,6 +61,36 @@ func TestPrepareRemovesStaleRuntimeFiles(t *testing.T) {
 
 	if _, err := os.Stat(stale); !os.IsNotExist(err) {
 		t.Fatalf("stale file still exists or stat failed with unexpected error: %v", err)
+	}
+}
+
+func TestPrepareRendersQuotedHostSegmentStreamHomeMount(t *testing.T) {
+	root := t.TempDir()
+
+	if err := Prepare(root, testConfig()); err != nil {
+		t.Fatalf("Prepare failed: %v", err)
+	}
+
+	compose, err := os.ReadFile(filepath.Join(root, RuntimeDirName, "docker-compose.yml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var parsed map[string]any
+	if err := yaml.Unmarshal(compose, &parsed); err != nil {
+		t.Fatalf("docker-compose.yml is not valid YAML: %v\n%s", err, string(compose))
+	}
+
+	home, err := os.UserHomeDir()
+	if err != nil {
+		t.Fatal(err)
+	}
+	hostHome, err := filepath.Abs(filepath.Join(home, ".segmentstream"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := `source: '` + strings.ReplaceAll(filepath.ToSlash(hostHome), "'", "''") + `'`
+	if !strings.Contains(string(compose), want) {
+		t.Fatalf("docker-compose.yml does not contain quoted host mount %q:\n%s", want, string(compose))
 	}
 }
 

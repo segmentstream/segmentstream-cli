@@ -5,7 +5,10 @@ services:
     working_dir: /workspace/.segmentstream
     volumes:
       - ..:/workspace
-      - ${HOME}/.segmentstream:/home/segmentstream/.segmentstream:ro
+      - type: bind
+        source: {{ .HostSegmentStreamHome }}
+        target: /home/segmentstream/.segmentstream
+        read_only: true
     environment:
       DBT_PROFILES_DIR: /workspace/.segmentstream
       GOOGLE_APPLICATION_CREDENTIALS: /home/segmentstream/.segmentstream/gcloud/application_default_credentials.json
@@ -20,4 +23,3 @@ services:
       - "3000"
       - --python-file
       - dagster/definitions.py
-

@@ -3,6 +3,7 @@ package projectruntime
 import (
 	"bytes"
 	"embed"
+	"errors"
 	"fmt"
 	"io/fs"
 	"os"
@@ -19,14 +20,19 @@ const RuntimeDirName = ".segmentstream"
 var templateFS embed.FS
 
 type templateData struct {
-	Config    project.Config
-	Warehouse project.Warehouse
+	Config                project.Config
+	Warehouse             project.Warehouse
+	HostSegmentStreamHome string
 }
 
 func Prepare(projectRoot string, config project.Config) error {
 	root, err := filepath.Abs(projectRoot)
 	if err != nil {
 		return fmt.Errorf("resolve project root: %w", err)
+	}
+	hostHome, err := hostSegmentStreamHome()
+	if err != nil {
+		return err
 	}
 	runtimeDir := filepath.Join(root, RuntimeDirName)
 	if err := validateRuntimeDir(root, runtimeDir); err != nil {
@@ -40,7 +46,11 @@ func Prepare(projectRoot string, config project.Config) error {
 		return fmt.Errorf("create %s: %w", RuntimeDirName, err)
 	}
 
-	data := templateData{Config: config, Warehouse: config.Warehouse}
+	data := templateData{
+		Config:                config,
+		Warehouse:             config.Warehouse,
+		HostSegmentStreamHome: hostHome,
+	}
 	if err := renderTemplates(runtimeDir, data); err != nil {
 		return err
 	}
@@ -48,6 +58,26 @@ func Prepare(projectRoot string, config project.Config) error {
 		return err
 	}
 	return nil
+}
+
+func hostSegmentStreamHome() (string, error) {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "", fmt.Errorf("find user home directory: %w", err)
+	}
+	if home == "" {
+		return "", errors.New("find user home directory: home directory is empty")
+	}
+
+	path, err := filepath.Abs(filepath.Join(home, ".segmentstream"))
+	if err != nil {
+		return "", fmt.Errorf("resolve user SegmentStream directory: %w", err)
+	}
+	return yamlQuote(filepath.ToSlash(path)), nil
+}
+
+func yamlQuote(value string) string {
+	return "'" + strings.ReplaceAll(value, "'", "''") + "'"
 }
 
 func validateRuntimeDir(projectRoot, runtimeDir string) error {

@@ -26,6 +26,7 @@ func TestEnsureProjectReadmeCreatesReadme(t *testing.T) {
 		"SegmentStream Project",
 		"Project Structure",
 		"BigQuery Warehouse Configuration",
+		"segmentstream run",
 		"warehouse.auth",
 		".segmentstream/",
 	} {
@@ -79,6 +80,9 @@ func TestEnsureAgentGuideCreatesGuide(t *testing.T) {
 	}
 	if !strings.Contains(string(data), "segmentstream prepare") {
 		t.Fatalf("agent guide does not mention prepare:\n%s", string(data))
+	}
+	if !strings.Contains(string(data), "segmentstream run") {
+		t.Fatalf("agent guide does not mention run:\n%s", string(data))
 	}
 }
 

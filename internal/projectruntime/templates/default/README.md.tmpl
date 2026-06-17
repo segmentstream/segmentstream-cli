@@ -6,6 +6,11 @@ Do not edit files here directly. The CLI may delete and recreate this directory
 at any time. Update `../segmentstream.yml` and run `segmentstream prepare`
 instead.
 
+Use `segmentstream run` from the project root to prepare this directory and
+start the local Dagster/dbt runtime.
+The first run can take a few minutes while Docker downloads and builds the
+local environment; later runs should be faster.
+
 ## Files
 
 - `docker-compose.yml` starts the local SegmentStream runtime.
@@ -14,3 +19,11 @@ instead.
 - `dagster/` contains the generated Dagster entrypoint.
 - `dbt/`, `target/`, and `logs/` are runtime working directories.
 
+## Debugging
+
+The manual equivalent of `segmentstream run` after preparation is:
+
+```sh
+cd .segmentstream
+docker compose up -d --build
+```

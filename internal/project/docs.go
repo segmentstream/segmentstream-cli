@@ -51,6 +51,7 @@ Future project-owned folders such as ` + "`sources/`" + `, ` + "`destinations/`"
 ` + "```sh" + `
 segmentstream init
 segmentstream prepare
+segmentstream run
 ` + "```" + `
 
 ` + "`segmentstream init`" + ` creates the initial project files if they are missing and
@@ -59,6 +60,11 @@ prepares the generated runtime.
 ` + "`segmentstream prepare`" + ` reads ` + "`segmentstream.yml`" + ` and recreates the disposable
 project-local ` + "`.segmentstream/`" + ` runtime directory with Docker Compose, dbt, and
 Dagster files.
+
+` + "`segmentstream run`" + ` validates Docker, prepares ` + "`.segmentstream/`" + `, and starts
+the local Dagster/dbt runtime at http://localhost:3000.
+The first run can take a few minutes while Docker downloads and builds the
+local environment; later runs should be faster.
 
 ## BigQuery Warehouse Configuration
 
@@ -100,6 +106,7 @@ Before editing SegmentStream project files, read ` + "`README.md`" + ` in this d
 - Treat ` + "`segmentstream.yml`" + ` as the source of truth for project configuration.
 - Do not edit files inside ` + "`.segmentstream/`" + `; it is generated and disposable.
 - Run ` + "`segmentstream prepare`" + ` after changing ` + "`segmentstream.yml`" + `.
+- Use ` + "`segmentstream run`" + ` to start the local generated runtime.
 - Do not put secrets, credentials, private keys, tokens, or SQL in ` + "`segmentstream.yml`" + `.
 - For BigQuery warehouse configuration, use the guidance in ` + "`README.md`" + `.
 `
