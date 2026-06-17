@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/segmentstream/segmentstream-cli/internal/auth"
 	"github.com/segmentstream/segmentstream-cli/internal/dagster"
 	"github.com/segmentstream/segmentstream-cli/internal/project"
 	"github.com/segmentstream/segmentstream-cli/internal/projectruntime"
@@ -24,6 +25,7 @@ const defaultRunDays = 30
 var composeProgressInterval = 15 * time.Second
 var currentTime = func() time.Time { return time.Now().UTC() }
 var newDagsterClient = dagster.NewClient
+var newRunAuthStore = func() auth.Store { return auth.Store{} }
 
 type runOptions struct {
 	StartDate string
@@ -54,6 +56,9 @@ func runAnalytics(ctx context.Context, projectRoot string, out io.Writer, runner
 	}
 	runRange, err := resolveRunDateRange(options)
 	if err != nil {
+		return err
+	}
+	if err := preflightProjectSanity(config); err != nil {
 		return err
 	}
 
@@ -121,6 +126,60 @@ func runAnalytics(ctx context.Context, projectRoot string, out io.Writer, runner
 	fmt.Fprintln(out)
 	fmt.Fprintln(out, "Finished SegmentStream pipeline")
 	return nil
+}
+
+func preflightProjectSanity(config project.Config) error {
+	var failures []string
+
+	if err := preflightWarehouseAuth(config); err != nil {
+		failures = append(failures, err.Error())
+	}
+	if len(config.Sources) == 0 {
+		failures = append(failures, "segmentstream.yml must declare at least one source under sources; run segmentstream source init <name>, then add it to segmentstream.yml")
+	}
+	if len(failures) > 0 {
+		return runSanityError(failures)
+	}
+	return nil
+}
+
+func preflightWarehouseAuth(config project.Config) error {
+	if config.Warehouse.Type != "bigquery" {
+		return nil
+	}
+
+	credentialsPath, err := newRunAuthStore().GCloudADCPath()
+	if err != nil {
+		return fmt.Errorf("check BigQuery authentication: %w", err)
+	}
+
+	info, err := os.Stat(credentialsPath)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return fmt.Errorf("BigQuery authentication for warehouse.auth %q was not found at %s; run segmentstream auth add bigquery", config.Warehouse.Auth, credentialsPath)
+		}
+		return fmt.Errorf("check BigQuery authentication at %s: %w", credentialsPath, err)
+	}
+	if info.IsDir() {
+		return fmt.Errorf("BigQuery authentication path %s is a directory; run segmentstream auth add bigquery", credentialsPath)
+	}
+
+	return nil
+}
+
+type runSanityError []string
+
+func (err runSanityError) Error() string {
+	if len(err) == 1 {
+		return "SegmentStream run sanity check failed: " + err[0]
+	}
+
+	var message strings.Builder
+	message.WriteString("SegmentStream run sanity checks failed:")
+	for _, failure := range err {
+		fmt.Fprintf(&message, "\n- %s", failure)
+	}
+	return message.String()
 }
 
 type runDateRange struct {

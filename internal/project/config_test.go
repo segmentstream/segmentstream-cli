@@ -110,8 +110,8 @@ warehouse:
 	}
 }
 
-func TestParseConfigIgnoresSourcesForDagster(t *testing.T) {
-	_, err := ParseConfig([]byte(`version: 1
+func TestParseConfigParsesSourcesWithoutDagsterValidation(t *testing.T) {
+	config, err := ParseConfig([]byte(`version: 1
 warehouse:
   type: bigquery
   auth: production-bigquery
@@ -123,5 +123,11 @@ sources:
 `))
 	if err != nil {
 		t.Fatalf("ParseConfig should leave sources to Dagster, got error: %v", err)
+	}
+	if len(config.Sources) != 1 {
+		t.Fatalf("Sources length = %d, want 1", len(config.Sources))
+	}
+	if config.Sources[0].Name != "ga4" || config.Sources[0].Path != "./sources/ga4" {
+		t.Fatalf("Sources[0] = %+v, want ga4 source", config.Sources[0])
 	}
 }

@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/segmentstream/segmentstream-cli/internal/auth"
 	"github.com/segmentstream/segmentstream-cli/internal/dagster"
 )
 
@@ -324,6 +325,85 @@ func TestRunRejectsFutureStartDateBeforeDocker(t *testing.T) {
 	if len(runner.lookups) != 0 || len(runner.calls) != 0 {
 		t.Fatalf("docker was called before start date was validated: lookups=%v calls=%v", runner.lookups, runner.calls)
 	}
+}
+
+func TestRunFailsWhenBigQueryAuthIsMissingBeforeDocker(t *testing.T) {
+	root := t.TempDir()
+	withWorkingDirectory(t, root)
+	writeConfig(t, root, `version: 1
+warehouse:
+  type: bigquery
+  auth: production-bigquery
+  project: example-project
+  dataset: segmentstream
+sources:
+  - name: ga4
+    path: ./sources/ga4
+`)
+	withRunAuthHome(t, filepath.Join(root, "home"))
+
+	runner := &stubCommandRunner{}
+	var out bytes.Buffer
+	var errOut bytes.Buffer
+	cmd := newRootCommand(&out, &errOut, cliOptions{CommandRunner: runner})
+	cmd.SetArgs([]string{"run"})
+
+	err := cmd.Execute()
+	if err == nil {
+		t.Fatal("expected run to fail")
+	}
+	for _, want := range []string{
+		"SegmentStream run sanity check failed",
+		"BigQuery authentication",
+		"segmentstream auth add bigquery",
+	} {
+		if !strings.Contains(err.Error(), want) {
+			t.Fatalf("error = %v, want %q", err, want)
+		}
+	}
+	if len(runner.lookups) != 0 || len(runner.calls) != 0 {
+		t.Fatalf("docker was called before auth was checked: lookups=%v calls=%v", runner.lookups, runner.calls)
+	}
+	assertFileMissing(t, filepath.Join(root, ".segmentstream"))
+}
+
+func TestRunFailsWhenNoSourcesConfiguredBeforeDocker(t *testing.T) {
+	root := t.TempDir()
+	withWorkingDirectory(t, root)
+	writeConfig(t, root, `version: 1
+warehouse:
+  type: bigquery
+  auth: production-bigquery
+  project: example-project
+  dataset: segmentstream
+`)
+	home := filepath.Join(root, "home")
+	withRunAuthHome(t, home)
+	writeBigQueryAuth(t, home)
+
+	runner := &stubCommandRunner{}
+	var out bytes.Buffer
+	var errOut bytes.Buffer
+	cmd := newRootCommand(&out, &errOut, cliOptions{CommandRunner: runner})
+	cmd.SetArgs([]string{"run"})
+
+	err := cmd.Execute()
+	if err == nil {
+		t.Fatal("expected run to fail")
+	}
+	for _, want := range []string{
+		"SegmentStream run sanity check failed",
+		"at least one source",
+		"segmentstream source init <name>",
+	} {
+		if !strings.Contains(err.Error(), want) {
+			t.Fatalf("error = %v, want %q", err, want)
+		}
+	}
+	if len(runner.lookups) != 0 || len(runner.calls) != 0 {
+		t.Fatalf("docker was called before sources were checked: lookups=%v calls=%v", runner.lookups, runner.calls)
+	}
+	assertFileMissing(t, filepath.Join(root, ".segmentstream"))
 }
 
 func TestRunShowsProgressWhileDockerComposeRuns(t *testing.T) {
@@ -692,14 +772,49 @@ func withDagsterClient(t *testing.T, client *stubDagsterClient) *stubDagsterClie
 
 func writeValidConfig(t *testing.T, root string) {
 	t.Helper()
-	config := `version: 1
+	writeConfig(t, root, `version: 1
 warehouse:
   type: bigquery
   auth: production-bigquery
   project: example-project
   dataset: segmentstream
-`
+sources:
+  - name: ga4
+    path: ./sources/ga4
+`)
+	home := filepath.Join(root, "home")
+	withRunAuthHome(t, home)
+	writeBigQueryAuth(t, home)
+}
+
+func writeConfig(t *testing.T, root string, config string) {
+	t.Helper()
 	if err := os.WriteFile(filepath.Join(root, "segmentstream.yml"), []byte(config), 0o644); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func withRunAuthHome(t *testing.T, home string) {
+	t.Helper()
+	previous := newRunAuthStore
+	newRunAuthStore = func() auth.Store {
+		return auth.Store{HomeDir: home}
+	}
+	t.Cleanup(func() {
+		newRunAuthStore = previous
+	})
+}
+
+func writeBigQueryAuth(t *testing.T, home string) {
+	t.Helper()
+	credentialsPath, err := (auth.Store{HomeDir: home}).GCloudADCPath()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Dir(credentialsPath), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(credentialsPath, []byte(`{"type":"authorized_user"}`), 0o600); err != nil {
 		t.Fatal(err)
 	}
 }

@@ -20,6 +20,7 @@ type Config struct {
 	Version   int       `yaml:"version"`
 	Requires  Requires  `yaml:"requires,omitempty"`
 	Warehouse Warehouse `yaml:"warehouse"`
+	Sources   []Source  `yaml:"sources,omitempty"`
 }
 
 type Requires struct {
@@ -34,10 +35,17 @@ type Warehouse struct {
 	Location string `yaml:"location,omitempty"`
 }
 
+type Source struct {
+	Name        string `yaml:"name"`
+	Path        string `yaml:"path"`
+	PackageName string `yaml:"package_name,omitempty"`
+}
+
 type rawConfig struct {
 	Version   *int      `yaml:"version"`
 	Requires  Requires  `yaml:"requires"`
 	Warehouse Warehouse `yaml:"warehouse"`
+	Sources   []Source  `yaml:"sources"`
 }
 
 func DefaultConfigYAML() string {
@@ -92,6 +100,7 @@ func ParseConfig(data []byte) (Config, error) {
 			Dataset:  strings.TrimSpace(raw.Warehouse.Dataset),
 			Location: strings.TrimSpace(raw.Warehouse.Location),
 		},
+		Sources: normalizeSources(raw.Sources),
 	}
 	if config.Warehouse.Location == "" {
 		config.Warehouse.Location = DefaultLocation
@@ -134,4 +143,20 @@ func normalizeRequires(requires Requires) Requires {
 	return Requires{
 		SegmentStream: strings.TrimSpace(requires.SegmentStream),
 	}
+}
+
+func normalizeSources(sources []Source) []Source {
+	if len(sources) == 0 {
+		return nil
+	}
+
+	normalized := make([]Source, 0, len(sources))
+	for _, source := range sources {
+		normalized = append(normalized, Source{
+			Name:        strings.TrimSpace(source.Name),
+			Path:        strings.TrimSpace(source.Path),
+			PackageName: strings.TrimSpace(source.PackageName),
+		})
+	}
+	return normalized
 }
