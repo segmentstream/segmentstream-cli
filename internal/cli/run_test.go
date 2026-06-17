@@ -21,7 +21,7 @@ func TestRunFailsWhenConfigIsMissing(t *testing.T) {
 	runner := &stubCommandRunner{}
 	var out bytes.Buffer
 	var errOut bytes.Buffer
-	cmd := newRootCommand(&out, &errOut, runner)
+	cmd := newRootCommand(&out, &errOut, cliOptions{CommandRunner: runner})
 	cmd.SetArgs([]string{"run"})
 
 	err := cmd.Execute()
@@ -56,7 +56,7 @@ func TestRunChecksDockerBeforeRecreatingRuntime(t *testing.T) {
 	}
 	var out bytes.Buffer
 	var errOut bytes.Buffer
-	cmd := newRootCommand(&out, &errOut, runner)
+	cmd := newRootCommand(&out, &errOut, cliOptions{CommandRunner: runner})
 	cmd.SetArgs([]string{"run"})
 
 	err := cmd.Execute()
@@ -77,7 +77,7 @@ func TestRunFailsWhenDockerCLIIsMissing(t *testing.T) {
 	runner := &stubCommandRunner{lookPathErr: exec.ErrNotFound}
 	var out bytes.Buffer
 	var errOut bytes.Buffer
-	cmd := newRootCommand(&out, &errOut, runner)
+	cmd := newRootCommand(&out, &errOut, cliOptions{CommandRunner: runner})
 	cmd.SetArgs([]string{"run"})
 
 	err := cmd.Execute()
@@ -105,7 +105,7 @@ func TestRunFailsWhenDockerEngineIsUnavailable(t *testing.T) {
 	}
 	var out bytes.Buffer
 	var errOut bytes.Buffer
-	cmd := newRootCommand(&out, &errOut, runner)
+	cmd := newRootCommand(&out, &errOut, cliOptions{CommandRunner: runner})
 	cmd.SetArgs([]string{"run"})
 
 	err := cmd.Execute()
@@ -145,7 +145,7 @@ func TestRunFailsWhenDockerComposeV2IsUnavailable(t *testing.T) {
 	}
 	var out bytes.Buffer
 	var errOut bytes.Buffer
-	cmd := newRootCommand(&out, &errOut, runner)
+	cmd := newRootCommand(&out, &errOut, cliOptions{CommandRunner: runner})
 	cmd.SetArgs([]string{"run"})
 
 	err := cmd.Execute()
@@ -184,7 +184,7 @@ func TestRunPreparesRuntimeStartsDockerComposeAndRunsMaterialization(t *testing.
 	}
 	var out bytes.Buffer
 	var errOut bytes.Buffer
-	cmd := newRootCommand(&out, &errOut, runner)
+	cmd := newRootCommand(&out, &errOut, cliOptions{CommandRunner: runner})
 	cmd.SetArgs([]string{"run"})
 
 	if err := cmd.Execute(); err != nil {
@@ -263,7 +263,7 @@ func TestRunAcceptsStartDate(t *testing.T) {
 	}
 	var out bytes.Buffer
 	var errOut bytes.Buffer
-	cmd := newRootCommand(&out, &errOut, runner)
+	cmd := newRootCommand(&out, &errOut, cliOptions{CommandRunner: runner})
 	cmd.SetArgs([]string{"run", "--start-date", "2026-06-01"})
 
 	if err := cmd.Execute(); err != nil {
@@ -287,7 +287,7 @@ func TestRunRejectsInvalidStartDateBeforeDocker(t *testing.T) {
 	runner := &stubCommandRunner{}
 	var out bytes.Buffer
 	var errOut bytes.Buffer
-	cmd := newRootCommand(&out, &errOut, runner)
+	cmd := newRootCommand(&out, &errOut, cliOptions{CommandRunner: runner})
 	cmd.SetArgs([]string{"run", "--start-date", "June 1"})
 
 	err := cmd.Execute()
@@ -311,7 +311,7 @@ func TestRunRejectsFutureStartDateBeforeDocker(t *testing.T) {
 	runner := &stubCommandRunner{}
 	var out bytes.Buffer
 	var errOut bytes.Buffer
-	cmd := newRootCommand(&out, &errOut, runner)
+	cmd := newRootCommand(&out, &errOut, cliOptions{CommandRunner: runner})
 	cmd.SetArgs([]string{"run", "--start-date", "2026-06-18"})
 
 	err := cmd.Execute()
@@ -351,7 +351,7 @@ func TestRunShowsProgressWhileDockerComposeRuns(t *testing.T) {
 	}
 	var out bytes.Buffer
 	var errOut bytes.Buffer
-	cmd := newRootCommand(&out, &errOut, runner)
+	cmd := newRootCommand(&out, &errOut, cliOptions{CommandRunner: runner})
 	cmd.SetArgs([]string{"run"})
 
 	if err := cmd.Execute(); err != nil {
@@ -390,7 +390,7 @@ func TestRunShowsProgressWhilePipelineRuns(t *testing.T) {
 	}
 	var out bytes.Buffer
 	var errOut bytes.Buffer
-	cmd := newRootCommand(&out, &errOut, runner)
+	cmd := newRootCommand(&out, &errOut, cliOptions{CommandRunner: runner})
 	cmd.SetArgs([]string{"run"})
 
 	if err := cmd.Execute(); err != nil {
@@ -417,7 +417,7 @@ func TestRunIncludesComposeOutputOnFailure(t *testing.T) {
 	}
 	var out bytes.Buffer
 	var errOut bytes.Buffer
-	cmd := newRootCommand(&out, &errOut, runner)
+	cmd := newRootCommand(&out, &errOut, cliOptions{CommandRunner: runner})
 	cmd.SetArgs([]string{"run"})
 
 	err := cmd.Execute()
@@ -451,7 +451,7 @@ func TestRunFailsClearlyWhenSegmentStreamIsNotReady(t *testing.T) {
 	}
 	var out bytes.Buffer
 	var errOut bytes.Buffer
-	cmd := newRootCommand(&out, &errOut, runner)
+	cmd := newRootCommand(&out, &errOut, cliOptions{CommandRunner: runner})
 	cmd.SetArgs([]string{"run"})
 
 	err := cmd.Execute()
@@ -488,7 +488,7 @@ func TestRunFailsClearlyWhenBackfillLaunchFails(t *testing.T) {
 	}
 	var out bytes.Buffer
 	var errOut bytes.Buffer
-	cmd := newRootCommand(&out, &errOut, runner)
+	cmd := newRootCommand(&out, &errOut, cliOptions{CommandRunner: runner})
 	cmd.SetArgs([]string{"run"})
 
 	err := cmd.Execute()
@@ -520,7 +520,7 @@ func TestRunSucceedsWhenThereAreNoMaterializableAssets(t *testing.T) {
 	}
 	var out bytes.Buffer
 	var errOut bytes.Buffer
-	cmd := newRootCommand(&out, &errOut, runner)
+	cmd := newRootCommand(&out, &errOut, cliOptions{CommandRunner: runner})
 	cmd.SetArgs([]string{"run"})
 
 	if err := cmd.Execute(); err != nil {
@@ -552,7 +552,7 @@ func TestRunIncludesPipelineFailureDetail(t *testing.T) {
 	}
 	var out bytes.Buffer
 	var errOut bytes.Buffer
-	cmd := newRootCommand(&out, &errOut, runner)
+	cmd := newRootCommand(&out, &errOut, cliOptions{CommandRunner: runner})
 	cmd.SetArgs([]string{"run"})
 
 	err := cmd.Execute()

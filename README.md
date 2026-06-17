@@ -134,12 +134,21 @@ use `segmentstream run --start-date YYYY-MM-DD` to start earlier or later.
 `segmentstream source init <name>` creates a local source package template under
 `sources/<name>/`.
 
+`segmentstream auth bigquery` authenticates BigQuery credentials for local
+SegmentStream runs.
+
 `segmentstream update` updates an installed CLI release.
 
 `segmentstream update --check` checks whether an update is available without
 installing it.
 
 `segmentstream version` prints the installed CLI version.
+
+`segmentstream auth bigquery` uses the installed Google Cloud SDK to open Google
+authentication in the browser. It runs gcloud with an isolated SegmentStream
+config directory and stores BigQuery ADC credentials at
+`$HOME/.segmentstream/gcloud/application_default_credentials.json`. The gcloud
+ADC login requests the required `cloud-platform` scope plus BigQuery scope.
 
 ## Release
 

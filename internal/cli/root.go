@@ -1,11 +1,13 @@
 package cli
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"os"
 	"path/filepath"
 
+	"github.com/segmentstream/segmentstream-cli/internal/auth"
 	"github.com/segmentstream/segmentstream-cli/internal/project"
 	"github.com/segmentstream/segmentstream-cli/internal/projectruntime"
 	"github.com/segmentstream/segmentstream-cli/internal/update"
@@ -18,15 +20,35 @@ func Execute() error {
 }
 
 func NewRootCommand(out, errOut io.Writer) *cobra.Command {
-	return newRootCommand(out, errOut, osCommandRunner{})
+	return newRootCommand(out, errOut, cliOptions{})
 }
 
-func newRootCommand(out, errOut io.Writer, runner commandRunner) *cobra.Command {
+type bigQueryAuthenticator interface {
+	AuthenticateBigQuery(context.Context) (string, error)
+}
+
+type cliOptions struct {
+	CommandRunner            commandRunner
+	NewBigQueryAuthenticator func(io.Writer, io.Writer) bigQueryAuthenticator
+}
+
+func newRootCommand(out, errOut io.Writer, options cliOptions) *cobra.Command {
+	runner := options.CommandRunner
+	if runner == nil {
+		runner = osCommandRunner{}
+	}
+
 	root := &cobra.Command{
 		Use:           "segmentstream",
 		Short:         "CLI for SegmentStream marketing analytics",
 		SilenceUsage:  true,
 		SilenceErrors: true,
+	}
+	if out != nil {
+		root.SetOut(out)
+	}
+	if errOut != nil {
+		root.SetErr(errOut)
 	}
 
 	root.AddCommand(newVersionCommand(out))
@@ -34,6 +56,7 @@ func newRootCommand(out, errOut io.Writer, runner commandRunner) *cobra.Command 
 	root.AddCommand(newInitCommand(out))
 	root.AddCommand(newRunCommand(out, runner))
 	root.AddCommand(newSourceCommand(out))
+	root.AddCommand(newAuthCommand(out, errOut, options))
 
 	return root
 }
@@ -91,6 +114,36 @@ func prepareProject(projectRoot string, out io.Writer) error {
 	}
 	fmt.Fprintln(out, "Prepared SegmentStream project")
 	return nil
+}
+
+func newAuthCommand(out io.Writer, errOut io.Writer, options cliOptions) *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "auth",
+		Short: "Authenticate data source credentials",
+	}
+
+	cmd.AddCommand(newAuthBigQueryCommand(out, errOut, options))
+
+	return cmd
+}
+
+func newAuthBigQueryCommand(out io.Writer, errOut io.Writer, options cliOptions) *cobra.Command {
+	return &cobra.Command{
+		Use:   "bigquery",
+		Short: "Authenticate BigQuery credentials",
+		Args:  cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			factory := options.NewBigQueryAuthenticator
+			if factory == nil {
+				factory = func(out, errOut io.Writer) bigQueryAuthenticator {
+					return auth.NewGCloudAuthenticator(out, errOut)
+				}
+			}
+
+			_, err := factory(out, errOut).AuthenticateBigQuery(cmd.Context())
+			return err
+		},
+	}
 }
 
 func newVersionCommand(out io.Writer) *cobra.Command {
