@@ -139,7 +139,7 @@ func defaultCommandRunner(ctx context.Context, command string, args []string, en
 func explainGCloudError(err error) error {
 	var execErr *exec.Error
 	if errors.As(err, &execErr) && errors.Is(execErr.Err, exec.ErrNotFound) {
-		return errors.New("gcloud was not found on PATH; install Google Cloud SDK before running segmentstream auth bigquery")
+		return errors.New("gcloud was not found on PATH; install Google Cloud SDK before running segmentstream auth add bigquery")
 	}
 	return fmt.Errorf("run gcloud application default login: %w", err)
 }
