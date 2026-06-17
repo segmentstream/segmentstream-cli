@@ -3,7 +3,7 @@
 This is a standard dbt project for the `__SOURCE_NAME__` SegmentStream source.
 
 Use this project for source-specific dbt transformations. It should produce
-exported models that SegmentStream can compose with core analytics models.
+exported models that SegmentStream can compose with core SegmentStream tables.
 
 ## Project Shape
 
@@ -35,6 +35,18 @@ event rows.
 Exported models under `models/exports/` are incremental and partitioned by
 `event_date` by default. Keep `event_date` as a `date` column on every exported
 model so SegmentStream can build efficient partitioned tables.
+
+SegmentStream runs exported models with a daily partition window:
+
+```yaml
+segmentstream_start_date: "2026-06-17"
+segmentstream_end_date: "2026-06-18"
+```
+
+Source exports should filter `event_date >= segmentstream_start_date` and
+`event_date < segmentstream_end_date`. The end date is exclusive. This keeps
+the source export and the core SegmentStream `events` table aligned on the same
+daily partition.
 
 The export contract is declared in `models/exports/schema.yml` using dbt-native
 model metadata:

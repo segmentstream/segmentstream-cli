@@ -38,6 +38,9 @@ func TestPrepareCreatesExpectedRuntimeFiles(t *testing.T) {
 			t.Fatalf("expected generated path %s: %v", relative, err)
 		}
 	}
+	if _, err := os.Stat(filepath.Join(root, RuntimeDirName, "dagster", "run.py")); !os.IsNotExist(err) {
+		t.Fatalf("dagster/run.py should not be generated, stat error = %v", err)
+	}
 
 	profiles, err := os.ReadFile(filepath.Join(root, RuntimeDirName, "profiles.yml"))
 	if err != nil {
@@ -87,6 +90,10 @@ func TestPrepareCreatesExpectedRuntimeFiles(t *testing.T) {
 	for _, want := range []string{
 		"dbt_assets",
 		"DbtCliResource",
+		"DailyPartitionsDefinition",
+		`start_date="1970-01-01"`,
+		"partitions_def=segmentstream_daily_partitions",
+		"dbt_partition_vars",
 		"define_asset_job",
 		"AssetSelection.all()",
 		"segmentstream_materialize_all",
@@ -117,11 +124,27 @@ func TestPrepareCreatesExpectedRuntimeFiles(t *testing.T) {
 		`"deps"`,
 		`"parse"`,
 		"build_ingestion_assets",
+		"dbt_partition_vars",
+		"segmentstream_start_date",
+		"segmentstream_end_date",
 		"events_{source.name}",
+		"where event_date >= date('{{ segmentstream_start_date }}')",
+		"and event_date < date('{{ segmentstream_end_date }}')",
 	} {
 		if !strings.Contains(string(dagsterResolver), want) {
 			t.Fatalf("Dagster resolver does not contain %q:\n%s", want, string(dagsterResolver))
 		}
+	}
+	if strings.Contains(string(dagsterResolver), "_dbt_max_partition") {
+		t.Fatalf("Dagster resolver should not contain _dbt_max_partition:\n%s", string(dagsterResolver))
+	}
+
+	runtimeReadme, err := os.ReadFile(filepath.Join(root, RuntimeDirName, "README.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(runtimeReadme), "run.py") {
+		t.Fatalf("runtime README should not mention run.py:\n%s", string(runtimeReadme))
 	}
 }
 

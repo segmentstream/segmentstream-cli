@@ -57,9 +57,9 @@ segmentstream source init ga4
 ```
 
 This creates `sources/ga4/` as a standard dbt project with a staging model and
-an exported events model. Exported models are incremental and partitioned by
-`event_date`. SegmentStream-specific export metadata lives in dbt model
-properties.
+an exported events model. Exported models are incremental, partitioned by
+`event_date`, and run with the same daily partition window as the core
+SegmentStream tables.
 
 Declare the source in `segmentstream.yml`:
 
@@ -106,8 +106,14 @@ segmentstream run
 ```
 
 `segmentstream run` runs the SegmentStream pipeline and produces tables in the
-configured warehouse. Each run refreshes the local project environment and runs
-the analytics models.
+configured warehouse. Each run refreshes the local project environment and
+processes the last 30 UTC daily partitions by default.
+
+To run from a specific date through today UTC:
+
+```sh
+segmentstream run --start-date 2026-05-01
+```
 
 Pipeline state persists across `segmentstream run` even though `.segmentstream/`
 is regenerated.
@@ -122,7 +128,8 @@ directory. It is safe to run again: existing `segmentstream.yml`, `README.md`,
 and `AGENTS.md` are not overwritten.
 
 `segmentstream run` runs the configured analytics pipeline and writes results to
-the configured warehouse.
+the configured warehouse. It runs the last 30 UTC daily partitions by default;
+use `segmentstream run --start-date YYYY-MM-DD` to start earlier or later.
 
 `segmentstream source init <name>` creates a local source package template under
 `sources/<name>/`.

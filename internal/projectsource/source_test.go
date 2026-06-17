@@ -89,12 +89,22 @@ func TestInitCreatesSourceTemplate(t *testing.T) {
 		t.Fatalf("model still contains source placeholder:\n%s", string(model))
 	}
 	for _, want := range []string{
+		"segmentstream_start_date",
+		"segmentstream_end_date",
 		"from {{ ref('stg_events_ga4') }}",
-		"is_incremental()",
-		"_dbt_max_partition",
+		"where event_date >= date('{{ segmentstream_start_date }}')",
+		"and event_date < date('{{ segmentstream_end_date }}')",
 	} {
 		if !strings.Contains(string(model), want) {
 			t.Fatalf("model does not contain %q:\n%s", want, string(model))
+		}
+	}
+	for _, notWant := range []string{
+		"is_incremental()",
+		"_dbt_max_partition",
+	} {
+		if strings.Contains(string(model), notWant) {
+			t.Fatalf("model should not contain %q:\n%s", notWant, string(model))
 		}
 	}
 

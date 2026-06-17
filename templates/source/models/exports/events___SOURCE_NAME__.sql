@@ -1,5 +1,9 @@
--- Exported source models are incremental and partitioned by event_date through
--- dbt_project.yml. Keep this model at one row per source event.
+{% set segmentstream_start_date = var('segmentstream_start_date', none) %}
+{% set segmentstream_end_date = var('segmentstream_end_date', none) %}
+
+{% if execute and (segmentstream_start_date is none or segmentstream_end_date is none) %}
+  {{ exceptions.raise_compiler_error("SegmentStream vars segmentstream_start_date and segmentstream_end_date are required") }}
+{% endif %}
 
 select
   source_event_id,
@@ -9,8 +13,5 @@ select
   event_timestamp,
   event_date
 from {{ ref('stg_events___SOURCE_NAME__') }}
-where event_date is not null
-
-{% if is_incremental() %}
-  and event_date >= coalesce(date_sub(date(_dbt_max_partition), interval 1 day), date('1970-01-01'))
-{% endif %}
+where event_date >= date('{{ segmentstream_start_date }}')
+  and event_date < date('{{ segmentstream_end_date }}')

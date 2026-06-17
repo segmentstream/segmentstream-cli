@@ -12,17 +12,26 @@ import (
 	"strings"
 	"time"
 
+	"github.com/segmentstream/segmentstream-cli/internal/dagster"
 	"github.com/segmentstream/segmentstream-cli/internal/project"
 	"github.com/segmentstream/segmentstream-cli/internal/projectruntime"
 	"github.com/spf13/cobra"
 )
 
 const runtimeURL = "http://localhost:3000"
+const defaultRunDays = 30
 
 var composeProgressInterval = 15 * time.Second
+var currentTime = func() time.Time { return time.Now().UTC() }
+var newDagsterClient = dagster.NewClient
+
+type runOptions struct {
+	StartDate string
+}
 
 func newRunCommand(out io.Writer, runner commandRunner) *cobra.Command {
-	return &cobra.Command{
+	options := runOptions{}
+	cmd := &cobra.Command{
 		Use:   "run",
 		Short: "Run SegmentStream analytics",
 		Args:  cobra.NoArgs,
@@ -31,13 +40,19 @@ func newRunCommand(out io.Writer, runner commandRunner) *cobra.Command {
 			if err != nil {
 				return fmt.Errorf("find current directory: %w", err)
 			}
-			return runAnalytics(cmd.Context(), projectRoot, out, runner)
+			return runAnalytics(cmd.Context(), projectRoot, out, runner, options)
 		},
 	}
+	cmd.Flags().StringVar(&options.StartDate, "start-date", "", "Run from this UTC date in YYYY-MM-DD format; defaults to the last 30 days")
+	return cmd
 }
 
-func runAnalytics(ctx context.Context, projectRoot string, out io.Writer, runner commandRunner) error {
+func runAnalytics(ctx context.Context, projectRoot string, out io.Writer, runner commandRunner, options runOptions) error {
 	config, err := project.LoadConfig(projectRoot)
+	if err != nil {
+		return err
+	}
+	runRange, err := resolveRunDateRange(options)
 	if err != nil {
 		return err
 	}
@@ -68,28 +83,86 @@ func runAnalytics(ctx context.Context, projectRoot string, out io.Writer, runner
 	if err != nil {
 		return commandError("SegmentStream failed to start.", output, err)
 	}
+
+	client := newDagsterClient(runtimeURL)
+	if err := runOperationWithProgress(ctx, progress, client.WaitUntilReady, "Still starting SegmentStream"); err != nil {
+		return operationError("SegmentStream failed to start.", err)
+	}
 	progress.OK(fmt.Sprintf("ready at %s", runtimeURL))
 
-	progress.Start("Running analytics models")
+	progress.Start("Running pipeline")
+	progress.Detail(fmt.Sprintf("Processing %s through %s", runRange.StartDate, runRange.EndInclusiveDate))
 
-	output, err = runWithProgress(ctx, progress, runner, commandInvocation{
-		Name: "docker",
-		Args: []string{
-			"compose", "exec", "-T", "segmentstream",
-			"dagster", "job", "execute",
-			"-f", "dagster/definitions.py",
-			"-j", "segmentstream_materialize_all",
-		},
-		Dir: runtimeDir,
-	}, "Still running analytics models")
+	assets, err := client.MaterializableAssets(ctx)
 	if err != nil {
-		return commandError("SegmentStream pipeline failed.", output, err)
+		return operationError("SegmentStream pipeline failed.", err)
+	}
+	if len(assets) == 0 {
+		progress.OK("nothing to run")
+		fmt.Fprintln(out)
+		fmt.Fprintln(out, "Nothing to run")
+		return nil
+	}
+
+	backfillID, err := client.LaunchBackfill(ctx, assets, dagster.DateRange{
+		StartDate:        runRange.StartDate,
+		EndInclusiveDate: runRange.EndInclusiveDate,
+	})
+	if err != nil {
+		return operationError("SegmentStream pipeline failed.", err)
+	}
+	if err := runOperationWithProgress(ctx, progress, func(ctx context.Context) error {
+		return client.WaitForBackfill(ctx, backfillID)
+	}, "Still running pipeline"); err != nil {
+		return operationError("SegmentStream pipeline failed.", err)
 	}
 	progress.OK("")
 
 	fmt.Fprintln(out)
 	fmt.Fprintln(out, "Finished SegmentStream pipeline")
 	return nil
+}
+
+type runDateRange struct {
+	StartDate        string
+	EndInclusiveDate string
+}
+
+func resolveRunDateRange(options runOptions) (runDateRange, error) {
+	today := utcDate(currentTime())
+	start := today.AddDate(0, 0, -(defaultRunDays - 1))
+	if strings.TrimSpace(options.StartDate) != "" {
+		parsed, err := parseDateFlag(options.StartDate, "--start-date")
+		if err != nil {
+			return runDateRange{}, err
+		}
+		start = parsed
+	}
+	if start.After(today) {
+		return runDateRange{}, fmt.Errorf("--start-date %s is after current UTC date %s", formatDate(start), formatDate(today))
+	}
+
+	return runDateRange{
+		StartDate:        formatDate(start),
+		EndInclusiveDate: formatDate(today),
+	}, nil
+}
+
+func parseDateFlag(value, name string) (time.Time, error) {
+	parsed, err := time.Parse("2006-01-02", strings.TrimSpace(value))
+	if err != nil {
+		return time.Time{}, fmt.Errorf("invalid %s %q; use YYYY-MM-DD", name, value)
+	}
+	return utcDate(parsed), nil
+}
+
+func utcDate(value time.Time) time.Time {
+	year, month, day := value.UTC().Date()
+	return time.Date(year, month, day, 0, 0, 0, 0, time.UTC)
+}
+
+func formatDate(value time.Time) string {
+	return value.UTC().Format("2006-01-02")
 }
 
 type runProgress struct {
@@ -151,6 +224,28 @@ func runWithProgress(ctx context.Context, progress *runProgress, runner commandR
 	}
 }
 
+func runOperationWithProgress(ctx context.Context, progress *runProgress, operation func(context.Context) error, progressMessage string) error {
+	done := make(chan error, 1)
+	startedAt := time.Now()
+	go func() {
+		done <- operation(ctx)
+	}()
+
+	ticker := time.NewTicker(composeProgressInterval)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case err := <-done:
+			return err
+		case <-ticker.C:
+			progress.StillWorking(progressMessage, time.Since(startedAt))
+		case <-ctx.Done():
+			return ctx.Err()
+		}
+	}
+}
+
 func formatElapsed(duration time.Duration) string {
 	duration = duration.Round(time.Second)
 	if duration < time.Second {
@@ -196,6 +291,17 @@ func commandError(message, output string, err error) error {
 		return fmt.Errorf("%s: %w", message, err)
 	}
 	return errors.New(message)
+}
+
+func operationError(message string, err error) error {
+	if err == nil {
+		return errors.New(message)
+	}
+	detail := strings.TrimSpace(err.Error())
+	if detail == "" {
+		return errors.New(message)
+	}
+	return fmt.Errorf("%s\n\nDetails:\n%s", message, detail)
 }
 
 func dockerEngineUnavailableError(output string, err error) error {

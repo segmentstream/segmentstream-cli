@@ -10,6 +10,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/segmentstream/segmentstream-cli/internal/dagster"
 )
 
 func TestRunFailsWhenConfigIsMissing(t *testing.T) {
@@ -165,13 +167,19 @@ func TestRunPreparesRuntimeStartsDockerComposeAndRunsMaterialization(t *testing.
 	root := t.TempDir()
 	withWorkingDirectory(t, root)
 	writeValidConfig(t, root)
+	withCurrentTime(t, time.Date(2026, 6, 17, 10, 30, 0, 0, time.UTC))
+	client := withDagsterClient(t, &stubDagsterClient{
+		assets: []dagster.AssetNode{
+			{Key: []string{"events"}, IsPartitioned: true},
+		},
+		launchBackfillID: "backfill-1",
+	})
 
 	runner := &stubCommandRunner{
 		results: []stubCommandResult{
 			{output: "docker info"},
 			{output: "Docker Compose version v2.32.0"},
 			{output: "compose started noisily"},
-			{output: "dagster materialization output"},
 		},
 	}
 	var out bytes.Buffer
@@ -184,18 +192,28 @@ func TestRunPreparesRuntimeStartsDockerComposeAndRunsMaterialization(t *testing.
 	}
 
 	assertFileExists(t, filepath.Join(root, ".segmentstream", "docker-compose.yml"))
-	if len(runner.calls) != 4 {
-		t.Fatalf("docker calls = %v, want 4 calls", runner.calls)
+	if len(runner.calls) != 3 {
+		t.Fatalf("docker calls = %v, want 3 calls", runner.calls)
 	}
 	assertCommand(t, runner.calls[0], "docker", []string{"info", "--format", "{{json .ServerVersion}}"}, "")
 	assertCommand(t, runner.calls[1], "docker", []string{"compose", "version"}, "")
 	assertCommand(t, runner.calls[2], "docker", []string{"compose", "up", "-d", "--build", "--force-recreate"}, filepath.Join(root, ".segmentstream"))
-	assertCommand(t, runner.calls[3], "docker", []string{
-		"compose", "exec", "-T", "segmentstream",
-		"dagster", "job", "execute",
-		"-f", "dagster/definitions.py",
-		"-j", "segmentstream_materialize_all",
-	}, filepath.Join(root, ".segmentstream"))
+	assertStringSlicesEqual(t, client.calls, []string{"waitReady", "materializableAssets", "launchBackfill", "waitBackfill"})
+	if client.baseURL != runtimeURL {
+		t.Fatalf("Dagster client base URL = %q, want %q", client.baseURL, runtimeURL)
+	}
+	if client.launchRange.StartDate != "2026-05-19" ||
+		client.launchRange.EndInclusiveDate != "2026-06-17" {
+		t.Fatalf("launch range = %+v, want default 30-day range", client.launchRange)
+	}
+	if len(client.launchAssets) != 1 ||
+		strings.Join(client.launchAssets[0].Key, "/") != "events" ||
+		!client.launchAssets[0].IsPartitioned {
+		t.Fatalf("launch assets = %+v, want partitioned events asset", client.launchAssets)
+	}
+	if client.waitBackfillID != "backfill-1" {
+		t.Fatalf("wait backfill id = %q, want backfill-1", client.waitBackfillID)
+	}
 
 	got := out.String()
 	for _, want := range []string{
@@ -205,7 +223,8 @@ func TestRunPreparesRuntimeStartsDockerComposeAndRunsMaterialization(t *testing.
 		"[3/4] Starting SegmentStream",
 		"First start can take a few minutes",
 		"      OK - ready at http://localhost:3000",
-		"[4/4] Running analytics models",
+		"[4/4] Running pipeline",
+		"Processing 2026-05-19 through 2026-06-17",
 		"Finished SegmentStream pipeline",
 	} {
 		if !strings.Contains(got, want) {
@@ -214,7 +233,6 @@ func TestRunPreparesRuntimeStartsDockerComposeAndRunsMaterialization(t *testing.
 	}
 	for _, notWant := range []string{
 		"compose started noisily",
-		"dagster materialization output",
 		"Docker",
 		"Docker Compose",
 		"Dagster",
@@ -225,10 +243,98 @@ func TestRunPreparesRuntimeStartsDockerComposeAndRunsMaterialization(t *testing.
 	}
 }
 
+func TestRunAcceptsStartDate(t *testing.T) {
+	root := t.TempDir()
+	withWorkingDirectory(t, root)
+	writeValidConfig(t, root)
+	withCurrentTime(t, time.Date(2026, 6, 17, 10, 30, 0, 0, time.UTC))
+	client := withDagsterClient(t, &stubDagsterClient{
+		assets: []dagster.AssetNode{
+			{Key: []string{"events"}, IsPartitioned: true},
+		},
+	})
+
+	runner := &stubCommandRunner{
+		results: []stubCommandResult{
+			{},
+			{},
+			{},
+		},
+	}
+	var out bytes.Buffer
+	var errOut bytes.Buffer
+	cmd := newRootCommand(&out, &errOut, runner)
+	cmd.SetArgs([]string{"run", "--start-date", "2026-06-01"})
+
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("run command failed: %v", err)
+	}
+
+	if client.launchRange.StartDate != "2026-06-01" ||
+		client.launchRange.EndInclusiveDate != "2026-06-17" {
+		t.Fatalf("launch range = %+v, want custom date range", client.launchRange)
+	}
+	if !strings.Contains(out.String(), "Processing 2026-06-01 through 2026-06-17") {
+		t.Fatalf("run output = %q, want custom date range", out.String())
+	}
+}
+
+func TestRunRejectsInvalidStartDateBeforeDocker(t *testing.T) {
+	root := t.TempDir()
+	withWorkingDirectory(t, root)
+	writeValidConfig(t, root)
+
+	runner := &stubCommandRunner{}
+	var out bytes.Buffer
+	var errOut bytes.Buffer
+	cmd := newRootCommand(&out, &errOut, runner)
+	cmd.SetArgs([]string{"run", "--start-date", "June 1"})
+
+	err := cmd.Execute()
+	if err == nil {
+		t.Fatal("expected run to fail")
+	}
+	if !strings.Contains(err.Error(), `invalid --start-date "June 1"; use YYYY-MM-DD`) {
+		t.Fatalf("error = %v, want invalid start date message", err)
+	}
+	if len(runner.lookups) != 0 || len(runner.calls) != 0 {
+		t.Fatalf("docker was called before start date was validated: lookups=%v calls=%v", runner.lookups, runner.calls)
+	}
+}
+
+func TestRunRejectsFutureStartDateBeforeDocker(t *testing.T) {
+	root := t.TempDir()
+	withWorkingDirectory(t, root)
+	writeValidConfig(t, root)
+	withCurrentTime(t, time.Date(2026, 6, 17, 10, 30, 0, 0, time.UTC))
+
+	runner := &stubCommandRunner{}
+	var out bytes.Buffer
+	var errOut bytes.Buffer
+	cmd := newRootCommand(&out, &errOut, runner)
+	cmd.SetArgs([]string{"run", "--start-date", "2026-06-18"})
+
+	err := cmd.Execute()
+	if err == nil {
+		t.Fatal("expected run to fail")
+	}
+	if !strings.Contains(err.Error(), "--start-date 2026-06-18 is after current UTC date 2026-06-17") {
+		t.Fatalf("error = %v, want future start date message", err)
+	}
+	if len(runner.lookups) != 0 || len(runner.calls) != 0 {
+		t.Fatalf("docker was called before start date was validated: lookups=%v calls=%v", runner.lookups, runner.calls)
+	}
+}
+
 func TestRunShowsProgressWhileDockerComposeRuns(t *testing.T) {
 	root := t.TempDir()
 	withWorkingDirectory(t, root)
 	writeValidConfig(t, root)
+	withDagsterClient(t, &stubDagsterClient{
+		assets: []dagster.AssetNode{
+			{Key: []string{"events"}, IsPartitioned: true},
+		},
+	})
 
 	oldInterval := composeProgressInterval
 	composeProgressInterval = time.Millisecond
@@ -241,7 +347,6 @@ func TestRunShowsProgressWhileDockerComposeRuns(t *testing.T) {
 			{},
 			{},
 			{delay: 25 * time.Millisecond},
-			{},
 		},
 	}
 	var out bytes.Buffer
@@ -263,6 +368,12 @@ func TestRunShowsProgressWhilePipelineRuns(t *testing.T) {
 	root := t.TempDir()
 	withWorkingDirectory(t, root)
 	writeValidConfig(t, root)
+	withDagsterClient(t, &stubDagsterClient{
+		assets: []dagster.AssetNode{
+			{Key: []string{"events"}, IsPartitioned: true},
+		},
+		waitBackfillDelay: 25 * time.Millisecond,
+	})
 
 	oldInterval := composeProgressInterval
 	composeProgressInterval = time.Millisecond
@@ -275,7 +386,6 @@ func TestRunShowsProgressWhilePipelineRuns(t *testing.T) {
 			{},
 			{},
 			{},
-			{delay: 25 * time.Millisecond},
 		},
 	}
 	var out bytes.Buffer
@@ -288,7 +398,7 @@ func TestRunShowsProgressWhilePipelineRuns(t *testing.T) {
 	}
 
 	got := out.String()
-	if !strings.Contains(got, "Still running analytics models...") {
+	if !strings.Contains(got, "Still running pipeline...") {
 		t.Fatalf("run output = %q, want pipeline progress message", got)
 	}
 }
@@ -324,17 +434,56 @@ func TestRunIncludesComposeOutputOnFailure(t *testing.T) {
 	}
 }
 
-func TestRunIncludesMaterializationOutputOnFailure(t *testing.T) {
+func TestRunFailsClearlyWhenSegmentStreamIsNotReady(t *testing.T) {
 	root := t.TempDir()
 	withWorkingDirectory(t, root)
 	writeValidConfig(t, root)
+	withDagsterClient(t, &stubDagsterClient{
+		waitReadyErr: errors.New("service did not answer before timeout"),
+	})
 
 	runner := &stubCommandRunner{
 		results: []stubCommandResult{
 			{},
 			{},
 			{},
-			{output: "dagster job failed", err: errors.New("exit status 1")},
+		},
+	}
+	var out bytes.Buffer
+	var errOut bytes.Buffer
+	cmd := newRootCommand(&out, &errOut, runner)
+	cmd.SetArgs([]string{"run"})
+
+	err := cmd.Execute()
+	if err == nil {
+		t.Fatal("expected run to fail")
+	}
+	for _, want := range []string{
+		"SegmentStream failed to start",
+		"service did not answer before timeout",
+	} {
+		if !strings.Contains(err.Error(), want) {
+			t.Fatalf("error = %v, want %q", err, want)
+		}
+	}
+}
+
+func TestRunFailsClearlyWhenBackfillLaunchFails(t *testing.T) {
+	root := t.TempDir()
+	withWorkingDirectory(t, root)
+	writeValidConfig(t, root)
+	withDagsterClient(t, &stubDagsterClient{
+		assets: []dagster.AssetNode{
+			{Key: []string{"events"}, IsPartitioned: true},
+		},
+		launchErr: errors.New("partition keys could not be found"),
+	})
+
+	runner := &stubCommandRunner{
+		results: []stubCommandResult{
+			{},
+			{},
+			{},
 		},
 	}
 	var out bytes.Buffer
@@ -348,7 +497,71 @@ func TestRunIncludesMaterializationOutputOnFailure(t *testing.T) {
 	}
 	for _, want := range []string{
 		"SegmentStream pipeline failed",
-		"dagster job failed",
+		"partition keys could not be found",
+	} {
+		if !strings.Contains(err.Error(), want) {
+			t.Fatalf("error = %v, want %q", err, want)
+		}
+	}
+}
+
+func TestRunSucceedsWhenThereAreNoMaterializableAssets(t *testing.T) {
+	root := t.TempDir()
+	withWorkingDirectory(t, root)
+	writeValidConfig(t, root)
+	client := withDagsterClient(t, &stubDagsterClient{})
+
+	runner := &stubCommandRunner{
+		results: []stubCommandResult{
+			{},
+			{},
+			{},
+		},
+	}
+	var out bytes.Buffer
+	var errOut bytes.Buffer
+	cmd := newRootCommand(&out, &errOut, runner)
+	cmd.SetArgs([]string{"run"})
+
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("run command failed: %v", err)
+	}
+	assertStringSlicesEqual(t, client.calls, []string{"waitReady", "materializableAssets"})
+	if !strings.Contains(out.String(), "Nothing to run") {
+		t.Fatalf("run output = %q, want nothing-to-run message", out.String())
+	}
+}
+
+func TestRunIncludesPipelineFailureDetail(t *testing.T) {
+	root := t.TempDir()
+	withWorkingDirectory(t, root)
+	writeValidConfig(t, root)
+	withDagsterClient(t, &stubDagsterClient{
+		assets: []dagster.AssetNode{
+			{Key: []string{"events"}, IsPartitioned: true},
+		},
+		waitBackfillErr: errors.New("asset backfill failed"),
+	})
+
+	runner := &stubCommandRunner{
+		results: []stubCommandResult{
+			{},
+			{},
+			{},
+		},
+	}
+	var out bytes.Buffer
+	var errOut bytes.Buffer
+	cmd := newRootCommand(&out, &errOut, runner)
+	cmd.SetArgs([]string{"run"})
+
+	err := cmd.Execute()
+	if err == nil {
+		t.Fatal("expected run to fail")
+	}
+	for _, want := range []string{
+		"SegmentStream pipeline failed",
+		"asset backfill failed",
 	} {
 		if !strings.Contains(err.Error(), want) {
 			t.Fatalf("error = %v, want %q", err, want)
@@ -396,6 +609,87 @@ func (r *stubCommandRunner) Run(ctx context.Context, invocation commandInvocatio
 	return result.output, result.err
 }
 
+type stubDagsterClient struct {
+	baseURL           string
+	calls             []string
+	assets            []dagster.AssetNode
+	waitReadyErr      error
+	assetsErr         error
+	launchErr         error
+	waitBackfillErr   error
+	launchBackfillID  string
+	launchAssets      []dagster.AssetNode
+	launchRange       dagster.DateRange
+	waitBackfillID    string
+	waitReadyDelay    time.Duration
+	waitBackfillDelay time.Duration
+}
+
+func (c *stubDagsterClient) WaitUntilReady(ctx context.Context) error {
+	c.calls = append(c.calls, "waitReady")
+	if err := waitForStubDelay(ctx, c.waitReadyDelay); err != nil {
+		return err
+	}
+	return c.waitReadyErr
+}
+
+func (c *stubDagsterClient) MaterializableAssets(ctx context.Context) ([]dagster.AssetNode, error) {
+	c.calls = append(c.calls, "materializableAssets")
+	if c.assetsErr != nil {
+		return nil, c.assetsErr
+	}
+	return append([]dagster.AssetNode(nil), c.assets...), nil
+}
+
+func (c *stubDagsterClient) LaunchBackfill(ctx context.Context, assets []dagster.AssetNode, runRange dagster.DateRange) (string, error) {
+	c.calls = append(c.calls, "launchBackfill")
+	if c.launchErr != nil {
+		return "", c.launchErr
+	}
+	c.launchAssets = append([]dagster.AssetNode(nil), assets...)
+	c.launchRange = runRange
+	if c.launchBackfillID != "" {
+		return c.launchBackfillID, nil
+	}
+	return "backfill-1", nil
+}
+
+func (c *stubDagsterClient) WaitForBackfill(ctx context.Context, backfillID string) error {
+	c.calls = append(c.calls, "waitBackfill")
+	c.waitBackfillID = backfillID
+	if err := waitForStubDelay(ctx, c.waitBackfillDelay); err != nil {
+		return err
+	}
+	return c.waitBackfillErr
+}
+
+func waitForStubDelay(ctx context.Context, delay time.Duration) error {
+	if delay == 0 {
+		return nil
+	}
+	timer := time.NewTimer(delay)
+	defer timer.Stop()
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-timer.C:
+		return nil
+	}
+}
+
+func withDagsterClient(t *testing.T, client *stubDagsterClient) *stubDagsterClient {
+	t.Helper()
+	previous := newDagsterClient
+	newDagsterClient = func(baseURL string) dagster.Client {
+		client.baseURL = baseURL
+		return client
+	}
+	t.Cleanup(func() {
+		newDagsterClient = previous
+	})
+	return client
+}
+
 func writeValidConfig(t *testing.T, root string) {
 	t.Helper()
 	config := `version: 1
@@ -421,6 +715,22 @@ func assertCommand(t *testing.T, got commandInvocation, name string, args []stri
 	if filepath.Clean(got.Dir) != filepath.Clean(dir) {
 		t.Fatalf("command dir = %q, want %q", got.Dir, dir)
 	}
+}
+
+func assertStringSlicesEqual(t *testing.T, got, want []string) {
+	t.Helper()
+	if strings.Join(got, "\x00") != strings.Join(want, "\x00") {
+		t.Fatalf("slice = %v, want %v", got, want)
+	}
+}
+
+func withCurrentTime(t *testing.T, value time.Time) {
+	t.Helper()
+	previous := currentTime
+	currentTime = func() time.Time { return value }
+	t.Cleanup(func() {
+		currentTime = previous
+	})
 }
 
 func assertFileMissing(t *testing.T, path string) {

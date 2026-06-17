@@ -10,6 +10,9 @@ restart the local Dagster/dbt runtime, and run materialization.
 The first run can take a few minutes while Docker downloads and builds the
 local environment; later runs should be faster.
 
+Materialization is partitioned by day. `segmentstream run` executes the last 30
+UTC daily partitions by default.
+
 ## Files
 
 - `docker-compose.yml` starts the local SegmentStream runtime.
@@ -33,5 +36,6 @@ The manual Docker debugging equivalent after generation is:
 ```sh
 cd .segmentstream
 docker compose up -d --build --force-recreate
-docker compose exec -T segmentstream dagster job execute -f dagster/definitions.py -j segmentstream_materialize_all
 ```
+
+Then open http://localhost:3000 to inspect project assets, runs, and backfills.

@@ -1,0 +1,157 @@
+schema {
+  query: Query
+  mutation: Mutation
+}
+
+type Query {
+  version: String!
+  assetNodes: [AssetNode!]!
+  partitionBackfillOrError(backfillId: String!): PartitionBackfillOrError!
+}
+
+type Mutation {
+  launchPartitionBackfill(backfillParams: LaunchBackfillParams!): LaunchBackfillResult!
+}
+
+type AssetNode {
+  assetKey: AssetKey!
+  isMaterializable: Boolean!
+  isPartitioned: Boolean!
+}
+
+type AssetKey {
+  path: [String!]!
+}
+
+input AssetKeyInput {
+  path: [String!]!
+}
+
+input LaunchBackfillParams {
+  partitionsByAssets: [PartitionsByAssetSelector]
+  tags: [ExecutionTag!]
+  title: String
+  description: String
+}
+
+input PartitionsByAssetSelector {
+  assetKey: AssetKeyInput!
+  partitions: PartitionsSelector
+}
+
+input PartitionsSelector {
+  range: PartitionRangeSelector
+}
+
+input PartitionRangeSelector {
+  start: String!
+  end: String!
+}
+
+input ExecutionTag {
+  key: String!
+  value: String!
+}
+
+union LaunchBackfillResult =
+    LaunchBackfillSuccess
+  | PartitionSetNotFoundError
+  | PartitionKeysNotFoundError
+  | PipelineNotFoundError
+  | RunConflict
+  | UnauthorizedError
+  | PythonError
+  | InvalidSubsetError
+  | ConflictingExecutionParamsError
+  | PresetNotFoundError
+  | NoModeProvidedError
+  | InvalidStepError
+  | InvalidOutputError
+  | RunConfigValidationInvalid
+
+type LaunchBackfillSuccess {
+  backfillId: String!
+  launchedRunIds: [String]
+}
+
+interface Error {
+  message: String!
+}
+
+type PartitionSetNotFoundError implements Error {
+  message: String!
+}
+
+type PartitionKeysNotFoundError implements Error {
+  message: String!
+}
+
+type PipelineNotFoundError implements Error {
+  message: String!
+}
+
+type RunConflict implements Error {
+  message: String!
+}
+
+type UnauthorizedError implements Error {
+  message: String!
+}
+
+type PythonError implements Error {
+  message: String!
+}
+
+type InvalidSubsetError implements Error {
+  message: String!
+}
+
+type ConflictingExecutionParamsError implements Error {
+  message: String!
+}
+
+type PresetNotFoundError implements Error {
+  message: String!
+}
+
+type NoModeProvidedError implements Error {
+  message: String!
+}
+
+type RunConfigValidationInvalid implements Error {
+  message: String!
+}
+
+type InvalidStepError {
+  invalidStepKey: String!
+}
+
+type InvalidOutputError {
+  stepKey: String!
+  invalidOutputName: String!
+}
+
+union PartitionBackfillOrError =
+    PartitionBackfill
+  | BackfillNotFoundError
+  | PythonError
+
+type PartitionBackfill {
+  status: BulkActionStatus!
+  error: PythonError
+}
+
+type BackfillNotFoundError implements Error {
+  message: String!
+}
+
+enum BulkActionStatus {
+  REQUESTED
+  COMPLETED
+  FAILED
+  CANCELED
+  CANCELING
+  COMPLETED_SUCCESS
+  COMPLETED_FAILED
+  FAILING
+}
