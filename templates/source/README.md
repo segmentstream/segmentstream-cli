@@ -23,8 +23,8 @@ runtime files still live under the project root `.segmentstream/` directory.
 
 ## Exported Models
 
-`__SOURCE_NAME____events` is the first exported model in this POC. Replace the
-raw source mapping in `models/staging/stg___SOURCE_NAME____events.sql` with the
+`events___SOURCE_NAME__` is the first exported model in this POC. Replace the
+raw source mapping in `models/staging/stg_events___SOURCE_NAME__.sql` with the
 transformation that reads raw data for this source and returns SegmentStream
 event rows.
 

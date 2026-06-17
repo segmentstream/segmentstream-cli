@@ -27,11 +27,11 @@ func TestInitCreatesSourceTemplate(t *testing.T) {
 		"README.md",
 		".gitignore",
 		"dbt_project.yml",
-		filepath.Join("models", "exports", "ga4__events.sql"),
+		filepath.Join("models", "exports", "events_ga4.sql"),
 		filepath.Join("models", "exports", "schema.yml"),
 		filepath.Join("models", "staging", "README.md"),
 		filepath.Join("models", "staging", "sources.yml"),
-		filepath.Join("models", "staging", "stg_ga4__events.sql"),
+		filepath.Join("models", "staging", "stg_events_ga4.sql"),
 		filepath.Join("macros", "README.md"),
 		filepath.Join("seeds", "README.md"),
 		filepath.Join("snapshots", "README.md"),
@@ -67,7 +67,7 @@ func TestInitCreatesSourceTemplate(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, want := range []string{
-		"name: ga4__events",
+		"name: events_ga4",
 		"segmentstream:",
 		"source_name: ga4",
 		"export_name: events",
@@ -80,7 +80,7 @@ func TestInitCreatesSourceTemplate(t *testing.T) {
 		}
 	}
 
-	model, err := os.ReadFile(filepath.Join(source.Path, "models", "exports", "ga4__events.sql"))
+	model, err := os.ReadFile(filepath.Join(source.Path, "models", "exports", "events_ga4.sql"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -88,7 +88,7 @@ func TestInitCreatesSourceTemplate(t *testing.T) {
 		t.Fatalf("model still contains source placeholder:\n%s", string(model))
 	}
 	for _, want := range []string{
-		"from {{ ref('stg_ga4__events') }}",
+		"from {{ ref('stg_events_ga4') }}",
 		"is_incremental()",
 		"_dbt_max_partition",
 	} {
@@ -97,7 +97,7 @@ func TestInitCreatesSourceTemplate(t *testing.T) {
 		}
 	}
 
-	staging, err := os.ReadFile(filepath.Join(source.Path, "models", "staging", "stg_ga4__events.sql"))
+	staging, err := os.ReadFile(filepath.Join(source.Path, "models", "staging", "stg_events_ga4.sql"))
 	if err != nil {
 		t.Fatal(err)
 	}

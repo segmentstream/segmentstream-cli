@@ -198,9 +198,9 @@ func TestSourceInitCreatesLocalSourceTemplate(t *testing.T) {
 	}
 
 	assertFileExists(t, filepath.Join(root, "sources", "ga4", "dbt_project.yml"))
-	assertFileExists(t, filepath.Join(root, "sources", "ga4", "models", "exports", "ga4__events.sql"))
+	assertFileExists(t, filepath.Join(root, "sources", "ga4", "models", "exports", "events_ga4.sql"))
 	assertFileExists(t, filepath.Join(root, "sources", "ga4", "models", "exports", "schema.yml"))
-	assertFileExists(t, filepath.Join(root, "sources", "ga4", "models", "staging", "stg_ga4__events.sql"))
+	assertFileExists(t, filepath.Join(root, "sources", "ga4", "models", "staging", "stg_events_ga4.sql"))
 	assertFileExists(t, filepath.Join(root, "sources", "ga4", "models", "staging", "sources.yml"))
 
 	for _, want := range []string{

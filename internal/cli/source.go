@@ -40,7 +40,7 @@ func newSourceInitCommand(out io.Writer) *cobra.Command {
 			relativePath := filepath.ToSlash(filepath.Join(projectsource.SourcesDirName, source.Name))
 			fmt.Fprintf(out, "Created source %q at %s\n", source.Name, relativePath)
 			fmt.Fprintln(out)
-			fmt.Fprintln(out, "Add this source to segmentstream.yml when source composition is enabled:")
+			fmt.Fprintln(out, "Add this source to segmentstream.yml:")
 			fmt.Fprintln(out, "sources:")
 			fmt.Fprintf(out, "  - name: %s\n", source.Name)
 			fmt.Fprintf(out, "    path: ./%s\n", relativePath)

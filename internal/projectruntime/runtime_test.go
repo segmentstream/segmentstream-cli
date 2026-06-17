@@ -22,12 +22,16 @@ func TestPrepareCreatesExpectedRuntimeFiles(t *testing.T) {
 		"Dockerfile",
 		"README.md",
 		"docker-compose.yml",
+		"dagster.yaml",
 		"dbt_project.yml",
 		"profiles.yml",
 		".env",
 		filepath.Join("dagster", "definitions.py"),
-		filepath.Join("dbt", "models"),
+		filepath.Join("dagster", "segmentstream.py"),
+		filepath.Join("dbt", "models", "exports", "schema.yml"),
+		filepath.Join("dbt", "models", "staging"),
 		filepath.Join("dbt", "macros"),
+		filepath.Join("dbt", "snapshots"),
 	} {
 		path := filepath.Join(root, RuntimeDirName, relative)
 		if _, err := os.Stat(path); err != nil {
@@ -44,6 +48,101 @@ func TestPrepareCreatesExpectedRuntimeFiles(t *testing.T) {
 	}
 	if strings.Contains(string(profiles), "example-project") {
 		t.Fatalf("profiles.yml should be static, got rendered project:\n%s", string(profiles))
+	}
+
+	dockerfile, err := os.ReadFile(filepath.Join(root, RuntimeDirName, "Dockerfile"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(dockerfile), "dagster-postgres") {
+		t.Fatalf("Dockerfile does not install dagster-postgres:\n%s", string(dockerfile))
+	}
+
+	dagsterConfig, err := os.ReadFile(filepath.Join(root, RuntimeDirName, "dagster.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var parsedDagsterConfig map[string]any
+	if err := yaml.Unmarshal(dagsterConfig, &parsedDagsterConfig); err != nil {
+		t.Fatalf("dagster.yaml is not valid YAML: %v\n%s", err, string(dagsterConfig))
+	}
+	for _, want := range []string{
+		"storage:",
+		"postgres:",
+		"postgres_db:",
+		"env: DAGSTER_PG_USERNAME",
+		"env: DAGSTER_PG_PASSWORD",
+		"env: DAGSTER_PG_HOST",
+		"env: DAGSTER_PG_DB",
+	} {
+		if !strings.Contains(string(dagsterConfig), want) {
+			t.Fatalf("dagster.yaml does not contain %q:\n%s", want, string(dagsterConfig))
+		}
+	}
+
+	definitions, err := os.ReadFile(filepath.Join(root, RuntimeDirName, "dagster", "definitions.py"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		"dbt_assets",
+		"DbtCliResource",
+		"define_asset_job",
+		"AssetSelection.all()",
+		"segmentstream_materialize_all",
+		"build_ingestion_assets",
+	} {
+		if !strings.Contains(string(definitions), want) {
+			t.Fatalf("Dagster definitions do not contain %q:\n%s", want, string(definitions))
+		}
+	}
+	for _, notWant := range []string{
+		"@op",
+		"def run_segmentstream_dbt",
+		"@job",
+	} {
+		if strings.Contains(string(definitions), notWant) {
+			t.Fatalf("Dagster definitions should not contain %q:\n%s", notWant, string(definitions))
+		}
+	}
+
+	dagsterResolver, err := os.ReadFile(filepath.Join(root, RuntimeDirName, "dagster", "segmentstream.py"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		"segmentstream.yml",
+		"packages.yml",
+		"events.sql",
+		`"deps"`,
+		`"parse"`,
+		"build_ingestion_assets",
+		"events_{source.name}",
+	} {
+		if !strings.Contains(string(dagsterResolver), want) {
+			t.Fatalf("Dagster resolver does not contain %q:\n%s", want, string(dagsterResolver))
+		}
+	}
+}
+
+func TestDagsterResolverEmptyProjectModelUsesValidBigQueryZeroRowQuery(t *testing.T) {
+	root := t.TempDir()
+
+	if err := Prepare(root, testConfig()); err != nil {
+		t.Fatalf("Prepare failed: %v", err)
+	}
+
+	dagsterResolver, err := os.ReadFile(filepath.Join(root, RuntimeDirName, "dagster", "segmentstream.py"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		"from (select 1) as empty_project",
+		"where false",
+	} {
+		if !strings.Contains(string(dagsterResolver), want) {
+			t.Fatalf("Dagster resolver empty project model does not contain %q:\n%s", want, string(dagsterResolver))
+		}
 	}
 }
 
@@ -83,6 +182,18 @@ func TestPrepareWritesRuntimeEnvAndStaticComposeFile(t *testing.T) {
 	}
 	if !strings.Contains(string(compose), `source: "${SEGMENTSTREAM_HOST_HOME}"`) {
 		t.Fatalf("docker-compose.yml does not use static host env var mount:\n%s", string(compose))
+	}
+	for _, want := range []string{
+		"postgres:",
+		"image: postgres:16-alpine",
+		"condition: service_healthy",
+		"DAGSTER_HOME: /workspace/.segmentstream",
+		"DAGSTER_PG_HOST: postgres",
+		"segmentstream-postgres-data:",
+	} {
+		if !strings.Contains(string(compose), want) {
+			t.Fatalf("docker-compose.yml does not contain %q:\n%s", want, string(compose))
+		}
 	}
 
 	home, err := os.UserHomeDir()

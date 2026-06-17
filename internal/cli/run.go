@@ -64,15 +64,15 @@ func runAnalytics(ctx context.Context, projectRoot string, out io.Writer, runner
 	}
 
 	fmt.Fprintf(out, "Started SegmentStream runtime at %s\n", runtimeURL)
-	fmt.Fprintln(out, "Running SegmentStream materialization...")
+	fmt.Fprintln(out, "Running SegmentStream materialization through Dagster...")
 
 	output, err = runner.Run(ctx, commandInvocation{
 		Name: "docker",
 		Args: []string{
 			"compose", "exec", "-T", "segmentstream",
-			"dbt", "build",
-			"--project-dir", "/workspace/.segmentstream",
-			"--profiles-dir", "/workspace/.segmentstream",
+			"dagster", "job", "execute",
+			"-f", "dagster/definitions.py",
+			"-j", "segmentstream_materialize_all",
 		},
 		Dir: runtimeDir,
 	})

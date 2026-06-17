@@ -171,7 +171,7 @@ func TestRunPreparesRuntimeStartsDockerComposeAndRunsMaterialization(t *testing.
 			{output: "docker info"},
 			{output: "Docker Compose version v2.32.0"},
 			{output: "compose started noisily"},
-			{output: "dbt materialization output"},
+			{output: "dagster materialization output"},
 		},
 	}
 	var out bytes.Buffer
@@ -192,9 +192,9 @@ func TestRunPreparesRuntimeStartsDockerComposeAndRunsMaterialization(t *testing.
 	assertCommand(t, runner.calls[2], "docker", []string{"compose", "up", "-d", "--build", "--force-recreate"}, filepath.Join(root, ".segmentstream"))
 	assertCommand(t, runner.calls[3], "docker", []string{
 		"compose", "exec", "-T", "segmentstream",
-		"dbt", "build",
-		"--project-dir", "/workspace/.segmentstream",
-		"--profiles-dir", "/workspace/.segmentstream",
+		"dagster", "job", "execute",
+		"-f", "dagster/definitions.py",
+		"-j", "segmentstream_materialize_all",
 	}, filepath.Join(root, ".segmentstream"))
 
 	got := out.String()
@@ -204,7 +204,7 @@ func TestRunPreparesRuntimeStartsDockerComposeAndRunsMaterialization(t *testing.
 		"Starting SegmentStream runtime...",
 		"First start can take a few minutes",
 		"Started SegmentStream runtime at http://localhost:3000",
-		"Running SegmentStream materialization...",
+		"Running SegmentStream materialization through Dagster...",
 		"Finished SegmentStream materialization",
 	} {
 		if !strings.Contains(got, want) {
@@ -213,7 +213,7 @@ func TestRunPreparesRuntimeStartsDockerComposeAndRunsMaterialization(t *testing.
 	}
 	for _, notWant := range []string{
 		"compose started noisily",
-		"dbt materialization output",
+		"dagster materialization output",
 	} {
 		if strings.Contains(got, notWant) {
 			t.Fatalf("run output = %q, want command output suppressed", got)
@@ -296,7 +296,7 @@ func TestRunIncludesMaterializationOutputOnFailure(t *testing.T) {
 			{},
 			{},
 			{},
-			{output: "dbt build failed", err: errors.New("exit status 1")},
+			{output: "dagster job failed", err: errors.New("exit status 1")},
 		},
 	}
 	var out bytes.Buffer
@@ -310,7 +310,7 @@ func TestRunIncludesMaterializationOutputOnFailure(t *testing.T) {
 	}
 	for _, want := range []string{
 		"SegmentStream materialization failed",
-		"dbt build failed",
+		"dagster job failed",
 	} {
 		if !strings.Contains(err.Error(), want) {
 			t.Fatalf("error = %v, want %q", err, want)

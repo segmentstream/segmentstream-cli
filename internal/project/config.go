@@ -49,6 +49,10 @@ warehouse:
   project: your-gcp-project
   dataset: segmentstream
   location: US
+
+# sources:
+#   - name: ga4
+#     path: ./sources/ga4
 `
 }
 
@@ -122,6 +126,7 @@ func ValidateConfig(config Config) error {
 			return fmt.Errorf("missing required field %s", required.name)
 		}
 	}
+
 	return nil
 }
 

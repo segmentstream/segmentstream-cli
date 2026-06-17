@@ -54,8 +54,8 @@ segmentstream run
 
 ` + "`segmentstream run`" + ` runs the SegmentStream pipeline and produces tables in
 the configured warehouse. Each run regenerates the local runtime,
-rebuilds/restarts the local Docker environment if needed, and runs the dbt
-materialization.
+rebuilds/restarts the local Docker environment if needed, and asks Dagster to
+run materialization. Dagster materializes all declared assets.
 
 The first run can take a few minutes while Docker downloads and builds the
 local environment. Later runs should be faster.
@@ -71,8 +71,19 @@ segmentstream source init ga4
 This creates ` + "`sources/ga4/`" + ` as a standard dbt project with a staging
 model and an exported events model. Exported models are incremental and
 partitioned by ` + "`event_date`" + `. SegmentStream-specific export metadata lives
-in dbt model properties. Source composition into the generated runtime is a
-future slice.
+in dbt model properties.
+
+Declare the source in ` + "`segmentstream.yml`" + `:
+
+` + "```yaml" + `
+sources:
+  - name: ga4
+    path: ./sources/ga4
+` + "```" + `
+
+On run, the Dagster runtime reads ` + "`segmentstream.yml`" + `, installs declared
+sources as dbt packages, and generates a core ` + "`events`" + ` model that unions each declared
+` + "`events_<source>`" + ` export. dbt models are declared as Dagster assets.
 
 ## Commands
 

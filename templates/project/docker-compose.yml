@@ -1,7 +1,24 @@
 services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: segmentstream
+      POSTGRES_PASSWORD: segmentstream
+      POSTGRES_DB: segmentstream
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U segmentstream -d segmentstream"]
+      interval: 2s
+      timeout: 5s
+      retries: 30
+    volumes:
+      - segmentstream-postgres-data:/var/lib/postgresql/data
+
   segmentstream:
     build:
       context: .
+    depends_on:
+      postgres:
+        condition: service_healthy
     working_dir: /workspace/.segmentstream
     volumes:
       - ..:/workspace
@@ -10,6 +27,11 @@ services:
         target: /home/segmentstream/.segmentstream
         read_only: true
     environment:
+      DAGSTER_HOME: /workspace/.segmentstream
+      DAGSTER_PG_USERNAME: segmentstream
+      DAGSTER_PG_PASSWORD: segmentstream
+      DAGSTER_PG_HOST: postgres
+      DAGSTER_PG_DB: segmentstream
       DBT_PROFILES_DIR: /workspace/.segmentstream
       GOOGLE_APPLICATION_CREDENTIALS: /home/segmentstream/.segmentstream/gcloud/application_default_credentials.json
       SEGMENTSTREAM_BQ_PROJECT: "${SEGMENTSTREAM_BQ_PROJECT}"
@@ -26,3 +48,6 @@ services:
       - "3000"
       - --python-file
       - dagster/definitions.py
+
+volumes:
+  segmentstream-postgres-data:

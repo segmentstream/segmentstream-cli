@@ -144,10 +144,11 @@ func writeRuntimeEnv(runtimeDir string, config project.Config, hostHome string) 
 
 func ensureRuntimeDirs(runtimeDir string) error {
 	for _, dir := range []string{
-		filepath.Join("dbt", "analyses"),
 		filepath.Join("dbt", "macros"),
-		filepath.Join("dbt", "models"),
+		filepath.Join("dbt", "models", "exports"),
+		filepath.Join("dbt", "models", "staging"),
 		filepath.Join("dbt", "seeds"),
+		filepath.Join("dbt", "snapshots"),
 		filepath.Join("dbt", "tests"),
 		filepath.Join("logs"),
 		filepath.Join("target"),

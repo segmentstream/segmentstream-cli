@@ -109,3 +109,19 @@ warehouse:
 		t.Fatalf("Warehouse.Location = %q, want %q", config.Warehouse.Location, DefaultLocation)
 	}
 }
+
+func TestParseConfigIgnoresSourcesForDagster(t *testing.T) {
+	_, err := ParseConfig([]byte(`version: 1
+warehouse:
+  type: bigquery
+  auth: production-bigquery
+  project: example-project
+  dataset: segmentstream
+sources:
+  - name: ga4
+    path: ./sources/ga4
+`))
+	if err != nil {
+		t.Fatalf("ParseConfig should leave sources to Dagster, got error: %v", err)
+	}
+}

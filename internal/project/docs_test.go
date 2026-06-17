@@ -33,6 +33,8 @@ func TestEnsureProjectReadmeCreatesReadme(t *testing.T) {
 		"segmentstream run",
 		"Create A Source",
 		"segmentstream source init ga4",
+		"events",
+		"events_<source>",
 		"warehouse.auth",
 		"sources/",
 		".segmentstream/",

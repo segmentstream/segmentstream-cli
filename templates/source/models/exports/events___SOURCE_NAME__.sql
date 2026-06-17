@@ -8,7 +8,7 @@ select
   event_name,
   event_timestamp,
   event_date
-from {{ ref('stg___SOURCE_NAME____events') }}
+from {{ ref('stg_events___SOURCE_NAME__') }}
 where event_date is not null
 
 {% if is_incremental() %}

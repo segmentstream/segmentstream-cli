@@ -6,20 +6,29 @@ profile: segmentstream
 
 model-paths:
   - dbt/models
-analysis-paths:
-  - dbt/analyses
 test-paths:
   - dbt/tests
 seed-paths:
   - dbt/seeds
 macro-paths:
   - dbt/macros
+snapshot-paths:
+  - dbt/snapshots
 
 target-path: dbt/target
+packages-install-path: dbt/dbt_packages
 clean-targets:
   - dbt/target
   - dbt/dbt_packages
 
 models:
   segmentstream:
-    +materialized: view
+    staging:
+      +materialized: view
+    exports:
+      +materialized: incremental
+      +incremental_strategy: insert_overwrite
+      +partition_by:
+        field: event_date
+        data_type: date
+        granularity: day
