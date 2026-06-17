@@ -3,10 +3,11 @@
 -- the exported model contract stable.
 
 select
-  cast(event_id as string) as source_event_id,
+  cast(event_id as string) as event_id,
   cast(anonymous_id as string) as anonymous_id,
-  cast(user_id as string) as user_id,
   cast(event_name as string) as event_name,
+  cast(page_url as string) as page_url,
+  cast(page_referrer as string) as page_referrer,
   cast(event_timestamp as timestamp) as event_timestamp,
   date(cast(event_timestamp as timestamp)) as event_date
 from {{ source('__SOURCE_NAME___raw', 'events') }}

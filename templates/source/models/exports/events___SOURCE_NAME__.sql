@@ -6,10 +6,11 @@
 {% endif %}
 
 select
-  source_event_id,
+  event_id,
   anonymous_id,
-  user_id,
   event_name,
+  page_url,
+  page_referrer,
   event_timestamp,
   event_date
 from {{ ref('stg_events___SOURCE_NAME__') }}
