@@ -235,7 +235,7 @@ func TestSourceInitFailsWhenProjectIsMissing(t *testing.T) {
 	}
 }
 
-func TestAuthCommandIncludesBigQuery(t *testing.T) {
+func TestAuthCommandIncludesAdd(t *testing.T) {
 	var out bytes.Buffer
 	var errOut bytes.Buffer
 
@@ -245,12 +245,56 @@ func TestAuthCommandIncludesBigQuery(t *testing.T) {
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("auth help failed: %v", err)
 	}
-	if !strings.Contains(out.String(), "bigquery") {
-		t.Fatalf("auth help %q does not include bigquery", out.String())
+	if !strings.Contains(out.String(), "add") {
+		t.Fatalf("auth help %q does not include add", out.String())
 	}
 }
 
-func TestAuthBigQueryCommandRunsAuthenticator(t *testing.T) {
+func TestAuthAddBigQueryCommandRunsAuthenticator(t *testing.T) {
+	var out bytes.Buffer
+	var errOut bytes.Buffer
+	authenticator := &fakeBigQueryAuthenticator{path: "/tmp/google.json"}
+
+	cmd := newRootCommand(&out, &errOut, cliOptions{
+		NewBigQueryAuthenticator: func(io.Writer, io.Writer) bigQueryAuthenticator {
+			return authenticator
+		},
+	})
+	cmd.SetArgs([]string{"auth", "add", "bigquery"})
+
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("auth add bigquery failed: %v", err)
+	}
+	if !authenticator.called {
+		t.Fatal("authenticator was not called")
+	}
+}
+
+func TestAuthAddRejectsUnsupportedType(t *testing.T) {
+	var out bytes.Buffer
+	var errOut bytes.Buffer
+	authenticator := &fakeBigQueryAuthenticator{path: "/tmp/google.json"}
+
+	cmd := newRootCommand(&out, &errOut, cliOptions{
+		NewBigQueryAuthenticator: func(io.Writer, io.Writer) bigQueryAuthenticator {
+			return authenticator
+		},
+	})
+	cmd.SetArgs([]string{"auth", "add", "snowflake"})
+
+	err := cmd.Execute()
+	if err == nil {
+		t.Fatal("expected unsupported auth type error")
+	}
+	if !strings.Contains(err.Error(), `unsupported auth type "snowflake"`) {
+		t.Fatalf("error = %v, want unsupported auth type", err)
+	}
+	if authenticator.called {
+		t.Fatal("authenticator should not be called for unsupported type")
+	}
+}
+
+func TestAuthBigQueryCommandIsNotRegistered(t *testing.T) {
 	var out bytes.Buffer
 	var errOut bytes.Buffer
 	authenticator := &fakeBigQueryAuthenticator{path: "/tmp/google.json"}
@@ -262,11 +306,12 @@ func TestAuthBigQueryCommandRunsAuthenticator(t *testing.T) {
 	})
 	cmd.SetArgs([]string{"auth", "bigquery"})
 
-	if err := cmd.Execute(); err != nil {
-		t.Fatalf("auth bigquery failed: %v", err)
+	err := cmd.Execute()
+	if err == nil {
+		t.Fatal("expected auth bigquery to be unavailable")
 	}
-	if !authenticator.called {
-		t.Fatal("authenticator was not called")
+	if authenticator.called {
+		t.Fatal("authenticator should not be called for unavailable command")
 	}
 }
 

@@ -120,19 +120,28 @@ func newAuthCommand(out io.Writer, errOut io.Writer, options cliOptions) *cobra.
 	cmd := &cobra.Command{
 		Use:   "auth",
 		Short: "Authenticate data source credentials",
+		Args:  cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return cmd.Help()
+		},
 	}
 
-	cmd.AddCommand(newAuthBigQueryCommand(out, errOut, options))
+	cmd.AddCommand(newAuthAddCommand(out, errOut, options))
 
 	return cmd
 }
 
-func newAuthBigQueryCommand(out io.Writer, errOut io.Writer, options cliOptions) *cobra.Command {
+func newAuthAddCommand(out io.Writer, errOut io.Writer, options cliOptions) *cobra.Command {
 	return &cobra.Command{
-		Use:   "bigquery",
-		Short: "Authenticate BigQuery credentials",
-		Args:  cobra.NoArgs,
+		Use:       "add <type>",
+		Short:     "Add data source credentials",
+		Args:      cobra.ExactArgs(1),
+		ValidArgs: []string{"bigquery"},
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if args[0] != "bigquery" {
+				return fmt.Errorf("unsupported auth type %q; only bigquery is supported", args[0])
+			}
+
 			factory := options.NewBigQueryAuthenticator
 			if factory == nil {
 				factory = func(out, errOut io.Writer) bigQueryAuthenticator {
