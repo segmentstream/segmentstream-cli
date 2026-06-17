@@ -41,32 +41,38 @@ func runAnalytics(ctx context.Context, projectRoot string, out io.Writer, runner
 	if err != nil {
 		return err
 	}
-	fmt.Fprintln(out, "Checking Docker...")
+
+	progress := newRunProgress(out, 4)
+
+	progress.Start("Checking local environment")
 	if err := preflightDocker(ctx, runner); err != nil {
 		return err
 	}
-	fmt.Fprintf(out, "Preparing %s runtime...\n", projectruntime.RuntimeDirName)
+	progress.OK("")
+
+	progress.Start("Preparing project files")
 	if err := projectruntime.Prepare(projectRoot, config); err != nil {
 		return err
 	}
+	progress.OK("")
 
 	runtimeDir := filepath.Join(projectRoot, projectruntime.RuntimeDirName)
-	fmt.Fprintln(out, "Starting SegmentStream runtime...")
-	fmt.Fprintln(out, "First start can take a few minutes while Docker downloads and builds the local environment.")
+	progress.Start("Starting SegmentStream")
+	progress.Detail("First start can take a few minutes while SegmentStream sets up the local environment.")
 
-	output, err := runWithProgress(ctx, out, runner, commandInvocation{
+	output, err := runWithProgress(ctx, progress, runner, commandInvocation{
 		Name: "docker",
 		Args: []string{"compose", "up", "-d", "--build", "--force-recreate"},
 		Dir:  runtimeDir,
-	})
+	}, "Still starting SegmentStream")
 	if err != nil {
-		return commandError("Docker Compose failed to start the SegmentStream runtime.", output, err)
+		return commandError("SegmentStream failed to start.", output, err)
 	}
+	progress.OK(fmt.Sprintf("ready at %s", runtimeURL))
 
-	fmt.Fprintf(out, "Started SegmentStream runtime at %s\n", runtimeURL)
-	fmt.Fprintln(out, "Running SegmentStream materialization through Dagster...")
+	progress.Start("Running analytics models")
 
-	output, err = runner.Run(ctx, commandInvocation{
+	output, err = runWithProgress(ctx, progress, runner, commandInvocation{
 		Name: "docker",
 		Args: []string{
 			"compose", "exec", "-T", "segmentstream",
@@ -75,16 +81,49 @@ func runAnalytics(ctx context.Context, projectRoot string, out io.Writer, runner
 			"-j", "segmentstream_materialize_all",
 		},
 		Dir: runtimeDir,
-	})
+	}, "Still running analytics models")
 	if err != nil {
-		return commandError("SegmentStream materialization failed.", output, err)
+		return commandError("SegmentStream pipeline failed.", output, err)
 	}
+	progress.OK("")
 
-	fmt.Fprintln(out, "Finished SegmentStream materialization")
+	fmt.Fprintln(out)
+	fmt.Fprintln(out, "Finished SegmentStream pipeline")
 	return nil
 }
 
-func runWithProgress(ctx context.Context, out io.Writer, runner commandRunner, invocation commandInvocation) (string, error) {
+type runProgress struct {
+	out     io.Writer
+	total   int
+	current int
+}
+
+func newRunProgress(out io.Writer, total int) *runProgress {
+	return &runProgress{out: out, total: total}
+}
+
+func (p *runProgress) Start(message string) {
+	p.current++
+	fmt.Fprintf(p.out, "[%d/%d] %s\n", p.current, p.total, message)
+}
+
+func (p *runProgress) Detail(message string) {
+	fmt.Fprintf(p.out, "      %s\n", message)
+}
+
+func (p *runProgress) OK(message string) {
+	if message == "" {
+		fmt.Fprintln(p.out, "      OK")
+		return
+	}
+	fmt.Fprintf(p.out, "      OK - %s\n", message)
+}
+
+func (p *runProgress) StillWorking(message string, elapsed time.Duration) {
+	fmt.Fprintf(p.out, "      %s... %s elapsed\n", message, formatElapsed(elapsed))
+}
+
+func runWithProgress(ctx context.Context, progress *runProgress, runner commandRunner, invocation commandInvocation, progressMessage string) (string, error) {
 	type commandResult struct {
 		output string
 		err    error
@@ -105,7 +144,7 @@ func runWithProgress(ctx context.Context, out io.Writer, runner commandRunner, i
 		case result := <-done:
 			return result.output, result.err
 		case <-ticker.C:
-			fmt.Fprintf(out, "Still starting SegmentStream runtime... %s elapsed\n", formatElapsed(time.Since(startedAt)))
+			progress.StillWorking(progressMessage, time.Since(startedAt))
 		case <-ctx.Done():
 			return "", ctx.Err()
 		}
@@ -151,7 +190,7 @@ func preflightDocker(ctx context.Context, runner commandRunner) error {
 func commandError(message, output string, err error) error {
 	output = strings.TrimSpace(output)
 	if output != "" {
-		return fmt.Errorf("%s\n\nDocker output:\n%s", message, output)
+		return fmt.Errorf("%s\n\nDetails:\n%s", message, output)
 	}
 	if err != nil {
 		return fmt.Errorf("%s: %w", message, err)

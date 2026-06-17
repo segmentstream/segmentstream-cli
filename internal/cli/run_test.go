@@ -199,13 +199,14 @@ func TestRunPreparesRuntimeStartsDockerComposeAndRunsMaterialization(t *testing.
 
 	got := out.String()
 	for _, want := range []string{
-		"Checking Docker...",
-		"Preparing .segmentstream runtime...",
-		"Starting SegmentStream runtime...",
+		"[1/4] Checking local environment",
+		"      OK",
+		"[2/4] Preparing project files",
+		"[3/4] Starting SegmentStream",
 		"First start can take a few minutes",
-		"Started SegmentStream runtime at http://localhost:3000",
-		"Running SegmentStream materialization through Dagster...",
-		"Finished SegmentStream materialization",
+		"      OK - ready at http://localhost:3000",
+		"[4/4] Running analytics models",
+		"Finished SegmentStream pipeline",
 	} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("run output = %q, want %q", got, want)
@@ -214,6 +215,9 @@ func TestRunPreparesRuntimeStartsDockerComposeAndRunsMaterialization(t *testing.
 	for _, notWant := range []string{
 		"compose started noisily",
 		"dagster materialization output",
+		"Docker",
+		"Docker Compose",
+		"Dagster",
 	} {
 		if strings.Contains(got, notWant) {
 			t.Fatalf("run output = %q, want command output suppressed", got)
@@ -250,8 +254,42 @@ func TestRunShowsProgressWhileDockerComposeRuns(t *testing.T) {
 	}
 
 	got := out.String()
-	if !strings.Contains(got, "Still starting SegmentStream runtime...") {
+	if !strings.Contains(got, "Still starting SegmentStream...") {
 		t.Fatalf("run output = %q, want progress message", got)
+	}
+}
+
+func TestRunShowsProgressWhilePipelineRuns(t *testing.T) {
+	root := t.TempDir()
+	withWorkingDirectory(t, root)
+	writeValidConfig(t, root)
+
+	oldInterval := composeProgressInterval
+	composeProgressInterval = time.Millisecond
+	t.Cleanup(func() {
+		composeProgressInterval = oldInterval
+	})
+
+	runner := &stubCommandRunner{
+		results: []stubCommandResult{
+			{},
+			{},
+			{},
+			{delay: 25 * time.Millisecond},
+		},
+	}
+	var out bytes.Buffer
+	var errOut bytes.Buffer
+	cmd := newRootCommand(&out, &errOut, runner)
+	cmd.SetArgs([]string{"run"})
+
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("run command failed: %v", err)
+	}
+
+	got := out.String()
+	if !strings.Contains(got, "Still running analytics models...") {
+		t.Fatalf("run output = %q, want pipeline progress message", got)
 	}
 }
 
@@ -277,7 +315,7 @@ func TestRunIncludesComposeOutputOnFailure(t *testing.T) {
 		t.Fatal("expected run to fail")
 	}
 	for _, want := range []string{
-		"Docker Compose failed to start the SegmentStream runtime",
+		"SegmentStream failed to start",
 		"failed to solve image",
 	} {
 		if !strings.Contains(err.Error(), want) {
@@ -309,7 +347,7 @@ func TestRunIncludesMaterializationOutputOnFailure(t *testing.T) {
 		t.Fatal("expected run to fail")
 	}
 	for _, want := range []string{
-		"SegmentStream materialization failed",
+		"SegmentStream pipeline failed",
 		"dagster job failed",
 	} {
 		if !strings.Contains(err.Error(), want) {

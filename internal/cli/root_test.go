@@ -69,8 +69,8 @@ func TestInitCreatesProjectConfigGitignoreAndRuntime(t *testing.T) {
 	if !strings.Contains(out.String(), "Created AGENTS.md") {
 		t.Fatalf("init output = %q, want agent guide creation message", out.String())
 	}
-	if !strings.Contains(out.String(), "Prepared .segmentstream runtime") {
-		t.Fatalf("init output = %q, want runtime preparation message", out.String())
+	if !strings.Contains(out.String(), "Prepared SegmentStream project") {
+		t.Fatalf("init output = %q, want project preparation message", out.String())
 	}
 }
 

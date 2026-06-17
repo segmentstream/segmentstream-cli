@@ -89,7 +89,7 @@ func prepareProject(projectRoot string, out io.Writer) error {
 	if err := projectruntime.Prepare(projectRoot, config); err != nil {
 		return err
 	}
-	fmt.Fprintf(out, "Prepared %s runtime\n", projectruntime.RuntimeDirName)
+	fmt.Fprintln(out, "Prepared SegmentStream project")
 	return nil
 }
 

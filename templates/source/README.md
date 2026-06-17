@@ -19,7 +19,11 @@ tests/
 ```
 
 This directory is user-owned project code. It is safe to commit. Generated
-runtime files still live under the project root `.segmentstream/` directory.
+SegmentStream environment files still live under the project root
+`.segmentstream/` directory.
+
+Models under `models/staging/` are ephemeral by default. dbt inlines them into
+exported models instead of creating separate warehouse tables or views.
 
 ## Exported Models
 
@@ -45,7 +49,7 @@ config:
 ```
 
 The SegmentStream CLI will use dbt metadata in a later slice to compose local
-and remote sources into the generated runtime.
+and remote sources into the generated environment.
 
 ## Raw Source
 

@@ -53,12 +53,14 @@ segmentstream run
 ` + "```" + `
 
 ` + "`segmentstream run`" + ` runs the SegmentStream pipeline and produces tables in
-the configured warehouse. Each run regenerates the local runtime,
-rebuilds/restarts the local Docker environment if needed, and asks Dagster to
-run materialization. Dagster materializes all declared assets.
+the configured warehouse. Each run refreshes the local project environment and
+runs the analytics models.
 
-The first run can take a few minutes while Docker downloads and builds the
-local environment. Later runs should be faster.
+Pipeline state persists across ` + "`segmentstream run`" + ` even though
+` + "`.segmentstream/`" + ` is regenerated.
+
+The first run can take a few minutes while SegmentStream sets up the local
+environment. Later runs should be faster.
 
 ## Create A Source
 
@@ -81,9 +83,9 @@ sources:
     path: ./sources/ga4
 ` + "```" + `
 
-On run, the Dagster runtime reads ` + "`segmentstream.yml`" + `, installs declared
+On run, SegmentStream reads ` + "`segmentstream.yml`" + `, installs declared
 sources as dbt packages, and generates a core ` + "`events`" + ` model that unions each declared
-` + "`events_<source>`" + ` export. dbt models are declared as Dagster assets.
+` + "`events_<source>`" + ` export.
 
 ## Commands
 
@@ -105,7 +107,7 @@ README.md               project documentation
 AGENTS.md               instructions for LLM/code agents
 .gitignore              should include .segmentstream/
 sources/                project-owned source packages
-.segmentstream/         generated dbt/Dagster/Docker runtime, disposable
+.segmentstream/         generated SegmentStream environment files, disposable
 ` + "```" + `
 
 Future project-owned folders such as ` + "`sources/`" + `, ` + "`destinations/`" + `, and
@@ -129,7 +131,7 @@ Before editing SegmentStream project files, read ` + "`README.md`" + ` in this d
 - Do not edit files inside ` + "`.segmentstream/`" + `; it is generated and disposable.
 - Use ` + "`segmentstream init`" + ` to initialize the project.
 - Use ` + "`segmentstream run`" + ` to run the pipeline and produce tables in the configured warehouse.
-- Use ` + "`segmentstream source init <name>`" + ` to create local source packages outside the generated runtime.
+- Use ` + "`segmentstream source init <name>`" + ` to create local source packages outside the generated environment.
 - Do not put secrets, credentials, private keys, tokens, or SQL in ` + "`segmentstream.yml`" + `.
 - For BigQuery warehouse configuration, use the guidance in ` + "`README.md`" + `.
 `

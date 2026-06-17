@@ -48,6 +48,7 @@ func TestInitCreatesSourceTemplate(t *testing.T) {
 	for _, want := range []string{
 		"name: segmentstream_source_ga4",
 		"snapshot-paths:",
+		"+materialized: ephemeral",
 		"+materialized: incremental",
 		"+incremental_strategy: insert_overwrite",
 		"field: event_date",

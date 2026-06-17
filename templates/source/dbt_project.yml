@@ -21,7 +21,7 @@ clean-targets:
 models:
   __PACKAGE_NAME__:
     staging:
-      +materialized: view
+      +materialized: ephemeral
     exports:
       +materialized: incremental
       +incremental_strategy: insert_overwrite
