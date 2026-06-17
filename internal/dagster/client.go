@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net"
 	"net/http"
 	"sort"
 	"strings"
@@ -15,9 +16,11 @@ import (
 const graphQLPath = "/graphql"
 
 var (
-	readyTimeout      = 2 * time.Minute
-	readyPollInterval = time.Second
-	backfillInterval  = 5 * time.Second
+	readyTimeout             = 2 * time.Minute
+	graphQLRetryTimeout      = 2 * time.Minute
+	graphQLRetryInitialDelay = 500 * time.Millisecond
+	graphQLRetryMaxDelay     = 5 * time.Second
+	backfillInterval         = 5 * time.Second
 )
 
 type Client interface {
@@ -51,36 +54,26 @@ func NewClient(baseURL string) Client {
 }
 
 func (c *graphQLClient) WaitUntilReady(ctx context.Context) error {
-	deadline := time.NewTimer(readyTimeout)
-	defer deadline.Stop()
-
-	ticker := time.NewTicker(readyPollInterval)
-	defer ticker.Stop()
-
-	var lastErr error
-	for {
-		if _, err := SegmentStreamReady(ctx, c.client); err == nil {
-			return nil
-		} else {
-			lastErr = err
-		}
-
-		select {
-		case <-ctx.Done():
+	err := retryWithExponentialBackoff(ctx, readyTimeout, retryAnyError, func(ctx context.Context) error {
+		_, err := SegmentStreamReady(ctx, c.client)
+		return err
+	})
+	if err != nil {
+		if ctx.Err() != nil {
 			return ctx.Err()
-		case <-deadline.C:
-			if lastErr != nil {
-				return fmt.Errorf("SegmentStream did not become ready: %w", lastErr)
-			}
-			return errors.New("SegmentStream did not become ready")
-		case <-ticker.C:
 		}
+		return fmt.Errorf("SegmentStream did not become ready: %w", err)
 	}
+	return nil
 }
 
 func (c *graphQLClient) MaterializableAssets(ctx context.Context) ([]AssetNode, error) {
-	response, err := SegmentStreamAssets(ctx, c.client)
-	if err != nil {
+	var response *SegmentStreamAssetsResponse
+	if err := retryTransientGraphQLOperation(ctx, func(ctx context.Context) error {
+		var err error
+		response, err = SegmentStreamAssets(ctx, c.client)
+		return err
+	}); err != nil {
 		return nil, err
 	}
 
@@ -103,15 +96,19 @@ func (c *graphQLClient) MaterializableAssets(ctx context.Context) ([]AssetNode, 
 func (c *graphQLClient) LaunchBackfill(ctx context.Context, assets []AssetNode, runRange DateRange) (string, error) {
 	title := fmt.Sprintf("SegmentStream run %s through %s", runRange.StartDate, runRange.EndInclusiveDate)
 	description := "Launched by segmentstream run."
-	response, err := SegmentStreamLaunchBackfill(ctx, c.client, LaunchBackfillParams{
-		PartitionsByAssets: partitionsByAssetsInput(assets, runRange),
-		Tags: []ExecutionTag{
-			{Key: "segmentstream/source", Value: "cli"},
-		},
-		Title:       &title,
-		Description: &description,
-	})
-	if err != nil {
+	var response *SegmentStreamLaunchBackfillResponse
+	if err := retryUnavailableGraphQLOperation(ctx, func(ctx context.Context) error {
+		var err error
+		response, err = SegmentStreamLaunchBackfill(ctx, c.client, LaunchBackfillParams{
+			PartitionsByAssets: partitionsByAssetsInput(assets, runRange),
+			Tags: []ExecutionTag{
+				{Key: "segmentstream/source", Value: "cli"},
+			},
+			Title:       &title,
+			Description: &description,
+		})
+		return err
+	}); err != nil {
 		return "", err
 	}
 
@@ -182,8 +179,12 @@ func (c *graphQLClient) WaitForBackfill(ctx context.Context, backfillID string) 
 }
 
 func (c *graphQLClient) backfillStatus(ctx context.Context, backfillID string) (string, string, error) {
-	response, err := SegmentStreamBackfillStatus(ctx, c.client, backfillID)
-	if err != nil {
+	var response *SegmentStreamBackfillStatusResponse
+	if err := retryTransientGraphQLOperation(ctx, func(ctx context.Context) error {
+		var err error
+		response, err = SegmentStreamBackfillStatus(ctx, c.client, backfillID)
+		return err
+	}); err != nil {
 		return "", "", err
 	}
 
@@ -217,4 +218,143 @@ func graphQLResultError(result any, operation string) error {
 		return fmt.Errorf("%s returned %s", operation, *withType.GetTypename())
 	}
 	return fmt.Errorf("%s returned %T", operation, result)
+}
+
+func retryTransientGraphQLOperation(ctx context.Context, operation func(context.Context) error) error {
+	return retryWithExponentialBackoff(ctx, graphQLRetryTimeout, isTransientGraphQLError, operation)
+}
+
+func retryUnavailableGraphQLOperation(ctx context.Context, operation func(context.Context) error) error {
+	return retryWithExponentialBackoff(ctx, graphQLRetryTimeout, isUnavailableGraphQLError, operation)
+}
+
+func retryAnyError(error) bool {
+	return true
+}
+
+func retryWithExponentialBackoff(ctx context.Context, timeout time.Duration, shouldRetry func(error) bool, operation func(context.Context) error) error {
+	retryCtx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+
+	delay := graphQLRetryInitialDelay
+	if delay <= 0 {
+		delay = time.Millisecond
+	}
+	if graphQLRetryMaxDelay > 0 && delay > graphQLRetryMaxDelay {
+		delay = graphQLRetryMaxDelay
+	}
+
+	var lastErr error
+	for {
+		err := operation(retryCtx)
+		if err == nil {
+			return nil
+		}
+		lastErr = err
+
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
+		if retryCtx.Err() != nil {
+			return graphQLRetryTimeoutError(timeout, lastErr)
+		}
+		if !shouldRetry(err) {
+			return err
+		}
+
+		timer := time.NewTimer(delay)
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			return ctx.Err()
+		case <-retryCtx.Done():
+			timer.Stop()
+			return graphQLRetryTimeoutError(timeout, lastErr)
+		case <-timer.C:
+		}
+
+		delay = nextRetryDelay(delay)
+	}
+}
+
+func nextRetryDelay(delay time.Duration) time.Duration {
+	if delay <= 0 {
+		return time.Millisecond
+	}
+	next := delay * 2
+	if next < delay {
+		if graphQLRetryMaxDelay > 0 {
+			return graphQLRetryMaxDelay
+		}
+		return delay
+	}
+	if graphQLRetryMaxDelay > 0 && next > graphQLRetryMaxDelay {
+		return graphQLRetryMaxDelay
+	}
+	return next
+}
+
+func graphQLRetryTimeoutError(timeout time.Duration, lastErr error) error {
+	if lastErr != nil {
+		return fmt.Errorf("GraphQL request did not succeed within %s: %w", timeout, lastErr)
+	}
+	return fmt.Errorf("GraphQL request did not succeed within %s", timeout)
+}
+
+func isTransientGraphQLError(err error) bool {
+	if err == nil {
+		return false
+	}
+	if errors.Is(err, context.Canceled) {
+		return false
+	}
+
+	var netErr net.Error
+	if errors.As(err, &netErr) && netErr.Timeout() {
+		return true
+	}
+	if isUnavailableGraphQLError(err) {
+		return true
+	}
+
+	message := strings.ToLower(err.Error())
+	for _, marker := range []string{
+		"connection reset by peer",
+		"connection aborted",
+	} {
+		if strings.Contains(message, marker) {
+			return true
+		}
+	}
+	return false
+}
+
+func isUnavailableGraphQLError(err error) bool {
+	if err == nil {
+		return false
+	}
+	if errors.Is(err, context.Canceled) {
+		return false
+	}
+
+	message := strings.ToLower(err.Error())
+	for _, marker := range []string{
+		"connection refused",
+		"actively refused",
+		"connectex",
+		"no such host",
+		"temporary failure",
+		"server closed idle connection",
+		"returned error 502",
+		"returned error 503",
+		"returned error 504",
+		"bad gateway",
+		"service unavailable",
+		"gateway timeout",
+	} {
+		if strings.Contains(message, marker) {
+			return true
+		}
+	}
+	return false
 }
