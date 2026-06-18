@@ -89,6 +89,15 @@ func TestPrepareCreatesExpectedRuntimeFiles(t *testing.T) {
 	}
 	for _, want := range []string{
 		"dbt_assets",
+		`select="package:segmentstream"`,
+		"SegmentStreamDbtTranslator",
+		"DagsterDbtTranslator",
+		"AssetKey",
+		"SourceAsset",
+		"build_dbt_source_assets",
+		"source_asset_key",
+		"removesuffix(\"_raw\")",
+		"json.loads",
 		"DbtCliResource",
 		"DailyPartitionsDefinition",
 		`start_date="1970-01-01"`,
@@ -98,6 +107,7 @@ func TestPrepareCreatesExpectedRuntimeFiles(t *testing.T) {
 		"AssetSelection.all()",
 		"segmentstream_materialize_all",
 		"build_ingestion_assets",
+		"*build_dbt_source_assets(manifest_path)",
 	} {
 		if !strings.Contains(string(definitions), want) {
 			t.Fatalf("Dagster definitions do not contain %q:\n%s", want, string(definitions))

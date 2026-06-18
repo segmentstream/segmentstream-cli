@@ -1,5 +1,15 @@
 version: 2
 
+sources:
+  - name: __SOURCE_NAME___raw
+    description: Raw tables for the __SOURCE_NAME__ source.
+    database: "{{ var('__SOURCE_NAME___raw_project', env_var('SEGMENTSTREAM_BQ_PROJECT')) }}"
+    schema: "{{ var('__SOURCE_NAME___raw_dataset', env_var('SEGMENTSTREAM_BQ_DATASET')) }}"
+    tables:
+      - name: events
+        identifier: "{{ var('__SOURCE_NAME___raw_events_table', '__SOURCE_NAME___events') }}"
+        description: Raw event records for the __SOURCE_NAME__ source.
+
 models:
   - name: events
     description: Canonical event stream emitted by the __SOURCE_NAME__ source.
@@ -15,8 +25,6 @@ models:
     columns:
       - name: event_id
         description: Stable event identifier from the upstream source.
-        data_tests:
-          - not_null
       - name: anonymous_id
         description: Anonymous user or device identifier.
       - name: event_name
@@ -29,5 +37,3 @@ models:
         description: Event timestamp in UTC.
       - name: event_date
         description: Date partition for this event row.
-        data_tests:
-          - not_null

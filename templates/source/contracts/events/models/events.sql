@@ -1,3 +1,5 @@
+{{ config(materialized='ephemeral', alias='__SOURCE_NAME___events') }}
+
 {% set segmentstream_start_date = var('segmentstream_start_date', none) %}
 {% set segmentstream_end_date = var('segmentstream_end_date', none) %}
 

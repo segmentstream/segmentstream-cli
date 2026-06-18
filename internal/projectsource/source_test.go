@@ -130,10 +130,7 @@ func TestInitCreatesSourcePackageFromDefaultContract(t *testing.T) {
 	}
 	for _, want := range []string{
 		"name: segmentstream_source_ga4",
-		"+materialized: incremental",
-		"+incremental_strategy: insert_overwrite",
-		"field: event_date",
-		"data_type: date",
+		"+materialized: ephemeral",
 		"clean-targets:",
 	} {
 		if !strings.Contains(string(project), want) {
@@ -146,6 +143,9 @@ func TestInitCreatesSourcePackageFromDefaultContract(t *testing.T) {
 	for _, notWant := range []string{
 		"staging:",
 		"exports:",
+		"+materialized: incremental",
+		"+incremental_strategy: insert_overwrite",
+		"+partition_by:",
 		"test-paths:",
 		"seed-paths:",
 		"macro-paths:",
@@ -175,6 +175,9 @@ func TestInitCreatesSourcePackageFromDefaultContract(t *testing.T) {
 	}
 	for _, want := range []string{
 		"name: events",
+		"sources:",
+		"name: ga4_raw",
+		"identifier: \"{{ var('ga4_raw_events_table', 'ga4_events') }}\"",
 		"segmentstream:",
 		"source_name: ga4",
 		"contract:",
@@ -184,7 +187,6 @@ func TestInitCreatesSourcePackageFromDefaultContract(t *testing.T) {
 		"name: page_url",
 		"name: page_referrer",
 		"name: event_date",
-		"not_null",
 	} {
 		if !strings.Contains(string(schema), want) {
 			t.Fatalf("schema.yml does not contain %q:\n%s", want, string(schema))
@@ -195,6 +197,8 @@ func TestInitCreatesSourcePackageFromDefaultContract(t *testing.T) {
 		"name: events_ga4",
 		"name: source_event_id",
 		"name: user_id",
+		"data_tests:",
+		"not_null",
 	} {
 		if strings.Contains(string(schema), notWant) {
 			t.Fatalf("schema.yml should not contain %q:\n%s", notWant, string(schema))
@@ -211,6 +215,7 @@ func TestInitCreatesSourcePackageFromDefaultContract(t *testing.T) {
 	for _, want := range []string{
 		"segmentstream_start_date",
 		"segmentstream_end_date",
+		"{{ config(materialized='ephemeral', alias='ga4_events') }}",
 		"event_id",
 		"page_url",
 		"page_referrer",
