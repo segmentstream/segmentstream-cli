@@ -23,10 +23,18 @@ locally and produce tables in your configured warehouse.
 Before starting, make sure these are installed and available from your terminal:
 
 - Docker Desktop or Docker Engine with Docker Compose V2.
-- Google Cloud CLI (` + "`gcloud`" + `) for BigQuery authentication.
 - Git.
 
-Start by configuring the warehouse in ` + "`segmentstream.yml`" + `.
+Start by selecting and configuring the warehouse:
+
+` + "```sh" + `
+segmentstream init --warehouse bigquery
+segmentstream warehouse auth --service-account-key /path/to/service-account.json
+segmentstream warehouse configure --project example-project --dataset segmentstream --location US
+segmentstream warehouse test
+` + "```" + `
+
+The resulting ` + "`segmentstream.yml`" + ` should look like:
 
 ` + "```yaml" + `
 version: 1
@@ -34,17 +42,16 @@ version: 1
 warehouse:
   type: bigquery
   auth: default-bigquery
-  project: your-gcp-project
+  project: example-project
   dataset: segmentstream
   location: US
 ` + "```" + `
 
-Replace ` + "`your-gcp-project`" + ` with your Google Cloud project ID. Choose the
-BigQuery dataset where SegmentStream should produce tables. ` + "`location`" + ` is
-optional and defaults to ` + "`US`" + `.
+Choose the BigQuery dataset where SegmentStream should produce tables.
 
 ` + "`warehouse.auth`" + ` is a named credential reference. It is not a secret value.
 Do not put tokens, private keys, passwords, or SQL in ` + "`segmentstream.yml`" + `.
+Credentials are copied to ` + "`~/.segmentstream/bigquery/<auth>.json`" + `.
 
 ## Run The Pipeline
 
@@ -95,9 +102,24 @@ sources as dbt packages, and generates a core ` + "`events`" + ` model that unio
 
 ## Commands
 
-` + "`segmentstream init`" + ` initializes the project in the current directory. It is
-safe to run again: existing ` + "`segmentstream.yml`" + `, ` + "`README.md`" + `, and
-` + "`AGENTS.md`" + ` are not overwritten.
+` + "`segmentstream init`" + ` reports setup state and the next action. Use
+` + "`segmentstream init --json`" + ` for stable agent-readable output.
+
+` + "`segmentstream init --warehouse bigquery`" + ` initializes warehouse selection in
+the current directory. It is safe to run again: existing ` + "`segmentstream.yml`" + `,
+` + "`README.md`" + `, and ` + "`AGENTS.md`" + ` are not overwritten.
+
+` + "`segmentstream warehouse auth --service-account-key <path>`" + ` stores a named
+BigQuery credential outside the project.
+
+` + "`segmentstream warehouse browse --json`" + ` lists accessible BigQuery projects.
+Use ` + "`segmentstream warehouse browse --path <project> --json`" + ` to list datasets.
+
+` + "`segmentstream warehouse configure --project --dataset --location`" + ` validates
+and writes warehouse settings.
+
+` + "`segmentstream warehouse test`" + ` checks BigQuery connect, read, create table,
+and query permissions.
 
 ` + "`segmentstream run`" + ` runs the configured analytics pipeline and writes results
 to the configured warehouse. It runs the last 30 UTC daily partitions by default;

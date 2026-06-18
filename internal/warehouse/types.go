@@ -1,0 +1,131 @@
+package warehouse
+
+import (
+	"context"
+	"fmt"
+
+	"github.com/segmentstream/segmentstream-cli/internal/cliresult"
+	"github.com/segmentstream/segmentstream-cli/internal/project"
+)
+
+type Connector interface {
+	Type() string
+	Browse(ctx context.Context, credentialPath string, path string) (BrowseResult, error)
+	ValidateConfiguration(ctx context.Context, credentialPath string, config project.Warehouse) (ConfigureResult, error)
+	Test(ctx context.Context, credentialPath string, config project.Warehouse) (TestResult, error)
+}
+
+type Registry struct {
+	connectors map[string]Connector
+}
+
+func NewRegistry(connectors ...Connector) Registry {
+	registry := Registry{connectors: make(map[string]Connector, len(connectors))}
+	for _, connector := range connectors {
+		registry.connectors[connector.Type()] = connector
+	}
+	return registry
+}
+
+func (registry Registry) IsZero() bool {
+	return registry.connectors == nil
+}
+
+func (registry Registry) Connector(warehouseType string) (Connector, error) {
+	connector, ok := registry.connectors[warehouseType]
+	if !ok {
+		return nil, fmt.Errorf("unsupported warehouse.type %q", warehouseType)
+	}
+	return connector, nil
+}
+
+type BrowseResult struct {
+	SchemaVersion string        `json:"schema_version"`
+	Warehouse     string        `json:"warehouse"`
+	Level         string        `json:"level"`
+	Path          string        `json:"path,omitempty"`
+	Children      []BrowseChild `json:"children"`
+}
+
+type BrowseChild struct {
+	ID           string `json:"id"`
+	FriendlyName string `json:"friendly_name,omitempty"`
+	Location     string `json:"location,omitempty"`
+}
+
+type ConfigureResult struct {
+	SchemaVersion string                 `json:"schema_version"`
+	Warehouse     string                 `json:"warehouse"`
+	Status        string                 `json:"warehouse_config"`
+	Validations   []Validation           `json:"validations"`
+	Diagnostics   []cliresult.Diagnostic `json:"diagnostics,omitempty"`
+}
+
+type Validation struct {
+	ID      string `json:"id"`
+	Field   string `json:"field,omitempty"`
+	Status  string `json:"status"`
+	Message string `json:"message,omitempty"`
+}
+
+type TestResult struct {
+	SchemaVersion string        `json:"schema_version"`
+	Warehouse     string        `json:"warehouse"`
+	Status        string        `json:"warehouse_access"`
+	Checks        []AccessCheck `json:"checks"`
+}
+
+type AccessCheck struct {
+	ID      string `json:"id"`
+	OK      bool   `json:"ok"`
+	Message string `json:"message,omitempty"`
+}
+
+func NewBrowseResult(warehouseType, level, path string, children []BrowseChild) BrowseResult {
+	return BrowseResult{
+		SchemaVersion: cliresult.SchemaVersion,
+		Warehouse:     warehouseType,
+		Level:         level,
+		Path:          path,
+		Children:      children,
+	}
+}
+
+func NewConfigureResult(warehouseType string, validations []Validation, diagnostics []cliresult.Diagnostic) ConfigureResult {
+	status := "valid"
+	if len(diagnostics) > 0 {
+		status = "invalid"
+	}
+	return ConfigureResult{
+		SchemaVersion: cliresult.SchemaVersion,
+		Warehouse:     warehouseType,
+		Status:        status,
+		Validations:   validations,
+		Diagnostics:   diagnostics,
+	}
+}
+
+func NewTestResult(warehouseType string, checks []AccessCheck) TestResult {
+	status := "satisfied"
+	for _, check := range checks {
+		if !check.OK {
+			status = "failed"
+			break
+		}
+	}
+	return TestResult{
+		SchemaVersion: cliresult.SchemaVersion,
+		Warehouse:     warehouseType,
+		Status:        status,
+		Checks:        checks,
+	}
+}
+
+func AllChecksOK(checks []AccessCheck) bool {
+	for _, check := range checks {
+		if !check.OK {
+			return false
+		}
+	}
+	return len(checks) > 0
+}

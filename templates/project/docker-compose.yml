@@ -33,7 +33,7 @@ services:
       DAGSTER_PG_HOST: postgres
       DAGSTER_PG_DB: segmentstream
       DBT_PROFILES_DIR: /workspace/.segmentstream
-      GOOGLE_APPLICATION_CREDENTIALS: /home/segmentstream/.segmentstream/gcloud/application_default_credentials.json
+      GOOGLE_APPLICATION_CREDENTIALS: "${SEGMENTSTREAM_BQ_CREDENTIALS}"
       SEGMENTSTREAM_BQ_PROJECT: "${SEGMENTSTREAM_BQ_PROJECT}"
       SEGMENTSTREAM_BQ_DATASET: "${SEGMENTSTREAM_BQ_DATASET}"
       SEGMENTSTREAM_BQ_LOCATION: "${SEGMENTSTREAM_BQ_LOCATION}"

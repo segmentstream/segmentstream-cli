@@ -12,7 +12,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/segmentstream/segmentstream-cli/internal/auth"
+	"github.com/segmentstream/segmentstream-cli/internal/credentials"
 	"github.com/segmentstream/segmentstream-cli/internal/dagster"
 	"github.com/segmentstream/segmentstream-cli/internal/project"
 	"github.com/segmentstream/segmentstream-cli/internal/projectruntime"
@@ -25,7 +25,7 @@ const defaultRunDays = 30
 var composeProgressInterval = 15 * time.Second
 var currentTime = func() time.Time { return time.Now().UTC() }
 var newDagsterClient = dagster.NewClient
-var newRunAuthStore = func() auth.Store { return auth.Store{} }
+var newRunCredentialStore = func() credentials.Store { return credentials.Store{} }
 
 type runOptions struct {
 	StartDate string
@@ -148,7 +148,7 @@ func preflightWarehouseAuth(config project.Config) error {
 		return nil
 	}
 
-	credentialsPath, err := newRunAuthStore().GCloudADCPath()
+	credentialsPath, err := newRunCredentialStore().BigQueryCredentialPath(config.Warehouse.Auth)
 	if err != nil {
 		return fmt.Errorf("check BigQuery authentication: %w", err)
 	}
@@ -156,12 +156,12 @@ func preflightWarehouseAuth(config project.Config) error {
 	info, err := os.Stat(credentialsPath)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
-			return fmt.Errorf("BigQuery authentication for warehouse.auth %q was not found at %s; run segmentstream auth add bigquery", config.Warehouse.Auth, credentialsPath)
+			return fmt.Errorf("BigQuery authentication for warehouse.auth %q was not found at %s; run segmentstream warehouse auth --service-account-key <path>", config.Warehouse.Auth, credentialsPath)
 		}
 		return fmt.Errorf("check BigQuery authentication at %s: %w", credentialsPath, err)
 	}
 	if info.IsDir() {
-		return fmt.Errorf("BigQuery authentication path %s is a directory; run segmentstream auth add bigquery", credentialsPath)
+		return fmt.Errorf("BigQuery authentication path %s is a directory; run segmentstream warehouse auth --service-account-key <path>", credentialsPath)
 	}
 
 	return nil

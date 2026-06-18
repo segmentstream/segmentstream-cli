@@ -26,10 +26,10 @@ type Requires struct {
 }
 
 type Warehouse struct {
-	Type     string `yaml:"type"`
-	Auth     string `yaml:"auth"`
-	Project  string `yaml:"project"`
-	Dataset  string `yaml:"dataset"`
+	Type     string `yaml:"type,omitempty"`
+	Auth     string `yaml:"auth,omitempty"`
+	Project  string `yaml:"project,omitempty"`
+	Dataset  string `yaml:"dataset,omitempty"`
 	Location string `yaml:"location,omitempty"`
 }
 
@@ -52,9 +52,6 @@ func DefaultConfigYAML() string {
 warehouse:
   type: bigquery
   auth: default-bigquery
-  project: your-gcp-project
-  dataset: segmentstream
-  location: US
 
 # sources:
 #   - name: ga4
@@ -64,6 +61,29 @@ warehouse:
 
 func LoadConfig(projectRoot string) (Config, error) {
 	return (Store{Root: projectRoot}).Load()
+}
+
+func ParsePartialConfig(data []byte) (Config, error) {
+	var raw rawConfig
+	if err := yaml.Unmarshal(data, &raw); err != nil {
+		return Config{}, err
+	}
+
+	config := Config{
+		Requires: normalizeRequires(raw.Requires),
+		Warehouse: Warehouse{
+			Type:     strings.TrimSpace(raw.Warehouse.Type),
+			Auth:     strings.TrimSpace(raw.Warehouse.Auth),
+			Project:  strings.TrimSpace(raw.Warehouse.Project),
+			Dataset:  strings.TrimSpace(raw.Warehouse.Dataset),
+			Location: strings.TrimSpace(raw.Warehouse.Location),
+		},
+		Sources: normalizeSources(raw.Sources),
+	}
+	if raw.Version != nil {
+		config.Version = *raw.Version
+	}
+	return config, nil
 }
 
 func ParseConfig(data []byte) (Config, error) {
@@ -121,6 +141,32 @@ func ValidateConfig(config Config) error {
 		}
 	}
 
+	if config.Warehouse.Project == "your-gcp-project" {
+		return errors.New("warehouse.project still contains placeholder value your-gcp-project")
+	}
+	if err := ValidateBigQueryDatasetID(config.Warehouse.Dataset); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func ValidateBigQueryDatasetID(dataset string) error {
+	if dataset == "" {
+		return errors.New("missing required field warehouse.dataset")
+	}
+	if len(dataset) > 1024 {
+		return errors.New("warehouse.dataset must be 1024 characters or fewer")
+	}
+	for _, char := range dataset {
+		if (char >= 'a' && char <= 'z') ||
+			(char >= 'A' && char <= 'Z') ||
+			(char >= '0' && char <= '9') ||
+			char == '_' {
+			continue
+		}
+		return fmt.Errorf("invalid warehouse.dataset %q; BigQuery dataset IDs may contain only letters, numbers, and underscores", dataset)
+	}
 	return nil
 }
 

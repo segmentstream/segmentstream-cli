@@ -29,12 +29,33 @@ func TestStoreWriteDefaultAndLoad(t *testing.T) {
 		t.Fatal("Exists = false, want true after default config is written")
 	}
 
-	config, err := store.Load()
+	config, _, err := store.LoadPartial()
 	if err != nil {
-		t.Fatalf("Load failed: %v", err)
+		t.Fatalf("LoadPartial failed: %v", err)
 	}
 	if config.Warehouse.Type != "bigquery" {
 		t.Fatalf("Warehouse.Type = %q, want bigquery", config.Warehouse.Type)
+	}
+}
+
+func TestStoreSelectWarehouseWritesPartialConfig(t *testing.T) {
+	root := t.TempDir()
+	store := Store{Root: root}
+
+	config, err := store.SelectWarehouse("bigquery")
+	if err != nil {
+		t.Fatalf("SelectWarehouse failed: %v", err)
+	}
+	if config.Warehouse.Type != "bigquery" || config.Warehouse.Auth != "default-bigquery" {
+		t.Fatalf("warehouse = %+v, want bigquery default auth", config.Warehouse)
+	}
+
+	loaded, _, err := store.LoadPartial()
+	if err != nil {
+		t.Fatalf("LoadPartial failed: %v", err)
+	}
+	if loaded.Warehouse.Project != "" || loaded.Warehouse.Dataset != "" {
+		t.Fatalf("partial warehouse contains placeholders: %+v", loaded.Warehouse)
 	}
 }
 

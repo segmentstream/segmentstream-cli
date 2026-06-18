@@ -212,6 +212,7 @@ func TestPrepareWritesRuntimeEnvAndStaticComposeFile(t *testing.T) {
 		"condition: service_healthy",
 		"DAGSTER_HOME: /workspace/.segmentstream",
 		"DAGSTER_PG_HOST: postgres",
+		`GOOGLE_APPLICATION_CREDENTIALS: "${SEGMENTSTREAM_BQ_CREDENTIALS}"`,
 		"segmentstream-postgres-data:",
 	} {
 		if !strings.Contains(string(compose), want) {
@@ -233,6 +234,7 @@ func TestPrepareWritesRuntimeEnvAndStaticComposeFile(t *testing.T) {
 	}
 	for _, want := range []string{
 		`SEGMENTSTREAM_HOST_HOME=` + strconv.Quote(filepath.ToSlash(hostHome)),
+		`SEGMENTSTREAM_BQ_CREDENTIALS="/home/segmentstream/.segmentstream/bigquery/production-bigquery.json"`,
 		`SEGMENTSTREAM_BQ_PROJECT="example-project"`,
 		`SEGMENTSTREAM_BQ_DATASET="segmentstream"`,
 		`SEGMENTSTREAM_BQ_LOCATION="US"`,

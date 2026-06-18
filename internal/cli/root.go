@@ -5,6 +5,10 @@ import (
 	"io"
 	"os"
 
+	"github.com/segmentstream/segmentstream-cli/internal/cliresult"
+	"github.com/segmentstream/segmentstream-cli/internal/credentials"
+	"github.com/segmentstream/segmentstream-cli/internal/warehouse"
+	"github.com/segmentstream/segmentstream-cli/internal/warehouse/bigquery"
 	"github.com/spf13/cobra"
 )
 
@@ -20,8 +24,10 @@ func Main(args []string, out, errOut io.Writer) int {
 	cmd := NewRootCommand(out, errOut)
 	cmd.SetArgs(args)
 	if err := cmd.Execute(); err != nil {
-		fmt.Fprintln(errOut, err)
-		return 1
+		if err.Error() != "" {
+			fmt.Fprintln(errOut, err)
+		}
+		return cliresult.ExitCode(err)
 	}
 	return 0
 }
@@ -31,14 +37,19 @@ func NewRootCommand(out, errOut io.Writer) *cobra.Command {
 }
 
 type cliOptions struct {
-	CommandRunner            commandRunner
-	NewBigQueryAuthenticator func(io.Writer, io.Writer) bigQueryAuthenticator
+	CommandRunner     commandRunner
+	Credentials       credentials.Store
+	WarehouseRegistry warehouse.Registry
 }
 
 func newRootCommand(out, errOut io.Writer, options cliOptions) *cobra.Command {
 	runner := options.CommandRunner
 	if runner == nil {
 		runner = osCommandRunner{}
+	}
+	registry := options.WarehouseRegistry
+	if registry.IsZero() {
+		registry = warehouse.NewRegistry(bigquery.NewConnector())
 	}
 
 	root := &cobra.Command{
@@ -56,10 +67,10 @@ func newRootCommand(out, errOut io.Writer, options cliOptions) *cobra.Command {
 
 	root.AddCommand(newVersionCommand(out))
 	root.AddCommand(newUpdateCommand(out, errOut))
-	root.AddCommand(newInitCommand(out))
+	root.AddCommand(newInitCommand(out, options))
 	root.AddCommand(newRunCommand(out, runner))
 	root.AddCommand(newSourceCommand(out))
-	root.AddCommand(newAuthCommand(out, errOut, options))
+	root.AddCommand(newWarehouseCommand(out, options.Credentials, registry))
 
 	return root
 }
