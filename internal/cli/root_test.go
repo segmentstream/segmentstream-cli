@@ -125,6 +125,45 @@ func TestInitWarehouseSelectsBigQueryAndScaffoldsDocs(t *testing.T) {
 	}
 }
 
+func TestInitWarehouseJSONSelectsBigQueryAndReturnsEnvelope(t *testing.T) {
+	root := t.TempDir()
+	withWorkingDirectory(t, root)
+
+	var out bytes.Buffer
+	var errOut bytes.Buffer
+	cmd := newRootCommand(&out, &errOut, cliOptions{
+		Credentials: credentials.Store{HomeDir: filepath.Join(root, "home")},
+	})
+	cmd.SetArgs([]string{"init", "--warehouse", "bigquery", "--json"})
+	err := cmd.Execute()
+
+	if err == nil {
+		t.Fatal("expected init to return needs auth")
+	}
+	if cliresult.ExitCode(err) != cliresult.ExitNeedsAuth {
+		t.Fatalf("exit code = %d, want %d; stderr=%q", cliresult.ExitCode(err), cliresult.ExitNeedsAuth, errOut.String())
+	}
+	if strings.Contains(out.String(), "Selected warehouse") {
+		t.Fatalf("json output contains human text: %q", out.String())
+	}
+
+	var envelope cliresult.Envelope
+	if err := json.Unmarshal(out.Bytes(), &envelope); err != nil {
+		t.Fatalf("init --warehouse --json output is not JSON: %v\n%s", err, out.String())
+	}
+	if envelope.NextAction.Command != "segmentstream warehouse auth --service-account-key <path>" {
+		t.Fatalf("next action = %+v, want warehouse auth command", envelope.NextAction)
+	}
+
+	config, _, err := (project.Store{Root: root}).LoadPartial()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if config.Warehouse.Type != "bigquery" || config.Warehouse.Auth != "default-bigquery" {
+		t.Fatalf("warehouse = %+v, want selected bigquery default auth", config.Warehouse)
+	}
+}
+
 func TestInitShowsBrowseHintWhenWarehouseConfigIsMissing(t *testing.T) {
 	root := t.TempDir()
 	withWorkingDirectory(t, root)
@@ -200,6 +239,53 @@ func TestInitJSONIncludesBrowseHintWhenWarehouseConfigIsMissing(t *testing.T) {
 		hint.Commands[0] != "segmentstream warehouse browse --json" ||
 		hint.Commands[1] != "segmentstream warehouse browse --path <project> --json" {
 		t.Fatalf("hint commands = %+v, want browse commands", hint.Commands)
+	}
+}
+
+func TestInitJSONDoesNotMutateExistingPartialConfig(t *testing.T) {
+	root := t.TempDir()
+	withWorkingDirectory(t, root)
+	home := filepath.Join(root, "home")
+	configPath := filepath.Join(root, project.ConfigFileName)
+	writeConfig(t, root, `version: 1
+warehouse:
+  type: bigquery
+  auth: default-bigquery
+`)
+	before, err := os.ReadFile(configPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeNamedCredential(t, home, "default-bigquery")
+
+	var out bytes.Buffer
+	var errOut bytes.Buffer
+	cmd := newRootCommand(&out, &errOut, cliOptions{
+		Credentials: credentials.Store{HomeDir: home},
+	})
+	cmd.SetArgs([]string{"init", "--json"})
+
+	err = cmd.Execute()
+	if err == nil {
+		t.Fatal("expected init to return needs configuration")
+	}
+	if cliresult.ExitCode(err) != cliresult.ExitMisconfigured {
+		t.Fatalf("exit code = %d, want %d", cliresult.ExitCode(err), cliresult.ExitMisconfigured)
+	}
+	after, err := os.ReadFile(configPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(after) != string(before) {
+		t.Fatalf("init --json mutated config:\nbefore:\n%s\nafter:\n%s", string(before), string(after))
+	}
+
+	var envelope cliresult.Envelope
+	if err := json.Unmarshal(out.Bytes(), &envelope); err != nil {
+		t.Fatalf("init --json output is not JSON: %v\n%s", err, out.String())
+	}
+	if envelope.NextAction.Command != "segmentstream warehouse configure --project <project> --dataset <dataset> --location <location>" {
+		t.Fatalf("next action = %+v, want warehouse configure command", envelope.NextAction)
 	}
 }
 
