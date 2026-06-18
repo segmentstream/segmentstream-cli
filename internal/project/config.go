@@ -3,8 +3,6 @@ package project
 import (
 	"errors"
 	"fmt"
-	"os"
-	"path/filepath"
 	"strings"
 
 	"gopkg.in/yaml.v3"
@@ -65,20 +63,7 @@ warehouse:
 }
 
 func LoadConfig(projectRoot string) (Config, error) {
-	path := filepath.Join(projectRoot, ConfigFileName)
-	data, err := os.ReadFile(path)
-	if err != nil {
-		if errors.Is(err, os.ErrNotExist) {
-			return Config{}, fmt.Errorf("%s was not found in the current directory; run segmentstream init first", ConfigFileName)
-		}
-		return Config{}, fmt.Errorf("read %s: %w", ConfigFileName, err)
-	}
-
-	config, err := ParseConfig(data)
-	if err != nil {
-		return Config{}, fmt.Errorf("parse %s: %w", ConfigFileName, err)
-	}
-	return config, nil
+	return (Store{Root: projectRoot}).Load()
 }
 
 func ParseConfig(data []byte) (Config, error) {

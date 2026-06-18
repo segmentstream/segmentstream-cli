@@ -34,6 +34,20 @@ func TestVersionCommand(t *testing.T) {
 	}
 }
 
+func TestMainReturnsErrorCodeAndPrintsError(t *testing.T) {
+	var out bytes.Buffer
+	var errOut bytes.Buffer
+
+	code := Main([]string{"does-not-exist"}, &out, &errOut)
+
+	if code != 1 {
+		t.Fatalf("exit code = %d, want 1", code)
+	}
+	if !strings.Contains(errOut.String(), "unknown command") {
+		t.Fatalf("stderr = %q, want unknown command error", errOut.String())
+	}
+}
+
 func TestInitCreatesProjectConfigGitignoreAndRuntime(t *testing.T) {
 	root := t.TempDir()
 	withWorkingDirectory(t, root)
