@@ -402,7 +402,245 @@ func TestPrepareCommandIsNotRegistered(t *testing.T) {
 	}
 }
 
-func TestSourceInitCreatesLocalSourceTemplate(t *testing.T) {
+func TestSourceContractsHumanOutput(t *testing.T) {
+	var out bytes.Buffer
+	var errOut bytes.Buffer
+	cmd := NewRootCommand(&out, &errOut)
+	cmd.SetArgs([]string{"source", "contracts"})
+
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("source contracts command failed: %v", err)
+	}
+
+	got := out.String()
+	for _, want := range []string{
+		"Supported source contracts:",
+		"events (schema_version: 1, supported, default)",
+		"Canonical event stream",
+		"segmentstream source contracts --type events",
+		"segmentstream source create <name> --type events",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("source contracts output = %q, want %q", got, want)
+		}
+	}
+	for _, notWant := range []string{
+		"costs",
+		"conversions",
+		"events_v1",
+	} {
+		if strings.Contains(got, notWant) {
+			t.Fatalf("source contracts output = %q, did not want %q", got, notWant)
+		}
+	}
+}
+
+func TestSourceContractsJSONOutput(t *testing.T) {
+	var out bytes.Buffer
+	var errOut bytes.Buffer
+	cmd := NewRootCommand(&out, &errOut)
+	cmd.SetArgs([]string{"source", "contracts", "--json"})
+
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("source contracts --json failed: %v", err)
+	}
+
+	var result struct {
+		SchemaVersion string `json:"schema_version"`
+		Contracts     []struct {
+			Contract struct {
+				Type          string `json:"type"`
+				SchemaVersion int    `json:"schema_version"`
+			} `json:"contract"`
+			Default bool `json:"default"`
+			Actions []struct {
+				Type    string `json:"type"`
+				Command string `json:"command"`
+			} `json:"actions"`
+		} `json:"contracts"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &result); err != nil {
+		t.Fatalf("source contracts --json output is not JSON: %v\n%s", err, out.String())
+	}
+	if result.SchemaVersion != cliresult.SchemaVersion || len(result.Contracts) != 1 {
+		t.Fatalf("result = %+v, want one schema-versioned contract", result)
+	}
+	contract := result.Contracts[0]
+	if contract.Contract.Type != "events" || contract.Contract.SchemaVersion != 1 || !contract.Default {
+		t.Fatalf("contract = %+v, want default events/1", contract)
+	}
+	if len(contract.Actions) != 2 ||
+		contract.Actions[0].Command != "segmentstream source contracts --type events --json" ||
+		contract.Actions[1].Command != "segmentstream source create <name> --type events --json" {
+		t.Fatalf("actions = %+v, want inspect and create actions", contract.Actions)
+	}
+}
+
+func TestSourceContractsTypeJSONIncludesFullSchema(t *testing.T) {
+	var out bytes.Buffer
+	var errOut bytes.Buffer
+	cmd := NewRootCommand(&out, &errOut)
+	cmd.SetArgs([]string{"source", "contracts", "--type", "events", "--json"})
+
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("source contracts --type events --json failed: %v", err)
+	}
+
+	var result struct {
+		Contract struct {
+			Type          string `json:"type"`
+			SchemaVersion int    `json:"schema_version"`
+		} `json:"contract"`
+		Model struct {
+			Name      string `json:"name"`
+			Partition string `json:"partition"`
+		} `json:"model"`
+		Columns []struct {
+			Name     string `json:"name"`
+			Type     string `json:"type"`
+			Required bool   `json:"required"`
+		} `json:"columns"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &result); err != nil {
+		t.Fatalf("source contract detail output is not JSON: %v\n%s", err, out.String())
+	}
+	if result.Contract.Type != "events" || result.Contract.SchemaVersion != 1 {
+		t.Fatalf("contract = %+v, want events/1", result.Contract)
+	}
+	if result.Model.Name != "events" || result.Model.Partition != "event_date" {
+		t.Fatalf("model = %+v, want events partitioned by event_date", result.Model)
+	}
+	if len(result.Columns) != 7 ||
+		result.Columns[0].Name != "event_id" ||
+		result.Columns[0].Type != "STRING" ||
+		!result.Columns[0].Required ||
+		result.Columns[6].Name != "event_date" ||
+		!result.Columns[6].Required {
+		t.Fatalf("columns = %+v, want events schema", result.Columns)
+	}
+}
+
+func TestSourceContractsRejectsUnknownType(t *testing.T) {
+	var out bytes.Buffer
+	var errOut bytes.Buffer
+	cmd := NewRootCommand(&out, &errOut)
+	cmd.SetArgs([]string{"source", "contracts", "--type", "costs"})
+
+	err := cmd.Execute()
+	if err == nil {
+		t.Fatal("expected source contracts to reject unknown type")
+	}
+	if !strings.Contains(err.Error(), `unknown source contract type "costs"`) ||
+		!strings.Contains(err.Error(), "supported types: events") {
+		t.Fatalf("error = %v, want clear unknown type message", err)
+	}
+}
+
+func TestSourceCreateCreatesLocalSourcePackageJSON(t *testing.T) {
+	root := t.TempDir()
+	withWorkingDirectory(t, root)
+	writeConfig(t, root, `version: 1
+warehouse:
+  type: bigquery
+  auth: production-bigquery
+  project: example-project
+  dataset: segmentstream
+`)
+	configBefore, err := os.ReadFile(filepath.Join(root, "segmentstream.yml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	var out bytes.Buffer
+	var errOut bytes.Buffer
+	cmd := NewRootCommand(&out, &errOut)
+	cmd.SetArgs([]string{"source", "create", "ga4", "--type", "events", "--json"})
+
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("source create command failed: %v", err)
+	}
+
+	assertFileExists(t, filepath.Join(root, "sources", "ga4", "contract.yml"))
+	assertFileExists(t, filepath.Join(root, "sources", "ga4", "dbt_project.yml"))
+	assertFileExists(t, filepath.Join(root, "sources", "ga4", "source.yml"))
+	assertFileExists(t, filepath.Join(root, "sources", "ga4", "models", "events.sql"))
+	assertFileExists(t, filepath.Join(root, "sources", "ga4", "models", "schema.yml"))
+	assertFileMissing(t, filepath.Join(root, "sources", "ga4", "models", "staging"))
+	assertFileMissing(t, filepath.Join(root, "sources", "ga4", "models", "exports"))
+	assertFileMissing(t, filepath.Join(root, "sources", "ga4", "macros"))
+	assertFileMissing(t, filepath.Join(root, "sources", "ga4", "seeds"))
+	assertFileMissing(t, filepath.Join(root, "sources", "ga4", "snapshots"))
+	assertFileMissing(t, filepath.Join(root, "sources", "ga4", "tests"))
+
+	configAfter, err := os.ReadFile(filepath.Join(root, "segmentstream.yml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(configAfter) != string(configBefore) {
+		t.Fatalf("source create mutated segmentstream.yml:\nbefore:\n%s\nafter:\n%s", string(configBefore), string(configAfter))
+	}
+
+	var result struct {
+		SchemaVersion string   `json:"schema_version"`
+		Directory     string   `json:"directory"`
+		CreatedFiles  []string `json:"created_files"`
+		Contract      struct {
+			Type          string `json:"type"`
+			SchemaVersion int    `json:"schema_version"`
+		} `json:"contract"`
+		Actions []struct {
+			Type    string `json:"type"`
+			Path    string `json:"path"`
+			Snippet string `json:"snippet"`
+		} `json:"actions"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &result); err != nil {
+		t.Fatalf("source create --json output is not JSON: %v\n%s", err, out.String())
+	}
+	if result.Directory != "sources/ga4" {
+		t.Fatalf("directory = %q, want sources/ga4", result.Directory)
+	}
+	if strings.Join(result.CreatedFiles, "\x00") != strings.Join([]string{
+		"sources/ga4/contract.yml",
+		"sources/ga4/dbt_project.yml",
+		"sources/ga4/models/events.sql",
+		"sources/ga4/models/schema.yml",
+		"sources/ga4/source.yml",
+	}, "\x00") {
+		t.Fatalf("created files = %+v, want minimal package files", result.CreatedFiles)
+	}
+	if result.Contract.Type != "events" || result.Contract.SchemaVersion != 1 {
+		t.Fatalf("contract = %+v, want events/1", result.Contract)
+	}
+	if len(result.Actions) != 2 ||
+		result.Actions[0].Type != "implement" ||
+		result.Actions[0].Path != "sources/ga4/models/events.sql" ||
+		result.Actions[1].Type != "tell_user" ||
+		!strings.Contains(result.Actions[1].Snippet, "path: ./sources/ga4") {
+		t.Fatalf("actions = %+v, want implement and tell_user", result.Actions)
+	}
+}
+
+func TestSourceCreateRequiresType(t *testing.T) {
+	root := t.TempDir()
+	withWorkingDirectory(t, root)
+	writeValidConfig(t, root)
+
+	var out bytes.Buffer
+	var errOut bytes.Buffer
+	cmd := NewRootCommand(&out, &errOut)
+	cmd.SetArgs([]string{"source", "create", "ga4"})
+
+	err := cmd.Execute()
+	if err == nil {
+		t.Fatal("expected source create to require --type")
+	}
+	if !strings.Contains(err.Error(), "--type is required") {
+		t.Fatalf("error = %v, want --type requirement", err)
+	}
+}
+
+func TestSourceInitCreatesLocalSourcePackageFromDefaultContract(t *testing.T) {
 	root := t.TempDir()
 	withWorkingDirectory(t, root)
 	writeValidConfig(t, root)
@@ -417,17 +655,18 @@ func TestSourceInitCreatesLocalSourceTemplate(t *testing.T) {
 	}
 
 	assertFileExists(t, filepath.Join(root, "sources", "ga4", "dbt_project.yml"))
-	assertFileExists(t, filepath.Join(root, "sources", "ga4", "models", "exports", "events_ga4.sql"))
-	assertFileExists(t, filepath.Join(root, "sources", "ga4", "models", "exports", "schema.yml"))
-	assertFileExists(t, filepath.Join(root, "sources", "ga4", "models", "staging", "stg_events_ga4.sql"))
-	assertFileExists(t, filepath.Join(root, "sources", "ga4", "models", "staging", "sources.yml"))
+	assertFileExists(t, filepath.Join(root, "sources", "ga4", "contract.yml"))
+	assertFileExists(t, filepath.Join(root, "sources", "ga4", "source.yml"))
+	assertFileExists(t, filepath.Join(root, "sources", "ga4", "models", "events.sql"))
+	assertFileExists(t, filepath.Join(root, "sources", "ga4", "models", "schema.yml"))
+	assertFileMissing(t, filepath.Join(root, "sources", "ga4", "models", "exports"))
+	assertFileMissing(t, filepath.Join(root, "sources", "ga4", "models", "staging"))
 
 	for _, want := range []string{
-		`Created source template "ga4" at sources/ga4`,
-		"This is a scaffold, not a completed source implementation.",
-		"Agent task: inspect the raw source schema",
-		"sources/ga4/models/staging/stg_events_ga4.sql",
-		"sources/ga4/models/exports/events_ga4.sql",
+		`Created source "ga4" at sources/ga4`,
+		"Contract: events (schema_version: 1)",
+		"Implement:",
+		"sources/ga4/models/events.sql",
 		"sources:",
 		"  - name: ga4",
 		"    path: ./sources/ga4",

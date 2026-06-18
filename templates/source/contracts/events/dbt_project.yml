@@ -1,0 +1,15 @@
+name: __PACKAGE_NAME__
+version: "0.1.0"
+config-version: 2
+
+model-paths:
+  - models
+
+target-path: target
+clean-targets:
+  - target
+  - dbt_packages
+
+models:
+  __PACKAGE_NAME__:
+    +materialized: ephemeral

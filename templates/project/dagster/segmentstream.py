@@ -21,6 +21,7 @@ class SegmentStreamSource:
     name: str
     path: Path
     package_name: str
+    events_model_name: str
 
 
 def prepare_segmentstream_dbt_project(log=None) -> dict:
@@ -92,11 +93,13 @@ def parse_sources(config: dict) -> list[SegmentStreamSource]:
         validate_identifier(package_name, f"sources.{name}.package_name")
 
         path = resolve_source_path(name, path_value)
+        events_model_name = discover_events_model_name(name, path)
         sources.append(
             SegmentStreamSource(
                 name=name,
                 path=path,
                 package_name=package_name,
+                events_model_name=events_model_name,
             )
         )
     return sources
@@ -143,9 +146,20 @@ def resolve_source_path(name: str, value: str) -> Path:
         raise RuntimeError(f'source "{name}" path must not be inside .segmentstream')
     if not path.is_dir():
         raise RuntimeError(
-            f'source "{name}" path {value} does not exist; run segmentstream source init {name} or update segmentstream.yml'
+            f'source "{name}" path {value} does not exist; run segmentstream source create {name} --type events or update segmentstream.yml'
         )
     return path
+
+
+def discover_events_model_name(name: str, path: Path) -> str:
+    if (path / "models" / "events.sql").is_file():
+        return "events"
+
+    legacy_model = f"events_{name}"
+    if (path / "models" / "exports" / f"{legacy_model}.sql").is_file():
+        return legacy_model
+
+    return "events"
 
 
 def write_packages_yml(sources: list[SegmentStreamSource]) -> None:
@@ -215,7 +229,7 @@ def render_core_events_model(sources: list[SegmentStreamSource]) -> str:
                     "  page_referrer,",
                     "  event_timestamp,",
                     "  event_date",
-                    f'from {{{{ ref("{source.package_name}", "events_{source.name}") }}}}',
+                    f'from {{{{ ref("{source.package_name}", "{source.events_model_name}") }}}}',
                     "where event_date >= date('{{ segmentstream_start_date }}')",
                     "  and event_date < date('{{ segmentstream_end_date }}')",
                 ]

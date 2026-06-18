@@ -49,16 +49,25 @@ flag such as `--warehouse`.
 ## Create A Source
 
 Sources are project-owned dbt packages that contain source-specific
-transformations. Create a local source template with:
+transformations. Agents should start by discovering supported source contracts:
 
 ```sh
-segmentstream source init ga4
+segmentstream source contracts --json
+segmentstream source contracts --type events --json
 ```
 
-This creates `sources/ga4/` as a standard dbt project with a staging model and
-an exported events model. Exported models are incremental, partitioned by
-`event_date`, and run with the same daily partition window as the core
-SegmentStream tables.
+Create a local source package from a contract:
+
+```sh
+segmentstream source create ga4 --type events
+```
+
+`segmentstream source init ga4` is kept as a compatibility alias for creating a
+source from the default contract.
+
+This creates `sources/ga4/` as a minimal dbt package with a pinned
+`contract.yml` snapshot and one author-editable model:
+`sources/ga4/models/events.sql`.
 
 Declare the source in `segmentstream.yml`:
 
@@ -69,8 +78,8 @@ sources:
 ```
 
 On run, SegmentStream reads `segmentstream.yml`, installs declared sources as
-dbt packages, and generates a core `events` model that unions each declared
-`events_<source>` export.
+dbt packages, and generates a core `events` model that unions each source
+package's `events` model.
 
 ## Configure Your Warehouse
 
@@ -154,8 +163,14 @@ environment. Later runs should be faster.
 the configured warehouse. It runs the last 30 UTC daily partitions by default;
 use `segmentstream run --start-date YYYY-MM-DD` to start earlier or later.
 
-`segmentstream source init <name>` creates a local source package template under
-`sources/<name>/`.
+`segmentstream source contracts [--type events] [--json]` lists supported source
+contracts and returns their schemas.
+
+`segmentstream source create <name> --type events [--json]` creates a local
+source package under `sources/<name>/`.
+
+`segmentstream source init <name>` is a compatibility alias that uses the
+default source contract.
 
 `segmentstream warehouse auth --service-account-key <path>` stores a BigQuery
 service-account credential outside the project.

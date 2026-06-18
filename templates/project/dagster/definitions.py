@@ -1,8 +1,10 @@
 from pathlib import Path
+import json
 import sys
+from typing import Any, Mapping
 
-from dagster import AssetExecutionContext, AssetSelection, DailyPartitionsDefinition, Definitions, define_asset_job
-from dagster_dbt import DbtCliResource, dbt_assets
+from dagster import AssetExecutionContext, AssetKey, AssetSelection, DailyPartitionsDefinition, Definitions, SourceAsset, define_asset_job
+from dagster_dbt import DagsterDbtTranslator, DbtCliResource, dbt_assets
 
 
 SEGMENTSTREAM_DIR = Path(__file__).resolve().parents[1]
@@ -18,7 +20,40 @@ manifest_path = SEGMENTSTREAM_DIR / "dbt" / "target" / "manifest.json"
 segmentstream_daily_partitions = DailyPartitionsDefinition(start_date="1970-01-01", end_offset=1)
 
 
-@dbt_assets(manifest=manifest_path, partitions_def=segmentstream_daily_partitions)
+def build_dbt_source_assets(path: Path) -> list[SourceAsset]:
+    manifest = json.loads(path.read_text(encoding="utf-8"))
+    return [
+        SourceAsset(key=source_asset_key(source))
+        for source in sorted(
+            manifest.get("sources", {}).values(),
+            key=lambda source: (str(source["source_name"]), str(source["name"])),
+        )
+    ]
+
+
+def source_asset_key(dbt_source_props: Mapping[str, Any]) -> AssetKey:
+    source_name = str(dbt_source_props["source_name"])
+    source_slug = source_name.removesuffix("_raw")
+    table_name = str(dbt_source_props["name"])
+    return AssetKey([f"{table_name}_{source_slug}"])
+
+
+class SegmentStreamDbtTranslator(DagsterDbtTranslator):
+    def get_asset_key(self, dbt_resource_props: Mapping[str, Any]) -> AssetKey:
+        if dbt_resource_props.get("resource_type") == "source":
+            return source_asset_key(dbt_resource_props)
+        package_name = dbt_resource_props.get("package_name")
+        if dbt_resource_props.get("resource_type") == "model" and package_name != "segmentstream":
+            return AssetKey([str(package_name), str(dbt_resource_props["name"])])
+        return super().get_asset_key(dbt_resource_props)
+
+
+@dbt_assets(
+    manifest=manifest_path,
+    select="package:segmentstream",
+    partitions_def=segmentstream_daily_partitions,
+    dagster_dbt_translator=SegmentStreamDbtTranslator(),
+)
 def segmentstream_dbt_assets(context: AssetExecutionContext, dbt: DbtCliResource):
     yield from dbt.cli(["build", "--vars", dbt_partition_vars(context)], context=context).stream()
 
@@ -30,7 +65,7 @@ segmentstream_materialize_all = define_asset_job(
 
 
 defs = Definitions(
-    assets=[*ingestion_assets, segmentstream_dbt_assets],
+    assets=[*ingestion_assets, *build_dbt_source_assets(manifest_path), segmentstream_dbt_assets],
     resources={
         "dbt": DbtCliResource(
             project_dir=str(SEGMENTSTREAM_DIR),

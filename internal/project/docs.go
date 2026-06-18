@@ -80,13 +80,17 @@ environment. Later runs should be faster.
 Sources are project-owned dbt packages for source-specific transformations.
 
 ` + "```sh" + `
-segmentstream source init ga4
+segmentstream source contracts --json
+segmentstream source contracts --type events --json
+segmentstream source create ga4 --type events
 ` + "```" + `
 
-This creates ` + "`sources/ga4/`" + ` as a standard dbt project with a staging
-model and an exported events model. Exported models are incremental,
-partitioned by ` + "`event_date`" + `, and run with the same daily partition window
-as the core SegmentStream tables.
+This creates ` + "`sources/ga4/`" + ` as a minimal dbt package with a pinned
+` + "`contract.yml`" + ` snapshot and one author-editable model:
+` + "`sources/ga4/models/events.sql`" + `.
+
+` + "`segmentstream source init ga4`" + ` is kept as a compatibility alias for
+creating a source from the default contract.
 
 Declare the source in ` + "`segmentstream.yml`" + `:
 
@@ -97,8 +101,8 @@ sources:
 ` + "```" + `
 
 On run, SegmentStream reads ` + "`segmentstream.yml`" + `, installs declared
-sources as dbt packages, and generates a core ` + "`events`" + ` model that unions each declared
-` + "`events_<source>`" + ` export.
+sources as dbt packages, and generates a core ` + "`events`" + ` model that unions each
+source package's ` + "`events`" + ` model.
 
 ## Commands
 
@@ -125,8 +129,14 @@ and query permissions.
 to the configured warehouse. It runs the last 30 UTC daily partitions by default;
 use ` + "`segmentstream run --start-date YYYY-MM-DD`" + ` to start earlier or later.
 
-` + "`segmentstream source init <name>`" + ` creates a local source package template
-under ` + "`sources/<name>/`" + `.
+` + "`segmentstream source contracts [--type events] [--json]`" + ` lists supported
+source contracts and returns their schemas.
+
+` + "`segmentstream source create <name> --type events [--json]`" + ` creates a local
+source package under ` + "`sources/<name>/`" + `.
+
+` + "`segmentstream source init <name>`" + ` is a compatibility alias that uses the
+default source contract.
 
 ## Files
 
@@ -160,7 +170,8 @@ Before editing SegmentStream project files, read ` + "`README.md`" + ` in this d
 - Do not edit files inside ` + "`.segmentstream/`" + `; it is generated and disposable.
 - Use ` + "`segmentstream init`" + ` to initialize the project.
 - Use ` + "`segmentstream run`" + ` to run the pipeline and produce tables in the configured warehouse.
-- Use ` + "`segmentstream source init <name>`" + ` to create local source packages outside the generated environment.
+- Use ` + "`segmentstream source contracts`" + ` to inspect supported source contracts.
+- Use ` + "`segmentstream source create <name> --type events`" + ` or ` + "`segmentstream source init <name>`" + ` to create local source packages outside the generated environment.
 - Do not put secrets, credentials, private keys, tokens, or SQL in ` + "`segmentstream.yml`" + `.
 - For BigQuery warehouse configuration, use the guidance in ` + "`README.md`" + `.
 `

@@ -1,25 +1,30 @@
 version: 2
 
+sources:
+  - name: __SOURCE_NAME___raw
+    description: Raw tables for the __SOURCE_NAME__ source.
+    database: "{{ var('__SOURCE_NAME___raw_project', env_var('SEGMENTSTREAM_BQ_PROJECT')) }}"
+    schema: "{{ var('__SOURCE_NAME___raw_dataset', env_var('SEGMENTSTREAM_BQ_DATASET')) }}"
+    tables:
+      - name: events
+        identifier: "{{ var('__SOURCE_NAME___raw_events_table', '__SOURCE_NAME___events') }}"
+        description: Raw event records for the __SOURCE_NAME__ source.
+
 models:
   - name: events
-    description: Canonical SegmentStream event stream composed from declared sources.
+    description: Canonical event stream emitted by the __SOURCE_NAME__ source.
     config:
       tags:
-        - segmentstream_core
-        - segmentstream_export
+        - segmentstream_source
       meta:
         segmentstream:
-          export_name: events
+          source_name: __SOURCE_NAME__
           contract:
             type: events
             schema_version: 1
     columns:
-      - name: segmentstream_source
-        description: Source name from segmentstream.yml.
       - name: event_id
         description: Stable event identifier from the upstream source.
-        data_tests:
-          - not_null
       - name: anonymous_id
         description: Anonymous user or device identifier.
       - name: event_name
