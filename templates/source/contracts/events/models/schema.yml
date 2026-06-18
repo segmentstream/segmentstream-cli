@@ -1,17 +1,17 @@
 version: 2
 
 models:
-  - name: events___SOURCE_NAME__
-    description: Canonical event stream exported by the __SOURCE_NAME__ source.
+  - name: events
+    description: Canonical event stream emitted by the __SOURCE_NAME__ source.
     config:
       tags:
         - segmentstream_source
-        - segmentstream_export
       meta:
         segmentstream:
           source_name: __SOURCE_NAME__
-          export_name: events
-          contract: events_v1
+          contract:
+            type: events
+            schema_version: 1
     columns:
       - name: event_id
         description: Stable event identifier from the upstream source.
@@ -28,4 +28,6 @@ models:
       - name: event_timestamp
         description: Event timestamp in UTC.
       - name: event_date
-        description: Date partition for this exported event row.
+        description: Date partition for this event row.
+        data_tests:
+          - not_null

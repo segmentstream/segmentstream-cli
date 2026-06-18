@@ -1,0 +1,37 @@
+type: events
+schema_version: 1
+description: Canonical event stream emitted by a custom source package.
+default: true
+status: supported
+model:
+  name: events
+  partition: event_date
+columns:
+  - name: event_id
+    type: STRING
+    required: true
+    description: Stable event identifier from the upstream source.
+  - name: anonymous_id
+    type: STRING
+    required: false
+    description: Anonymous user or device identifier.
+  - name: event_name
+    type: STRING
+    required: false
+    description: Event name.
+  - name: page_url
+    type: STRING
+    required: false
+    description: Page URL associated with the event when available.
+  - name: page_referrer
+    type: STRING
+    required: false
+    description: Referrer URL associated with the event when available.
+  - name: event_timestamp
+    type: TIMESTAMP
+    required: false
+    description: Event timestamp in UTC.
+  - name: event_date
+    type: DATE
+    required: true
+    description: Date partition for this event row.

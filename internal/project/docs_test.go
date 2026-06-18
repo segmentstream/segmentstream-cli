@@ -33,9 +33,10 @@ func TestEnsureProjectReadmeCreatesReadme(t *testing.T) {
 		"produces tables in",
 		"segmentstream run",
 		"Create A Source",
-		"segmentstream source init ga4",
+		"segmentstream source contracts --json",
+		"segmentstream source create ga4 --type events",
 		"events",
-		"events_<source>",
+		"sources/ga4/models/events.sql",
 		"warehouse.auth",
 		"sources/",
 		".segmentstream/",
@@ -91,8 +92,11 @@ func TestEnsureAgentGuideCreatesGuide(t *testing.T) {
 	if !strings.Contains(string(data), "segmentstream run") {
 		t.Fatalf("agent guide does not mention run:\n%s", string(data))
 	}
-	if !strings.Contains(string(data), "segmentstream source init") {
-		t.Fatalf("agent guide does not mention source init:\n%s", string(data))
+	if !strings.Contains(string(data), "segmentstream source contracts") {
+		t.Fatalf("agent guide does not mention source contracts:\n%s", string(data))
+	}
+	if !strings.Contains(string(data), "segmentstream source create") {
+		t.Fatalf("agent guide does not mention source create:\n%s", string(data))
 	}
 }
 

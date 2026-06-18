@@ -10,7 +10,9 @@ models:
       meta:
         segmentstream:
           export_name: events
-          contract: events_v1
+          contract:
+            type: events
+            schema_version: 1
     columns:
       - name: segmentstream_source
         description: Source name from segmentstream.yml.

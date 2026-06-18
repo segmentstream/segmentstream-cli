@@ -127,7 +127,9 @@ func TestPrepareCreatesExpectedRuntimeFiles(t *testing.T) {
 		"dbt_partition_vars",
 		"segmentstream_start_date",
 		"segmentstream_end_date",
-		"events_{source.name}",
+		"discover_events_model_name",
+		`ref("{source.package_name}", "{source.events_model_name}")`,
+		`legacy_model = f"events_{name}"`,
 		"where event_date >= date('{{ segmentstream_start_date }}')",
 		"and event_date < date('{{ segmentstream_end_date }}')",
 	} {
