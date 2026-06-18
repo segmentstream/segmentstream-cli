@@ -38,7 +38,12 @@ func newSourceInitCommand(out io.Writer) *cobra.Command {
 			}
 
 			relativePath := filepath.ToSlash(filepath.Join(projectsource.SourcesDirName, source.Name))
-			fmt.Fprintf(out, "Created source %q at %s\n", source.Name, relativePath)
+			fmt.Fprintf(out, "Created source template %q at %s\n", source.Name, relativePath)
+			fmt.Fprintln(out)
+			fmt.Fprintln(out, "This is a scaffold, not a completed source implementation.")
+			fmt.Fprintln(out, "Agent task: inspect the raw source schema, then implement the dbt models for this source:")
+			fmt.Fprintf(out, "- %s\n", filepath.ToSlash(filepath.Join(relativePath, "models", "staging", "stg_events_"+source.Name+".sql")))
+			fmt.Fprintf(out, "- %s\n", filepath.ToSlash(filepath.Join(relativePath, "models", "exports", "events_"+source.Name+".sql")))
 			fmt.Fprintln(out)
 			fmt.Fprintln(out, "Add this source to segmentstream.yml:")
 			fmt.Fprintln(out, "sources:")

@@ -110,6 +110,38 @@ warehouse:
 	}
 }
 
+func TestParseConfigRejectsPlaceholderProject(t *testing.T) {
+	_, err := ParseConfig([]byte(`version: 1
+warehouse:
+  type: bigquery
+  auth: production-bigquery
+  project: your-gcp-project
+  dataset: segmentstream
+`))
+	if err == nil {
+		t.Fatal("expected placeholder project error")
+	}
+	if !strings.Contains(err.Error(), "placeholder") {
+		t.Fatalf("error = %v, want placeholder message", err)
+	}
+}
+
+func TestParseConfigRejectsInvalidDatasetID(t *testing.T) {
+	_, err := ParseConfig([]byte(`version: 1
+warehouse:
+  type: bigquery
+  auth: production-bigquery
+  project: example-project
+  dataset: segmentstream-new
+`))
+	if err == nil {
+		t.Fatal("expected invalid dataset error")
+	}
+	if !strings.Contains(err.Error(), "letters, numbers, and underscores") {
+		t.Fatalf("error = %v, want BigQuery dataset guidance", err)
+	}
+}
+
 func TestParseConfigParsesSourcesWithoutDagsterValidation(t *testing.T) {
 	config, err := ParseConfig([]byte(`version: 1
 warehouse:

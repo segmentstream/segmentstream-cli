@@ -2,6 +2,10 @@
 
 This is a standard dbt project for the `__SOURCE_NAME__` SegmentStream source.
 
+This is a scaffold, not a completed source implementation. An agent or developer
+must inspect the raw source schema and implement the dbt models before treating
+this source as ready.
+
 Use this project for source-specific dbt transformations. It should produce
 exported models that SegmentStream can compose with core SegmentStream tables.
 

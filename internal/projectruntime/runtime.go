@@ -115,15 +115,17 @@ func copyProjectTemplate(runtimeDir string) error {
 
 func writeRuntimeEnv(runtimeDir string, config project.Config, hostHome string) error {
 	env := map[string]string{
-		"SEGMENTSTREAM_HOST_HOME":   hostHome,
-		"SEGMENTSTREAM_BQ_PROJECT":  config.Warehouse.Project,
-		"SEGMENTSTREAM_BQ_DATASET":  config.Warehouse.Dataset,
-		"SEGMENTSTREAM_BQ_LOCATION": config.Warehouse.Location,
+		"SEGMENTSTREAM_HOST_HOME":      hostHome,
+		"SEGMENTSTREAM_BQ_CREDENTIALS": "/home/segmentstream/.segmentstream/bigquery/" + config.Warehouse.Auth + ".json",
+		"SEGMENTSTREAM_BQ_PROJECT":     config.Warehouse.Project,
+		"SEGMENTSTREAM_BQ_DATASET":     config.Warehouse.Dataset,
+		"SEGMENTSTREAM_BQ_LOCATION":    config.Warehouse.Location,
 	}
 
 	var output strings.Builder
 	for _, key := range []string{
 		"SEGMENTSTREAM_HOST_HOME",
+		"SEGMENTSTREAM_BQ_CREDENTIALS",
 		"SEGMENTSTREAM_BQ_PROJECT",
 		"SEGMENTSTREAM_BQ_DATASET",
 		"SEGMENTSTREAM_BQ_LOCATION",

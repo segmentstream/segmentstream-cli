@@ -11,7 +11,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/segmentstream/segmentstream-cli/internal/auth"
+	"github.com/segmentstream/segmentstream-cli/internal/credentials"
 	"github.com/segmentstream/segmentstream-cli/internal/dagster"
 )
 
@@ -355,7 +355,7 @@ sources:
 	for _, want := range []string{
 		"SegmentStream run sanity check failed",
 		"BigQuery authentication",
-		"segmentstream auth add bigquery",
+		"segmentstream warehouse auth --service-account-key",
 	} {
 		if !strings.Contains(err.Error(), want) {
 			t.Fatalf("error = %v, want %q", err, want)
@@ -796,25 +796,25 @@ func writeConfig(t *testing.T, root string, config string) {
 
 func withRunAuthHome(t *testing.T, home string) {
 	t.Helper()
-	previous := newRunAuthStore
-	newRunAuthStore = func() auth.Store {
-		return auth.Store{HomeDir: home}
+	previous := newRunCredentialStore
+	newRunCredentialStore = func() credentials.Store {
+		return credentials.Store{HomeDir: home}
 	}
 	t.Cleanup(func() {
-		newRunAuthStore = previous
+		newRunCredentialStore = previous
 	})
 }
 
 func writeBigQueryAuth(t *testing.T, home string) {
 	t.Helper()
-	credentialsPath, err := (auth.Store{HomeDir: home}).GCloudADCPath()
+	credentialsPath, err := (credentials.Store{HomeDir: home}).BigQueryCredentialPath("production-bigquery")
 	if err != nil {
 		t.Fatal(err)
 	}
 	if err := os.MkdirAll(filepath.Dir(credentialsPath), 0o700); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(credentialsPath, []byte(`{"type":"authorized_user"}`), 0o600); err != nil {
+	if err := os.WriteFile(credentialsPath, []byte(`{"type":"service_account","client_email":"test@example.iam.gserviceaccount.com","private_key":"-----BEGIN PRIVATE KEY-----\ntest\n-----END PRIVATE KEY-----\n"}`), 0o600); err != nil {
 		t.Fatal(err)
 	}
 }

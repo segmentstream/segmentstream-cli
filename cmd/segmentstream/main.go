@@ -1,15 +1,11 @@
 package main
 
 import (
-	"fmt"
 	"os"
 
 	"github.com/segmentstream/segmentstream-cli/internal/cli"
 )
 
 func main() {
-	if err := cli.Execute(); err != nil {
-		fmt.Fprintln(os.Stderr, err)
-		os.Exit(1)
-	}
+	os.Exit(cli.Main(os.Args[1:], os.Stdout, os.Stderr))
 }
