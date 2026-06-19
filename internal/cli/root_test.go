@@ -63,8 +63,8 @@ func TestInitJSONIsReadOnlyWhenWarehouseIsMissing(t *testing.T) {
 	var errOut bytes.Buffer
 	code := Main([]string{"init", "--json"}, &out, &errOut)
 
-	if code != cliresult.ExitNeedsUserDecision {
-		t.Fatalf("exit code = %d, want %d", code, cliresult.ExitNeedsUserDecision)
+	if code != cliresult.ExitReady {
+		t.Fatalf("exit code = %d, want %d", code, cliresult.ExitReady)
 	}
 	if errOut.String() != "" {
 		t.Fatalf("stderr = %q, want empty", errOut.String())
@@ -78,9 +78,8 @@ func TestInitJSONIsReadOnlyWhenWarehouseIsMissing(t *testing.T) {
 	if envelope.SchemaVersion != cliresult.SchemaVersion || envelope.Ready {
 		t.Fatalf("envelope = %+v, want schema version and not ready", envelope)
 	}
-	if envelope.NextAction.Type != "ask_user" {
-		t.Fatalf("next action = %+v, want ask_user", envelope.NextAction)
-	}
+	assertInitEnvelopeV2(t, envelope)
+	assertWarehouseTypeNextAction(t, envelope.NextAction)
 }
 
 func TestInitWarehouseSelectsBigQueryAndScaffoldsDocs(t *testing.T) {
@@ -95,11 +94,8 @@ func TestInitWarehouseSelectsBigQueryAndScaffoldsDocs(t *testing.T) {
 	cmd.SetArgs([]string{"init", "--warehouse", "bigquery"})
 	err := cmd.Execute()
 
-	if err == nil {
-		t.Fatal("expected init to return needs auth")
-	}
-	if cliresult.ExitCode(err) != cliresult.ExitNeedsAuth {
-		t.Fatalf("exit code = %d, want %d; stderr=%q", cliresult.ExitCode(err), cliresult.ExitNeedsAuth, errOut.String())
+	if err != nil {
+		t.Fatalf("init failed: %v; stderr=%q", err, errOut.String())
 	}
 
 	assertFileExists(t, filepath.Join(root, "segmentstream.yml"))
@@ -139,11 +135,8 @@ func TestInitWarehouseJSONSelectsBigQueryAndReturnsEnvelope(t *testing.T) {
 	cmd.SetArgs([]string{"init", "--warehouse", "bigquery", "--json"})
 	err := cmd.Execute()
 
-	if err == nil {
-		t.Fatal("expected init to return needs auth")
-	}
-	if cliresult.ExitCode(err) != cliresult.ExitNeedsAuth {
-		t.Fatalf("exit code = %d, want %d; stderr=%q", cliresult.ExitCode(err), cliresult.ExitNeedsAuth, errOut.String())
+	if err != nil {
+		t.Fatalf("init failed: %v; stderr=%q", err, errOut.String())
 	}
 	if strings.Contains(out.String(), "Selected warehouse") {
 		t.Fatalf("json output contains human text: %q", out.String())
@@ -153,9 +146,8 @@ func TestInitWarehouseJSONSelectsBigQueryAndReturnsEnvelope(t *testing.T) {
 	if err := json.Unmarshal(out.Bytes(), &envelope); err != nil {
 		t.Fatalf("init --warehouse --json output is not JSON: %v\n%s", err, out.String())
 	}
-	if envelope.NextAction.Command != "segmentstream warehouse auth login" {
-		t.Fatalf("next action = %+v, want warehouse auth command", envelope.NextAction)
-	}
+	assertInitEnvelopeV2(t, envelope)
+	assertWarehouseAuthNextAction(t, envelope.NextAction)
 
 	config, _, err := (project.Store{Root: root}).LoadPartial()
 	if err != nil {
@@ -183,18 +175,18 @@ func TestInitShowsBrowseHintWhenWarehouseConfigIsMissing(t *testing.T) {
 	cmd.SetArgs([]string{"init"})
 
 	err := cmd.Execute()
-	if err == nil {
-		t.Fatal("expected init to return needs configuration")
-	}
-	if cliresult.ExitCode(err) != cliresult.ExitMisconfigured {
-		t.Fatalf("exit code = %d, want %d", cliresult.ExitCode(err), cliresult.ExitMisconfigured)
+	if err != nil {
+		t.Fatalf("init failed: %v", err)
 	}
 	got := out.String()
 	for _, want := range []string{
-		"Run: segmentstream warehouse configure --project <project> --dataset <dataset> --location <location>",
-		"Hint: Use warehouse browse to discover accessible projects, datasets, and locations before configuring.",
-		"segmentstream warehouse browse --json",
-		"segmentstream warehouse browse --path <project> --json",
+		"Next action: human_input",
+		"Option: Configure BigQuery warehouse",
+		"Command: segmentstream warehouse configure",
+		"Input: Google Cloud project ID (string, --project, required)",
+		"Input: BigQuery dataset ID (string, --dataset, required)",
+		"Input: BigQuery dataset location (string, --location, required)",
+		"Verify: segmentstream init --json",
 	} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("init output = %q, want %q", got, want)
@@ -219,29 +211,16 @@ func TestInitJSONIncludesBrowseHintWhenWarehouseConfigIsMissing(t *testing.T) {
 	cmd.SetArgs([]string{"init", "--json"})
 
 	err := cmd.Execute()
-	if err == nil {
-		t.Fatal("expected init to return needs configuration")
-	}
-	if cliresult.ExitCode(err) != cliresult.ExitMisconfigured {
-		t.Fatalf("exit code = %d, want %d", cliresult.ExitCode(err), cliresult.ExitMisconfigured)
+	if err != nil {
+		t.Fatalf("init failed: %v", err)
 	}
 
 	var envelope cliresult.Envelope
 	if err := json.Unmarshal(out.Bytes(), &envelope); err != nil {
 		t.Fatalf("init --json output is not JSON: %v\n%s", err, out.String())
 	}
-	if len(envelope.NextAction.Hints) != 1 {
-		t.Fatalf("hints = %+v, want one browse hint", envelope.NextAction.Hints)
-	}
-	hint := envelope.NextAction.Hints[0]
-	if hint.ID != "browse_warehouse_before_configure" {
-		t.Fatalf("hint id = %q, want browse_warehouse_before_configure", hint.ID)
-	}
-	if len(hint.Commands) != 2 ||
-		hint.Commands[0] != "segmentstream warehouse browse --json" ||
-		hint.Commands[1] != "segmentstream warehouse browse --path <project> --json" {
-		t.Fatalf("hint commands = %+v, want browse commands", hint.Commands)
-	}
+	assertInitEnvelopeV2(t, envelope)
+	assertWarehouseConfigNextAction(t, envelope.NextAction)
 }
 
 func TestInitJSONDoesNotMutateExistingPartialConfig(t *testing.T) {
@@ -268,11 +247,8 @@ warehouse:
 	cmd.SetArgs([]string{"init", "--json"})
 
 	err = cmd.Execute()
-	if err == nil {
-		t.Fatal("expected init to return needs configuration")
-	}
-	if cliresult.ExitCode(err) != cliresult.ExitMisconfigured {
-		t.Fatalf("exit code = %d, want %d", cliresult.ExitCode(err), cliresult.ExitMisconfigured)
+	if err != nil {
+		t.Fatalf("init failed: %v", err)
 	}
 	after, err := os.ReadFile(configPath)
 	if err != nil {
@@ -286,8 +262,85 @@ warehouse:
 	if err := json.Unmarshal(out.Bytes(), &envelope); err != nil {
 		t.Fatalf("init --json output is not JSON: %v\n%s", err, out.String())
 	}
-	if envelope.NextAction.Command != "segmentstream warehouse configure --project <project> --dataset <dataset> --location <location>" {
-		t.Fatalf("next action = %+v, want warehouse configure command", envelope.NextAction)
+	assertInitEnvelopeV2(t, envelope)
+	assertWarehouseConfigNextAction(t, envelope.NextAction)
+}
+
+func TestInitJSONIncludesWarehouseAccessRunCommandWhenUntested(t *testing.T) {
+	root := t.TempDir()
+	withWorkingDirectory(t, root)
+	home := filepath.Join(root, "home")
+	writeConfig(t, root, `version: 1
+warehouse:
+  type: bigquery
+  auth: default-bigquery
+  project: example-project
+  dataset: segmentstream
+  location: EU
+`)
+	writeNamedCredential(t, home, "default-bigquery")
+
+	var out bytes.Buffer
+	var errOut bytes.Buffer
+	cmd := newRootCommand(&out, &errOut, cliOptions{
+		Credentials: credentials.Store{HomeDir: home},
+	})
+	cmd.SetArgs([]string{"init", "--json"})
+
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("init failed: %v", err)
+	}
+
+	var envelope cliresult.Envelope
+	if err := json.Unmarshal(out.Bytes(), &envelope); err != nil {
+		t.Fatalf("init --json output is not JSON: %v\n%s", err, out.String())
+	}
+	assertInitEnvelopeV2(t, envelope)
+	if envelope.NextAction.Type != "run_command" ||
+		envelope.NextAction.Stage != "warehouse_access" ||
+		envelope.NextAction.Command != "segmentstream warehouse test --json" {
+		t.Fatalf("next action = %+v, want warehouse access run command", envelope.NextAction)
+	}
+}
+
+func TestInitJSONIncludesRunCommandWhenReady(t *testing.T) {
+	root := t.TempDir()
+	withWorkingDirectory(t, root)
+	home := filepath.Join(root, "home")
+	writeConfig(t, root, `version: 1
+warehouse:
+  type: bigquery
+  auth: default-bigquery
+  project: example-project
+  dataset: segmentstream
+  location: EU
+`)
+	writeNamedCredential(t, home, "default-bigquery")
+	if err := (credentials.Store{HomeDir: home}).SaveAccessMarker("default-bigquery", "example-project", "segmentstream", "EU"); err != nil {
+		t.Fatal(err)
+	}
+
+	var out bytes.Buffer
+	var errOut bytes.Buffer
+	cmd := newRootCommand(&out, &errOut, cliOptions{
+		Credentials: credentials.Store{HomeDir: home},
+	})
+	cmd.SetArgs([]string{"init", "--json"})
+
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("init failed: %v", err)
+	}
+
+	var envelope cliresult.Envelope
+	if err := json.Unmarshal(out.Bytes(), &envelope); err != nil {
+		t.Fatalf("init --json output is not JSON: %v\n%s", err, out.String())
+	}
+	assertInitEnvelopeV2(t, envelope)
+	if !envelope.Ready ||
+		envelope.NextAction.Type != "run_command" ||
+		envelope.NextAction.Stage != "ready" ||
+		envelope.NextAction.Command != "segmentstream run" {
+		t.Fatalf("envelope = %+v, want ready run command", envelope)
 	}
 }
 
@@ -313,11 +366,8 @@ warehouse:
 	})
 	cmd.SetArgs([]string{"init", "--warehouse", "bigquery"})
 	err := cmd.Execute()
-	if err == nil {
-		t.Fatal("expected init to return needs auth")
-	}
-	if cliresult.ExitCode(err) != cliresult.ExitNeedsAuth {
-		t.Fatalf("exit code = %d, want %d; stderr=%q", cliresult.ExitCode(err), cliresult.ExitNeedsAuth, errOut.String())
+	if err != nil {
+		t.Fatalf("init failed: %v; stderr=%q", err, errOut.String())
 	}
 
 	data, err := os.ReadFile(filepath.Join(root, "segmentstream.yml"))
@@ -343,11 +393,8 @@ func TestInitDoesNotOverwriteExistingAgentGuide(t *testing.T) {
 	})
 	cmd.SetArgs([]string{"init", "--warehouse", "bigquery"})
 	err := cmd.Execute()
-	if err == nil {
-		t.Fatal("expected init to return needs auth")
-	}
-	if cliresult.ExitCode(err) != cliresult.ExitNeedsAuth {
-		t.Fatalf("exit code = %d, want %d; stderr=%q", cliresult.ExitCode(err), cliresult.ExitNeedsAuth, errOut.String())
+	if err != nil {
+		t.Fatalf("init failed: %v; stderr=%q", err, errOut.String())
 	}
 
 	data, err := os.ReadFile(filepath.Join(root, "AGENTS.md"))
@@ -373,11 +420,8 @@ func TestInitDoesNotOverwriteExistingReadme(t *testing.T) {
 	})
 	cmd.SetArgs([]string{"init", "--warehouse", "bigquery"})
 	err := cmd.Execute()
-	if err == nil {
-		t.Fatal("expected init to return needs auth")
-	}
-	if cliresult.ExitCode(err) != cliresult.ExitNeedsAuth {
-		t.Fatalf("exit code = %d, want %d; stderr=%q", cliresult.ExitCode(err), cliresult.ExitNeedsAuth, errOut.String())
+	if err != nil {
+		t.Fatalf("init failed: %v; stderr=%q", err, errOut.String())
 	}
 
 	data, err := os.ReadFile(filepath.Join(root, "README.md"))
@@ -913,6 +957,104 @@ warehouse:
 	}
 	if !verified {
 		t.Fatal("expected access marker to be saved")
+	}
+}
+
+func assertInitEnvelopeV2(t *testing.T, envelope cliresult.Envelope) {
+	t.Helper()
+	if envelope.SchemaVersion != cliresult.SchemaVersion {
+		t.Fatalf("schema version = %q, want %q", envelope.SchemaVersion, cliresult.SchemaVersion)
+	}
+	if strings.Join(envelope.Capabilities.AuthMethods, ",") != "oauth,service_account_key" {
+		t.Fatalf("auth methods = %+v, want oauth and service_account_key", envelope.Capabilities.AuthMethods)
+	}
+	switch envelope.NextAction.Type {
+	case "human_input":
+		if envelope.NextAction.Verify != "segmentstream init --json" {
+			t.Fatalf("verify = %q, want segmentstream init --json", envelope.NextAction.Verify)
+		}
+	case "run_command":
+		if strings.Contains(envelope.NextAction.Command, "<") {
+			t.Fatalf("run command contains placeholder: %+v", envelope.NextAction)
+		}
+	default:
+		t.Fatalf("next action type = %q, want human_input or run_command", envelope.NextAction.Type)
+	}
+}
+
+func assertWarehouseTypeNextAction(t *testing.T, action cliresult.NextAction) {
+	t.Helper()
+	if action.Type != "human_input" || action.Stage != "warehouse_type" {
+		t.Fatalf("next action = %+v, want warehouse_type human_input", action)
+	}
+	if len(action.Accepts) != 1 {
+		t.Fatalf("accepts = %+v, want one option", action.Accepts)
+	}
+	accept := action.Accepts[0]
+	if accept.Method != "bigquery" ||
+		accept.Command != "segmentstream init --warehouse bigquery" ||
+		accept.Value != "bigquery" ||
+		len(accept.Inputs) != 0 {
+		t.Fatalf("accept = %+v, want BigQuery selection", accept)
+	}
+}
+
+func assertWarehouseAuthNextAction(t *testing.T, action cliresult.NextAction) {
+	t.Helper()
+	if action.Type != "human_input" || action.Stage != "warehouse_auth" {
+		t.Fatalf("next action = %+v, want warehouse_auth human_input", action)
+	}
+	if len(action.Accepts) != 2 {
+		t.Fatalf("accepts = %+v, want oauth and service-account auth methods", action.Accepts)
+	}
+	oauth := action.Accepts[0]
+	if oauth.Method != "oauth" || oauth.Command != "segmentstream warehouse auth login" || len(oauth.Inputs) != 0 {
+		t.Fatalf("accept = %+v, want OAuth login auth", oauth)
+	}
+
+	serviceAccount := action.Accepts[1]
+	if serviceAccount.Method != "service_account_key" || serviceAccount.Command != "segmentstream warehouse auth" || len(serviceAccount.Inputs) != 1 {
+		t.Fatalf("accept = %+v, want service-account key auth", serviceAccount)
+	}
+	input := serviceAccount.Inputs[0]
+	if input.Name != "path" ||
+		input.Type != "filepath" ||
+		input.Flag != "--service-account-key" ||
+		input.Label == "" ||
+		!input.Required {
+		t.Fatalf("input = %+v, want required filepath input", input)
+	}
+}
+
+func assertWarehouseConfigNextAction(t *testing.T, action cliresult.NextAction) {
+	t.Helper()
+	if action.Type != "human_input" || action.Stage != "warehouse_config" {
+		t.Fatalf("next action = %+v, want warehouse_config human_input", action)
+	}
+	if len(action.Accepts) != 1 {
+		t.Fatalf("accepts = %+v, want one config option", action.Accepts)
+	}
+	accept := action.Accepts[0]
+	if accept.Method != "warehouse_config" || accept.Command != "segmentstream warehouse configure" || len(accept.Inputs) != 3 {
+		t.Fatalf("accept = %+v, want warehouse configure inputs", accept)
+	}
+	want := []struct {
+		name string
+		flag string
+	}{
+		{name: "project", flag: "--project"},
+		{name: "dataset", flag: "--dataset"},
+		{name: "location", flag: "--location"},
+	}
+	for i, wantInput := range want {
+		input := accept.Inputs[i]
+		if input.Name != wantInput.name ||
+			input.Type != "string" ||
+			input.Flag != wantInput.flag ||
+			input.Label == "" ||
+			!input.Required {
+			t.Fatalf("input[%d] = %+v, want %+v", i, input, wantInput)
+		}
 	}
 }
 

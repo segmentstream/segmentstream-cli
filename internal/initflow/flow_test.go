@@ -3,6 +3,7 @@ package initflow
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 
 	"github.com/segmentstream/segmentstream-cli/internal/cliresult"
@@ -22,12 +23,11 @@ func TestEvaluateAsksForWarehouseWithoutMutating(t *testing.T) {
 		t.Fatalf("Evaluate failed: %v", err)
 	}
 
-	if result.ExitCode != cliresult.ExitNeedsUserDecision {
-		t.Fatalf("exit code = %d, want %d", result.ExitCode, cliresult.ExitNeedsUserDecision)
+	assertInitEnvelopeV2(t, result.Envelope)
+	if result.ExitCode != cliresult.ExitReady {
+		t.Fatalf("exit code = %d, want %d", result.ExitCode, cliresult.ExitReady)
 	}
-	if result.Envelope.NextAction.Type != "ask_user" {
-		t.Fatalf("next action = %+v, want ask_user", result.Envelope.NextAction)
-	}
+	assertWarehouseTypeAction(t, result.Envelope.NextAction)
 	if projectStore.selectedWarehouse != "" {
 		t.Fatalf("selected warehouse = %q, want no mutation", projectStore.selectedWarehouse)
 	}
@@ -49,9 +49,11 @@ func TestEvaluateSelectsWarehouseThenNeedsAuth(t *testing.T) {
 		t.Fatalf("Evaluate failed: %v", err)
 	}
 
-	if result.ExitCode != cliresult.ExitNeedsAuth {
-		t.Fatalf("exit code = %d, want %d", result.ExitCode, cliresult.ExitNeedsAuth)
+	assertInitEnvelopeV2(t, result.Envelope)
+	if result.ExitCode != cliresult.ExitReady {
+		t.Fatalf("exit code = %d, want %d", result.ExitCode, cliresult.ExitReady)
 	}
+	assertWarehouseAuthAction(t, result.Envelope.NextAction)
 	if projectStore.selectedWarehouse != "bigquery" {
 		t.Fatalf("selected warehouse = %q, want bigquery", projectStore.selectedWarehouse)
 	}
@@ -89,24 +91,11 @@ func TestEvaluateNeedsConfigurationAfterAuth(t *testing.T) {
 		t.Fatalf("Evaluate failed: %v", err)
 	}
 
-	if result.ExitCode != cliresult.ExitMisconfigured {
-		t.Fatalf("exit code = %d, want %d", result.ExitCode, cliresult.ExitMisconfigured)
+	assertInitEnvelopeV2(t, result.Envelope)
+	if result.ExitCode != cliresult.ExitReady {
+		t.Fatalf("exit code = %d, want %d", result.ExitCode, cliresult.ExitReady)
 	}
-	if result.Envelope.NextAction.Command != "segmentstream warehouse configure --project <project> --dataset <dataset> --location <location>" {
-		t.Fatalf("next action = %+v", result.Envelope.NextAction)
-	}
-	if len(result.Envelope.NextAction.Hints) != 1 {
-		t.Fatalf("hints = %+v, want one browse hint", result.Envelope.NextAction.Hints)
-	}
-	hint := result.Envelope.NextAction.Hints[0]
-	if hint.ID != "browse_warehouse_before_configure" {
-		t.Fatalf("hint id = %q, want browse_warehouse_before_configure", hint.ID)
-	}
-	if len(hint.Commands) != 2 ||
-		hint.Commands[0] != "segmentstream warehouse browse --json" ||
-		hint.Commands[1] != "segmentstream warehouse browse --path <project> --json" {
-		t.Fatalf("hint commands = %+v, want browse commands", hint.Commands)
-	}
+	assertWarehouseConfigAction(t, result.Envelope.NextAction)
 }
 
 func TestEvaluateRejectsUnsupportedWarehouse(t *testing.T) {
@@ -127,16 +116,15 @@ func TestEvaluateRejectsUnsupportedWarehouse(t *testing.T) {
 		t.Fatalf("Evaluate failed: %v", err)
 	}
 
-	if result.ExitCode != cliresult.ExitNeedsUserDecision {
-		t.Fatalf("exit code = %d, want %d", result.ExitCode, cliresult.ExitNeedsUserDecision)
+	assertInitEnvelopeV2(t, result.Envelope)
+	if result.ExitCode != cliresult.ExitReady {
+		t.Fatalf("exit code = %d, want %d", result.ExitCode, cliresult.ExitReady)
 	}
 	assertStage(t, result.Envelope.Stages, 1, stageWarehouseType, statusInvalid, true)
 	if len(result.Envelope.Diagnostics) != 1 || result.Envelope.Diagnostics[0].ID != "unsupported_warehouse" {
 		t.Fatalf("diagnostics = %+v, want unsupported_warehouse", result.Envelope.Diagnostics)
 	}
-	if result.Envelope.NextAction.Type != "ask_user" {
-		t.Fatalf("next action = %+v, want ask_user", result.Envelope.NextAction)
-	}
+	assertWarehouseTypeAction(t, result.Envelope.NextAction)
 }
 
 func TestEvaluateReportsMissingAuthEvenWhenDefaultCredentialExists(t *testing.T) {
@@ -160,8 +148,9 @@ func TestEvaluateReportsMissingAuthEvenWhenDefaultCredentialExists(t *testing.T)
 		t.Fatalf("Evaluate failed: %v", err)
 	}
 
-	if result.ExitCode != cliresult.ExitMisconfigured {
-		t.Fatalf("exit code = %d, want %d", result.ExitCode, cliresult.ExitMisconfigured)
+	assertInitEnvelopeV2(t, result.Envelope)
+	if result.ExitCode != cliresult.ExitReady {
+		t.Fatalf("exit code = %d, want %d", result.ExitCode, cliresult.ExitReady)
 	}
 	if len(result.Envelope.Diagnostics) != 1 || result.Envelope.Diagnostics[0].ID != "missing_auth" {
 		t.Fatalf("diagnostics = %+v, want missing_auth", result.Envelope.Diagnostics)
@@ -178,12 +167,16 @@ func TestEvaluateNeedsAccessTestAfterConfiguration(t *testing.T) {
 		t.Fatalf("Evaluate failed: %v", err)
 	}
 
-	if result.ExitCode != cliresult.ExitMisconfigured {
-		t.Fatalf("exit code = %d, want %d", result.ExitCode, cliresult.ExitMisconfigured)
+	assertInitEnvelopeV2(t, result.Envelope)
+	if result.ExitCode != cliresult.ExitReady {
+		t.Fatalf("exit code = %d, want %d", result.ExitCode, cliresult.ExitReady)
 	}
-	if result.Envelope.NextAction.Command != "segmentstream warehouse test" {
-		t.Fatalf("next action = %+v, want warehouse test", result.Envelope.NextAction)
+	if result.Envelope.NextAction.Type != actionRunCommand ||
+		result.Envelope.NextAction.Stage != string(stageWarehouseAccess) ||
+		result.Envelope.NextAction.Command != "segmentstream warehouse test --json" {
+		t.Fatalf("next action = %+v, want warehouse access run_command", result.Envelope.NextAction)
 	}
+	assertNoPlaceholderRunCommand(t, result.Envelope.NextAction)
 	assertStage(t, result.Envelope.Stages, 4, stageWarehouseAccess, statusUntested, true)
 }
 
@@ -200,12 +193,16 @@ func TestEvaluateReadyAfterAccessMarker(t *testing.T) {
 		t.Fatalf("Evaluate failed: %v", err)
 	}
 
+	assertInitEnvelopeV2(t, result.Envelope)
 	if result.ExitCode != cliresult.ExitReady || !result.Envelope.Ready {
 		t.Fatalf("result = %+v, want ready", result)
 	}
-	if result.Envelope.NextAction.Type != "done" {
-		t.Fatalf("next action = %+v, want done", result.Envelope.NextAction)
+	if result.Envelope.NextAction.Type != actionRunCommand ||
+		result.Envelope.NextAction.Stage != "ready" ||
+		result.Envelope.NextAction.Command != "segmentstream run" {
+		t.Fatalf("next action = %+v, want ready run_command", result.Envelope.NextAction)
 	}
+	assertNoPlaceholderRunCommand(t, result.Envelope.NextAction)
 	for i, stage := range result.Envelope.Stages {
 		if stage.Current {
 			t.Fatalf("stage[%d] = %+v, want no current stage when ready", i, stage)
@@ -329,6 +326,104 @@ func assertStage(t *testing.T, stages []cliresult.Stage, index int, id stageID, 
 	stage := stages[index]
 	if stage.ID != string(id) || stage.Status != status || stage.Current != current {
 		t.Fatalf("stage[%d] = %+v, want id %q status %q current %v", index, stage, id, status, current)
+	}
+}
+
+func assertInitEnvelopeV2(t *testing.T, envelope cliresult.Envelope) {
+	t.Helper()
+	if envelope.SchemaVersion != cliresult.SchemaVersion {
+		t.Fatalf("schema version = %q, want %q", envelope.SchemaVersion, cliresult.SchemaVersion)
+	}
+	if strings.Join(envelope.Capabilities.AuthMethods, ",") != "oauth,service_account_key" {
+		t.Fatalf("auth methods = %+v, want oauth and service_account_key", envelope.Capabilities.AuthMethods)
+	}
+	if envelope.NextAction.Type != actionHumanInput && envelope.NextAction.Type != actionRunCommand {
+		t.Fatalf("next action type = %q, want human_input or run_command", envelope.NextAction.Type)
+	}
+	assertNoPlaceholderRunCommand(t, envelope.NextAction)
+}
+
+func assertWarehouseTypeAction(t *testing.T, action cliresult.NextAction) {
+	t.Helper()
+	if action.Type != actionHumanInput || action.Stage != string(stageWarehouseType) || action.Verify != "segmentstream init --json" {
+		t.Fatalf("next action = %+v, want warehouse_type human_input", action)
+	}
+	if len(action.Accepts) != 1 {
+		t.Fatalf("accepts = %+v, want one option", action.Accepts)
+	}
+	accept := action.Accepts[0]
+	if accept.Method != "bigquery" ||
+		accept.Label == "" ||
+		accept.Command != "segmentstream init --warehouse bigquery" ||
+		accept.Value != "bigquery" ||
+		len(accept.Inputs) != 0 {
+		t.Fatalf("accept = %+v, want bigquery warehouse selection", accept)
+	}
+}
+
+func assertWarehouseAuthAction(t *testing.T, action cliresult.NextAction) {
+	t.Helper()
+	if action.Type != actionHumanInput || action.Stage != string(stageWarehouseAuth) || action.Verify != "segmentstream init --json" {
+		t.Fatalf("next action = %+v, want warehouse_auth human_input", action)
+	}
+	if len(action.Accepts) != 2 {
+		t.Fatalf("accepts = %+v, want oauth and service-account auth methods", action.Accepts)
+	}
+	oauth := action.Accepts[0]
+	if oauth.Method != "oauth" || oauth.Command != "segmentstream warehouse auth login" || len(oauth.Inputs) != 0 {
+		t.Fatalf("accept = %+v, want OAuth login auth", oauth)
+	}
+
+	serviceAccount := action.Accepts[1]
+	if serviceAccount.Method != "service_account_key" || serviceAccount.Command != "segmentstream warehouse auth" || len(serviceAccount.Inputs) != 1 {
+		t.Fatalf("accept = %+v, want service-account key auth", serviceAccount)
+	}
+	input := serviceAccount.Inputs[0]
+	if input.Name != "path" ||
+		input.Type != "filepath" ||
+		input.Flag != "--service-account-key" ||
+		input.Label == "" ||
+		!input.Required {
+		t.Fatalf("input = %+v, want required service-account key path", input)
+	}
+}
+
+func assertWarehouseConfigAction(t *testing.T, action cliresult.NextAction) {
+	t.Helper()
+	if action.Type != actionHumanInput || action.Stage != string(stageWarehouseConfig) || action.Verify != "segmentstream init --json" {
+		t.Fatalf("next action = %+v, want warehouse_config human_input", action)
+	}
+	if len(action.Accepts) != 1 {
+		t.Fatalf("accepts = %+v, want one config option", action.Accepts)
+	}
+	accept := action.Accepts[0]
+	if accept.Method != "warehouse_config" || accept.Command != "segmentstream warehouse configure" || len(accept.Inputs) != 3 {
+		t.Fatalf("accept = %+v, want warehouse configure inputs", accept)
+	}
+	want := []struct {
+		name string
+		flag string
+	}{
+		{name: "project", flag: "--project"},
+		{name: "dataset", flag: "--dataset"},
+		{name: "location", flag: "--location"},
+	}
+	for i, wantInput := range want {
+		input := accept.Inputs[i]
+		if input.Name != wantInput.name ||
+			input.Type != "string" ||
+			input.Flag != wantInput.flag ||
+			input.Label == "" ||
+			!input.Required {
+			t.Fatalf("input[%d] = %+v, want %+v", i, input, wantInput)
+		}
+	}
+}
+
+func assertNoPlaceholderRunCommand(t *testing.T, action cliresult.NextAction) {
+	t.Helper()
+	if action.Type == actionRunCommand && strings.Contains(action.Command, "<") {
+		t.Fatalf("run_command contains placeholder: %+v", action)
 	}
 }
 

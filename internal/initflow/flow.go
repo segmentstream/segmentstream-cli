@@ -9,13 +9,13 @@ import (
 )
 
 const (
-	defaultBigQueryAuth              = "default-bigquery"
-	authWarehouseCommand             = "segmentstream warehouse auth login"
-	configureWarehouseCommand        = "segmentstream warehouse configure --project <project> --dataset <dataset> --location <location>"
-	testWarehouseCommand             = "segmentstream warehouse test"
-	browseWarehouseProjectsCommand   = "segmentstream warehouse browse --json"
-	browseWarehouseDatasetsCommand   = "segmentstream warehouse browse --path <project> --json"
-	browseWarehouseBeforeConfigureID = "browse_warehouse_before_configure"
+	defaultBigQueryAuth            = "default-bigquery"
+	oauthWarehouseCommand          = "segmentstream warehouse auth login"
+	serviceAccountWarehouseCommand = "segmentstream warehouse auth"
+	configureWarehouseCommand      = "segmentstream warehouse configure"
+	testWarehouseCommand           = "segmentstream warehouse test --json"
+	initVerifyCommand              = "segmentstream init --json"
+	runCommand                     = "segmentstream run"
 
 	statusSatisfiedWithWarnings = "satisfied_with_warnings"
 	statusSatisfied             = "satisfied"
@@ -24,9 +24,8 @@ const (
 	statusInvalid               = "invalid"
 	statusUntested              = "untested"
 
-	actionAskUser    = "ask_user"
+	actionHumanInput = "human_input"
 	actionRunCommand = "run_command"
-	actionDone       = "done"
 )
 
 type stageID string
@@ -71,7 +70,6 @@ var stagePlan = []stageSpec{
 type blocker struct {
 	StageID     stageID
 	Status      string
-	ExitCode    int
 	NextAction  cliresult.NextAction
 	Diagnostics []cliresult.Diagnostic
 }
@@ -109,7 +107,6 @@ func (service Service) Evaluate(ctx context.Context, options Options) (Result, e
 		return resultFor(envelope, eval.withBlocker(blocker{
 			StageID:    stageWarehouseType,
 			Status:     statusMissing,
-			ExitCode:   cliresult.ExitNeedsUserDecision,
 			NextAction: selectWarehouseAction(),
 		})), nil
 	}
@@ -118,7 +115,6 @@ func (service Service) Evaluate(ctx context.Context, options Options) (Result, e
 		return resultFor(envelope, eval.withBlocker(blocker{
 			StageID:     stageWarehouseType,
 			Status:      statusInvalid,
-			ExitCode:    cliresult.ExitNeedsUserDecision,
 			NextAction:  unsupportedWarehouseAction(),
 			Diagnostics: unsupportedWarehouseDiagnostics(config.Warehouse.Type),
 		})), nil
@@ -134,7 +130,6 @@ func (service Service) Evaluate(ctx context.Context, options Options) (Result, e
 		return resultFor(envelope, eval.withBlocker(blocker{
 			StageID:    stageWarehouseAuth,
 			Status:     statusMissing,
-			ExitCode:   cliresult.ExitNeedsAuth,
 			NextAction: authenticateWarehouseAction(),
 		})), nil
 	}
@@ -145,7 +140,6 @@ func (service Service) Evaluate(ctx context.Context, options Options) (Result, e
 		return resultFor(envelope, eval.withBlocker(blocker{
 			StageID:     stageWarehouseConfig,
 			Status:      statusInvalid,
-			ExitCode:    cliresult.ExitMisconfigured,
 			NextAction:  configureWarehouseAction(),
 			Diagnostics: diagnostics,
 		})), nil
@@ -160,7 +154,6 @@ func (service Service) Evaluate(ctx context.Context, options Options) (Result, e
 		return resultFor(envelope, eval.withBlocker(blocker{
 			StageID:    stageWarehouseAccess,
 			Status:     statusUntested,
-			ExitCode:   cliresult.ExitMisconfigured,
 			NextAction: testWarehouseAction(),
 		})), nil
 	}
@@ -180,6 +173,9 @@ func baseEnvelope(config project.Config) cliresult.Envelope {
 	return cliresult.Envelope{
 		SchemaVersion: cliresult.SchemaVersion,
 		Warehouse:     warehouse,
+		Capabilities: cliresult.Capabilities{
+			AuthMethods: []string{"oauth", "service_account_key"},
+		},
 		Warnings: []cliresult.Warning{
 			{
 				ID:          "docker",
@@ -213,7 +209,7 @@ func resultFor(envelope cliresult.Envelope, eval evaluation) Result {
 
 	envelope.NextAction = eval.blocker.NextAction
 	envelope.Diagnostics = eval.blocker.Diagnostics
-	return Result{Envelope: envelope, ExitCode: eval.blocker.ExitCode}
+	return Result{Envelope: envelope, ExitCode: cliresult.ExitReady}
 }
 
 func buildStages(plan []stageSpec, completed map[stageID]bool, blocker *blocker) []cliresult.Stage {
@@ -255,56 +251,111 @@ func completedStageStatus(id stageID) string {
 
 func selectWarehouseAction() cliresult.NextAction {
 	return cliresult.NextAction{
-		Type:          actionAskUser,
-		HumanRequired: true,
-		Reason:        "Select the warehouse SegmentStream should use.",
-		Options: []cliresult.NextActionOption{
-			{Value: "bigquery", Status: "available"},
-			{Value: "snowflake", Status: "coming_soon"},
-			{Value: "databricks", Status: "coming_soon"},
+		Type:   actionHumanInput,
+		Stage:  string(stageWarehouseType),
+		Reason: "Select the warehouse SegmentStream should use.",
+		Accepts: []cliresult.NextActionAccept{
+			{
+				Method:  "bigquery",
+				Label:   "Use BigQuery",
+				Command: "segmentstream init --warehouse bigquery",
+				Value:   "bigquery",
+			},
 		},
+		Verify: initVerifyCommand,
 	}
 }
 
 func unsupportedWarehouseAction() cliresult.NextAction {
 	return cliresult.NextAction{
-		Type:          actionAskUser,
-		HumanRequired: true,
-		Reason:        "Only BigQuery is available in this release.",
+		Type:   actionHumanInput,
+		Stage:  string(stageWarehouseType),
+		Reason: "Only BigQuery is available in this release.",
+		Accepts: []cliresult.NextActionAccept{
+			{
+				Method:  "bigquery",
+				Label:   "Use BigQuery",
+				Command: "segmentstream init --warehouse bigquery",
+				Value:   "bigquery",
+			},
+		},
+		Verify: initVerifyCommand,
 	}
 }
 
 func authenticateWarehouseAction() cliresult.NextAction {
 	return cliresult.NextAction{
-		Type:          actionRunCommand,
-		Command:       authWarehouseCommand,
-		HumanRequired: true,
-		Reason:        "No BigQuery credential was found for warehouse.auth.",
+		Type:   actionHumanInput,
+		Stage:  string(stageWarehouseAuth),
+		Reason: "No BigQuery credential is configured for the warehouse.",
+		Accepts: []cliresult.NextActionAccept{
+			{
+				Method:  "oauth",
+				Label:   "Google OAuth",
+				Command: oauthWarehouseCommand,
+			},
+			{
+				Method:  "service_account_key",
+				Label:   "Service-account key file",
+				Command: serviceAccountWarehouseCommand,
+				Inputs: []cliresult.NextActionInput{
+					{
+						Name:     "path",
+						Type:     "filepath",
+						Flag:     "--service-account-key",
+						Label:    "Service-account JSON key path",
+						Required: true,
+					},
+				},
+			},
+		},
+		Verify: initVerifyCommand,
 	}
 }
 
 func configureWarehouseAction() cliresult.NextAction {
 	return cliresult.NextAction{
-		Type:          actionRunCommand,
-		Command:       configureWarehouseCommand,
-		HumanRequired: true,
-		Reason:        "Warehouse project, dataset, or location is not configured.",
-		Hints: []cliresult.NextActionHint{
+		Type:   actionHumanInput,
+		Stage:  string(stageWarehouseConfig),
+		Reason: "Warehouse project, dataset, or location is not configured.",
+		Accepts: []cliresult.NextActionAccept{
 			{
-				ID:      browseWarehouseBeforeConfigureID,
-				Message: "Use warehouse browse to discover accessible projects, datasets, and locations before configuring.",
-				Commands: []string{
-					browseWarehouseProjectsCommand,
-					browseWarehouseDatasetsCommand,
+				Method:  "warehouse_config",
+				Label:   "Configure BigQuery warehouse",
+				Command: configureWarehouseCommand,
+				Inputs: []cliresult.NextActionInput{
+					{
+						Name:     "project",
+						Type:     "string",
+						Flag:     "--project",
+						Label:    "Google Cloud project ID",
+						Required: true,
+					},
+					{
+						Name:     "dataset",
+						Type:     "string",
+						Flag:     "--dataset",
+						Label:    "BigQuery dataset ID",
+						Required: true,
+					},
+					{
+						Name:     "location",
+						Type:     "string",
+						Flag:     "--location",
+						Label:    "BigQuery dataset location",
+						Required: true,
+					},
 				},
 			},
 		},
+		Verify: initVerifyCommand,
 	}
 }
 
 func testWarehouseAction() cliresult.NextAction {
 	return cliresult.NextAction{
 		Type:    actionRunCommand,
+		Stage:   string(stageWarehouseAccess),
 		Command: testWarehouseCommand,
 		Reason:  "Warehouse access has not been verified for this project, dataset, and location.",
 	}
@@ -312,8 +363,10 @@ func testWarehouseAction() cliresult.NextAction {
 
 func doneAction() cliresult.NextAction {
 	return cliresult.NextAction{
-		Type:      actionDone,
-		Suggested: "segmentstream run",
+		Type:    actionRunCommand,
+		Stage:   "ready",
+		Command: runCommand,
+		Reason:  "SegmentStream project is ready.",
 	}
 }
 
