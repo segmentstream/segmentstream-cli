@@ -110,11 +110,13 @@ segmentstream warehouse auth --service-account-key=/path/to/service-account.json
 
 Credentials are stored under `$HOME/.segmentstream/bigquery/`.
 
-Browse available projects and datasets:
+Browse available projects, datasets, tables, and schemas:
 
 ```sh
 segmentstream warehouse browse --json
 segmentstream warehouse browse --path my-gcp-project --json
+segmentstream warehouse browse --path my-gcp-project/my_dataset --json
+segmentstream warehouse browse --path my-gcp-project/my_dataset/my_table --json
 ```
 
 Configure the BigQuery project, dataset, and location:
@@ -197,8 +199,8 @@ credential outside the project.
 service-account credential outside the project for headless servers, CI, or
 other non-interactive environments.
 
-`segmentstream warehouse browse [--path <project>] [--json]` lists BigQuery
-projects or datasets.
+`segmentstream warehouse browse [--path <project>[/<dataset>[/<table>]]] [--json]`
+lists BigQuery projects, datasets, tables, or a table schema.
 
 `segmentstream warehouse configure --project --dataset --location` validates and
 writes warehouse settings.

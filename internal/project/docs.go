@@ -123,6 +123,8 @@ servers, CI, or other non-interactive environments.
 
 ` + "`segmentstream warehouse browse --json`" + ` lists accessible BigQuery projects.
 Use ` + "`segmentstream warehouse browse --path <project> --json`" + ` to list datasets.
+Use ` + "`segmentstream warehouse browse --path <project>/<dataset> --json`" + ` to list tables.
+Use ` + "`segmentstream warehouse browse --path <project>/<dataset>/<table> --json`" + ` to fetch a table schema.
 
 ` + "`segmentstream warehouse configure --project --dataset --location`" + ` validates
 and writes warehouse settings.

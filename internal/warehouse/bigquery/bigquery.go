@@ -26,14 +26,26 @@ func (connector Connector) Type() string {
 }
 
 func (connector Connector) Browse(ctx context.Context, credentialPath string, path string) (warehouse.BrowseResult, error) {
+	parts, err := parseBrowsePath(path)
+	if err != nil {
+		return warehouse.BrowseResult{}, err
+	}
 	service, err := newService(ctx, credentialPath)
 	if err != nil {
 		return warehouse.BrowseResult{}, err
 	}
-	if strings.TrimSpace(path) == "" {
+	switch len(parts) {
+	case 0:
 		return connector.browseProjects(ctx, service)
+	case 1:
+		return connector.browseDatasets(ctx, service, parts[0])
+	case 2:
+		return connector.browseTables(ctx, service, parts[0], parts[1])
+	case 3:
+		return connector.browseTableSchema(ctx, service, parts[0], parts[1], parts[2])
+	default:
+		return warehouse.BrowseResult{}, fmt.Errorf("invalid BigQuery browse path %q; use <project>, <project>/<dataset>, or <project>/<dataset>/<table>", path)
 	}
-	return connector.browseDatasets(ctx, service, strings.TrimSpace(path))
 }
 
 func (connector Connector) ValidateConfiguration(ctx context.Context, credentialPath string, config project.Warehouse) (warehouse.ConfigureResult, error) {
@@ -217,6 +229,78 @@ func (connector Connector) browseDatasets(ctx context.Context, service *bq.Servi
 		return warehouse.BrowseResult{}, fmt.Errorf("list BigQuery datasets: %w", explainGoogleAPIError(err))
 	}
 	return warehouse.NewBrowseResult(connector.Type(), "dataset", projectID, children), nil
+}
+
+func (connector Connector) browseTables(ctx context.Context, service *bq.Service, projectID, datasetID string) (warehouse.BrowseResult, error) {
+	var children []warehouse.BrowseChild
+	err := service.Tables.List(projectID, datasetID).Pages(ctx, func(response *bq.TableList) error {
+		for _, item := range response.Tables {
+			child := warehouse.BrowseChild{
+				FriendlyName: item.FriendlyName,
+				Type:         item.Type,
+			}
+			if item.TableReference != nil {
+				child.ID = item.TableReference.TableId
+			}
+			children = append(children, child)
+		}
+		return nil
+	})
+	if err != nil {
+		return warehouse.BrowseResult{}, fmt.Errorf("list BigQuery tables: %w", explainGoogleAPIError(err))
+	}
+	return warehouse.NewBrowseResult(connector.Type(), "table", joinBrowsePath(projectID, datasetID), children), nil
+}
+
+func (connector Connector) browseTableSchema(ctx context.Context, service *bq.Service, projectID, datasetID, tableID string) (warehouse.BrowseResult, error) {
+	table, err := service.Tables.Get(projectID, datasetID, tableID).View("BASIC").Do()
+	if err != nil {
+		return warehouse.BrowseResult{}, fmt.Errorf("get BigQuery table schema: %w", explainGoogleAPIError(err))
+	}
+	result := warehouse.NewBrowseResult(connector.Type(), "schema", joinBrowsePath(projectID, datasetID, tableID), []warehouse.BrowseChild{})
+	if table.Schema != nil {
+		result.Schema = browseSchemaFields(table.Schema.Fields)
+	}
+	return result, nil
+}
+
+func parseBrowsePath(path string) ([]string, error) {
+	trimmed := strings.Trim(strings.TrimSpace(path), "/")
+	if trimmed == "" {
+		return nil, nil
+	}
+	parts := strings.Split(trimmed, "/")
+	if len(parts) > 3 {
+		return nil, fmt.Errorf("invalid BigQuery browse path %q; use <project>, <project>/<dataset>, or <project>/<dataset>/<table>", path)
+	}
+	for i, part := range parts {
+		parts[i] = strings.TrimSpace(part)
+		if parts[i] == "" {
+			return nil, fmt.Errorf("invalid BigQuery browse path %q; path segments must not be empty", path)
+		}
+	}
+	return parts, nil
+}
+
+func joinBrowsePath(parts ...string) string {
+	return strings.Join(parts, "/")
+}
+
+func browseSchemaFields(fields []*bq.TableFieldSchema) []warehouse.BrowseField {
+	result := make([]warehouse.BrowseField, 0, len(fields))
+	for _, field := range fields {
+		if field == nil {
+			continue
+		}
+		result = append(result, warehouse.BrowseField{
+			Name:        field.Name,
+			Type:        field.Type,
+			Mode:        field.Mode,
+			Description: field.Description,
+			Fields:      browseSchemaFields(field.Fields),
+		})
+	}
+	return result
 }
 
 func newService(ctx context.Context, credentialPath string) (*bq.Service, error) {

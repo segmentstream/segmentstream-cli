@@ -919,6 +919,123 @@ func TestWarehouseBrowseDoesNotRequireConfiguredProject(t *testing.T) {
 	}
 }
 
+func TestWarehouseBrowseTableJSONForwardsPath(t *testing.T) {
+	root := t.TempDir()
+	withWorkingDirectory(t, root)
+	home := filepath.Join(root, "home")
+	if _, err := (project.Store{Root: root}).SelectWarehouse("bigquery"); err != nil {
+		t.Fatal(err)
+	}
+	writeNamedCredential(t, home, "default-bigquery")
+	fake := &fakeWarehouseConnector{
+		browseResult: warehouse.NewBrowseResult("bigquery", "table", "example-project/dataset_one", []warehouse.BrowseChild{
+			{ID: "events", FriendlyName: "Events", Type: "TABLE"},
+		}),
+	}
+
+	var out bytes.Buffer
+	var errOut bytes.Buffer
+	cmd := newRootCommand(&out, &errOut, cliOptions{
+		Credentials:       credentials.Store{HomeDir: home},
+		WarehouseRegistry: warehouse.NewRegistry(fake),
+	})
+	cmd.SetArgs([]string{"warehouse", "browse", "--path", "example-project/dataset_one", "--json"})
+
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("warehouse browse failed: %v", err)
+	}
+	if fake.browsePath != "example-project/dataset_one" {
+		t.Fatalf("browse path = %q, want table-list path", fake.browsePath)
+	}
+	var result warehouse.BrowseResult
+	if err := json.Unmarshal(out.Bytes(), &result); err != nil {
+		t.Fatalf("warehouse browse output is not JSON: %v\n%s", err, out.String())
+	}
+	if result.Level != "table" ||
+		result.Path != "example-project/dataset_one" ||
+		len(result.Children) != 1 ||
+		result.Children[0].ID != "events" ||
+		result.Children[0].Type != "TABLE" {
+		t.Fatalf("result = %+v, want table result", result)
+	}
+}
+
+func TestWarehouseBrowseTableTextOutput(t *testing.T) {
+	root := t.TempDir()
+	withWorkingDirectory(t, root)
+	home := filepath.Join(root, "home")
+	if _, err := (project.Store{Root: root}).SelectWarehouse("bigquery"); err != nil {
+		t.Fatal(err)
+	}
+	writeNamedCredential(t, home, "default-bigquery")
+	fake := &fakeWarehouseConnector{
+		browseResult: warehouse.NewBrowseResult("bigquery", "table", "example-project/dataset_one", []warehouse.BrowseChild{
+			{ID: "events", FriendlyName: "Events", Type: "TABLE"},
+		}),
+	}
+
+	var out bytes.Buffer
+	var errOut bytes.Buffer
+	cmd := newRootCommand(&out, &errOut, cliOptions{
+		Credentials:       credentials.Store{HomeDir: home},
+		WarehouseRegistry: warehouse.NewRegistry(fake),
+	})
+	cmd.SetArgs([]string{"warehouse", "browse", "--path", "example-project/dataset_one"})
+
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("warehouse browse failed: %v", err)
+	}
+	got := out.String()
+	for _, want := range []string{
+		"Tables in example-project/dataset_one:",
+		"- events (Events, TABLE)",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("warehouse browse output = %q, want %q", got, want)
+		}
+	}
+}
+
+func TestWarehouseBrowseSchemaTextOutput(t *testing.T) {
+	root := t.TempDir()
+	withWorkingDirectory(t, root)
+	home := filepath.Join(root, "home")
+	if _, err := (project.Store{Root: root}).SelectWarehouse("bigquery"); err != nil {
+		t.Fatal(err)
+	}
+	writeNamedCredential(t, home, "default-bigquery")
+	browseResult := warehouse.NewBrowseResult("bigquery", "schema", "example-project/dataset_one/events", []warehouse.BrowseChild{})
+	browseResult.Schema = []warehouse.BrowseField{
+		{Name: "event_id", Type: "STRING", Mode: "REQUIRED", Description: "Stable event id"},
+		{Name: "event_params", Type: "RECORD", Mode: "REPEATED", Fields: []warehouse.BrowseField{
+			{Name: "key", Type: "STRING"},
+		}},
+	}
+	fake := &fakeWarehouseConnector{browseResult: browseResult}
+
+	var out bytes.Buffer
+	var errOut bytes.Buffer
+	cmd := newRootCommand(&out, &errOut, cliOptions{
+		Credentials:       credentials.Store{HomeDir: home},
+		WarehouseRegistry: warehouse.NewRegistry(fake),
+	})
+	cmd.SetArgs([]string{"warehouse", "browse", "--path", "example-project/dataset_one/events"})
+
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("warehouse browse failed: %v", err)
+	}
+	got := out.String()
+	for _, want := range []string{
+		"Schema for example-project/dataset_one/events:",
+		"- event_id STRING REQUIRED - Stable event id",
+		"  - key STRING",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("warehouse browse output = %q, want %q", got, want)
+		}
+	}
+}
+
 func TestWarehouseTestSavesAccessMarker(t *testing.T) {
 	root := t.TempDir()
 	withWorkingDirectory(t, root)

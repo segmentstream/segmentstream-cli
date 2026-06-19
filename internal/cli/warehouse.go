@@ -182,10 +182,11 @@ func newWarehouseBrowseCommand(out io.Writer, credentialStore credentials.Store,
 	options := warehouseBrowseOptions{}
 	cmd := &cobra.Command{
 		Use:   "browse",
-		Short: "Browse warehouse projects and datasets",
+		Short: "Browse warehouse projects, datasets, tables, and schemas",
 		Long: "Browse the configured warehouse using the credential named by warehouse.auth.\n\n" +
 			"Without --path, BigQuery browse lists accessible projects. With --path <project>,\n" +
-			"it lists datasets in that project with their locations.",
+			"it lists datasets in that project with their locations. With --path <project>/<dataset>,\n" +
+			"it lists tables. With --path <project>/<dataset>/<table>, it returns the table schema.",
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			connector, credentialPath, err := loadWarehouseBrowseState(credentialStore, registry)
@@ -199,26 +200,11 @@ func newWarehouseBrowseCommand(out io.Writer, credentialStore credentials.Store,
 			if options.JSON {
 				return cliresult.WriteJSON(out, result)
 			}
-			if result.Level == "project" {
-				fmt.Fprintln(out, "Projects:")
-			} else {
-				fmt.Fprintf(out, "Datasets in %s:\n", result.Path)
-			}
-			for _, child := range result.Children {
-				if child.Location != "" {
-					fmt.Fprintf(out, "- %s (%s)\n", child.ID, child.Location)
-					continue
-				}
-				if child.FriendlyName != "" {
-					fmt.Fprintf(out, "- %s (%s)\n", child.ID, child.FriendlyName)
-					continue
-				}
-				fmt.Fprintf(out, "- %s\n", child.ID)
-			}
+			writeBrowseResult(out, result)
 			return nil
 		},
 	}
-	cmd.Flags().StringVar(&options.Path, "path", "", "Browse below this path; for BigQuery, pass a project ID to list datasets")
+	cmd.Flags().StringVar(&options.Path, "path", "", "Browse below this path; for BigQuery, use <project>, <project>/<dataset>, or <project>/<dataset>/<table>")
 	cmd.Flags().BoolVar(&options.JSON, "json", false, "Emit JSON output for agents and automation")
 	return cmd
 }
@@ -401,6 +387,63 @@ func loadWarehouseCommandState(credentialStore credentials.Store, registry wareh
 		return project.Config{}, nil, "", err
 	}
 	return config, connector, credentialPath, nil
+}
+
+func writeBrowseResult(out io.Writer, result warehouse.BrowseResult) {
+	switch result.Level {
+	case "project":
+		fmt.Fprintln(out, "Projects:")
+	case "dataset":
+		fmt.Fprintf(out, "Datasets in %s:\n", result.Path)
+	case "table":
+		fmt.Fprintf(out, "Tables in %s:\n", result.Path)
+	case "schema":
+		fmt.Fprintf(out, "Schema for %s:\n", result.Path)
+		for _, field := range result.Schema {
+			writeBrowseField(out, field, "")
+		}
+		return
+	default:
+		fmt.Fprintf(out, "%s in %s:\n", result.Level, result.Path)
+	}
+	for _, child := range result.Children {
+		writeBrowseChild(out, child)
+	}
+}
+
+func writeBrowseChild(out io.Writer, child warehouse.BrowseChild) {
+	if child.Location != "" {
+		fmt.Fprintf(out, "- %s (%s)\n", child.ID, child.Location)
+		return
+	}
+	if child.Type != "" && child.FriendlyName != "" {
+		fmt.Fprintf(out, "- %s (%s, %s)\n", child.ID, child.FriendlyName, child.Type)
+		return
+	}
+	if child.Type != "" {
+		fmt.Fprintf(out, "- %s (%s)\n", child.ID, child.Type)
+		return
+	}
+	if child.FriendlyName != "" {
+		fmt.Fprintf(out, "- %s (%s)\n", child.ID, child.FriendlyName)
+		return
+	}
+	fmt.Fprintf(out, "- %s\n", child.ID)
+}
+
+func writeBrowseField(out io.Writer, field warehouse.BrowseField, indent string) {
+	mode := ""
+	if field.Mode != "" {
+		mode = " " + field.Mode
+	}
+	description := ""
+	if field.Description != "" {
+		description = " - " + field.Description
+	}
+	fmt.Fprintf(out, "%s- %s %s%s%s\n", indent, field.Name, field.Type, mode, description)
+	for _, nested := range field.Fields {
+		writeBrowseField(out, nested, indent+"  ")
+	}
 }
 
 func writeConfigureResult(out io.Writer, result warehouse.ConfigureResult) {
