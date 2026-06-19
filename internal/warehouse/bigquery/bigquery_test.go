@@ -152,3 +152,97 @@ func TestBrowseDatasetsReadsAllPages(t *testing.T) {
 		t.Fatalf("children = %+v, want both dataset pages", result.Children)
 	}
 }
+
+func TestBrowseTablesReadsAllPages(t *testing.T) {
+	var requests int
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/bigquery/v2/projects/example-project/datasets/dataset_one/tables" {
+			t.Fatalf("path = %q, want tables list path", r.URL.Path)
+		}
+		requests++
+		w.Header().Set("Content-Type", "application/json")
+		if r.URL.Query().Get("pageToken") == "" {
+			fmt.Fprint(w, `{"tables":[{"tableReference":{"tableId":"events"},"friendlyName":"Events","type":"TABLE"}],"nextPageToken":"next"}`)
+			return
+		}
+		fmt.Fprint(w, `{"tables":[{"tableReference":{"tableId":"events_view"},"type":"VIEW"}]}`)
+	}))
+	defer server.Close()
+
+	service, err := bq.NewService(context.Background(), option.WithEndpoint(server.URL+"/bigquery/v2/"), option.WithoutAuthentication())
+	if err != nil {
+		t.Fatalf("NewService failed: %v", err)
+	}
+	result, err := NewConnector().browseTables(context.Background(), service, "example-project", "dataset_one")
+	if err != nil {
+		t.Fatalf("browseTables failed: %v", err)
+	}
+	if requests != 2 {
+		t.Fatalf("requests = %d, want two paged requests", requests)
+	}
+	if result.Level != "table" || result.Path != "example-project/dataset_one" {
+		t.Fatalf("result = %+v, want table level and dataset path", result)
+	}
+	if len(result.Children) != 2 ||
+		result.Children[0].ID != "events" ||
+		result.Children[0].FriendlyName != "Events" ||
+		result.Children[0].Type != "TABLE" ||
+		result.Children[1].ID != "events_view" ||
+		result.Children[1].Type != "VIEW" {
+		t.Fatalf("children = %+v, want both table pages", result.Children)
+	}
+}
+
+func TestBrowseTableSchemaReturnsNestedFields(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/bigquery/v2/projects/example-project/datasets/dataset_one/tables/events" {
+			t.Fatalf("path = %q, want table get path", r.URL.Path)
+		}
+		if r.URL.Query().Get("view") != "BASIC" {
+			t.Fatalf("view query param = %q, want BASIC", r.URL.Query().Get("view"))
+		}
+		w.Header().Set("Content-Type", "application/json")
+		fmt.Fprint(w, `{"schema":{"fields":[{"name":"event_id","type":"STRING","mode":"REQUIRED","description":"Stable event id"},{"name":"event_params","type":"RECORD","mode":"REPEATED","fields":[{"name":"key","type":"STRING"},{"name":"value","type":"RECORD","fields":[{"name":"string_value","type":"STRING"}]}]}]}}`)
+	}))
+	defer server.Close()
+
+	service, err := bq.NewService(context.Background(), option.WithEndpoint(server.URL+"/bigquery/v2/"), option.WithoutAuthentication())
+	if err != nil {
+		t.Fatalf("NewService failed: %v", err)
+	}
+	result, err := NewConnector().browseTableSchema(context.Background(), service, "example-project", "dataset_one", "events")
+	if err != nil {
+		t.Fatalf("browseTableSchema failed: %v", err)
+	}
+	if result.Level != "schema" || result.Path != "example-project/dataset_one/events" {
+		t.Fatalf("result = %+v, want schema level and table path", result)
+	}
+	if len(result.Children) != 0 {
+		t.Fatalf("children = %+v, want empty children", result.Children)
+	}
+	if len(result.Schema) != 2 ||
+		result.Schema[0].Name != "event_id" ||
+		result.Schema[0].Type != "STRING" ||
+		result.Schema[0].Mode != "REQUIRED" ||
+		result.Schema[0].Description != "Stable event id" ||
+		len(result.Schema[1].Fields) != 2 ||
+		len(result.Schema[1].Fields[1].Fields) != 1 ||
+		result.Schema[1].Fields[1].Fields[0].Name != "string_value" {
+		t.Fatalf("schema = %+v, want nested fields", result.Schema)
+	}
+}
+
+func TestBrowseRejectsInvalidPathsBeforeCreatingClient(t *testing.T) {
+	for _, path := range []string{
+		"example-project//dataset_one",
+		"example-project/dataset_one/events/extra",
+	} {
+		_, err := NewConnector().Browse(context.Background(), "", path)
+		if err == nil {
+			t.Fatalf("Browse(%q) succeeded, want invalid path error", path)
+		}
+		if !strings.Contains(err.Error(), "invalid BigQuery browse path") {
+			t.Fatalf("Browse(%q) error = %v, want invalid path error", path, err)
+		}
+	}
+}

@@ -45,12 +45,22 @@ type BrowseResult struct {
 	Level         string        `json:"level"`
 	Path          string        `json:"path,omitempty"`
 	Children      []BrowseChild `json:"children"`
+	Schema        []BrowseField `json:"schema,omitempty"`
 }
 
 type BrowseChild struct {
 	ID           string `json:"id"`
 	FriendlyName string `json:"friendly_name,omitempty"`
 	Location     string `json:"location,omitempty"`
+	Type         string `json:"type,omitempty"`
+}
+
+type BrowseField struct {
+	Name        string        `json:"name"`
+	Type        string        `json:"type"`
+	Mode        string        `json:"mode,omitempty"`
+	Description string        `json:"description"`
+	Fields      []BrowseField `json:"fields,omitempty"`
 }
 
 type ConfigureResult struct {
