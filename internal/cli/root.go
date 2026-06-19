@@ -8,6 +8,7 @@ import (
 
 	"github.com/segmentstream/segmentstream-cli/internal/cliresult"
 	"github.com/segmentstream/segmentstream-cli/internal/credentials"
+	"github.com/segmentstream/segmentstream-cli/internal/googleoauth"
 	"github.com/segmentstream/segmentstream-cli/internal/warehouse"
 	"github.com/segmentstream/segmentstream-cli/internal/warehouse/bigquery"
 	"github.com/spf13/cobra"
@@ -44,7 +45,7 @@ type cliOptions struct {
 	WarehouseOAuth    warehouseOAuthLogin
 }
 
-type warehouseOAuthLogin func(context.Context, io.Writer) (credentials.GoogleOAuthCredential, error)
+type warehouseOAuthLogin func(context.Context, io.Writer, googleoauth.LoginOptions) (credentials.GoogleOAuthCredential, error)
 
 func newRootCommand(out, errOut io.Writer, options cliOptions) *cobra.Command {
 	runner := options.CommandRunner

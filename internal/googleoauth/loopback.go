@@ -22,8 +22,11 @@ type callbackResult struct {
 	err  error
 }
 
-func startLoopbackServer(state string) (*loopbackServer, error) {
-	listener, err := net.Listen("tcp", "127.0.0.1:0")
+func startLoopbackServer(state string, port int) (*loopbackServer, error) {
+	if port < 0 || port > 65535 {
+		return nil, fmt.Errorf("invalid OAuth callback port %d; use 0-65535", port)
+	}
+	listener, err := net.Listen("tcp", fmt.Sprintf("127.0.0.1:%d", port))
 	if err != nil {
 		return nil, err
 	}
