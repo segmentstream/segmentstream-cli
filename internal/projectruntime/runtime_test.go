@@ -49,6 +49,9 @@ func TestPrepareCreatesExpectedRuntimeFiles(t *testing.T) {
 	if !strings.Contains(string(profiles), `project: "{{ env_var('SEGMENTSTREAM_BQ_PROJECT') }}"`) {
 		t.Fatalf("profiles.yml does not contain BigQuery project env var:\n%s", string(profiles))
 	}
+	if !strings.Contains(string(profiles), "https://www.googleapis.com/auth/bigquery") {
+		t.Fatalf("profiles.yml does not contain BigQuery OAuth scope:\n%s", string(profiles))
+	}
 	if strings.Contains(string(profiles), "example-project") {
 		t.Fatalf("profiles.yml should be static, got rendered project:\n%s", string(profiles))
 	}

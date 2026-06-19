@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -787,6 +789,66 @@ func TestWarehouseAuthStoresServiceAccountAndUpdatesConfig(t *testing.T) {
 	}
 }
 
+func TestWarehouseAuthLoginStoresOAuthCredentialAndUpdatesConfig(t *testing.T) {
+	root := t.TempDir()
+	withWorkingDirectory(t, root)
+	if _, err := (project.Store{Root: root}).SelectWarehouse("bigquery"); err != nil {
+		t.Fatal(err)
+	}
+
+	var out bytes.Buffer
+	var errOut bytes.Buffer
+	home := filepath.Join(root, "home")
+	cmd := newRootCommand(&out, &errOut, cliOptions{
+		Credentials: credentials.Store{HomeDir: home},
+		WarehouseOAuth: func(ctx context.Context, out io.Writer) (credentials.GoogleOAuthCredential, error) {
+			_ = ctx
+			fmt.Fprintln(out, "fake oauth login")
+			return credentials.GoogleOAuthCredential{
+				ClientID:     "client-id.apps.googleusercontent.com",
+				ClientSecret: "client-secret",
+				RefreshToken: "refresh-token",
+				TokenURI:     "https://oauth2.googleapis.com/token",
+				Scopes:       []string{"https://www.googleapis.com/auth/bigquery"},
+			}, nil
+		},
+	})
+	cmd.SetArgs([]string{"warehouse", "auth", "login", "--name", "production-bigquery", "--json"})
+
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("warehouse auth login failed: %v", err)
+	}
+
+	credentialPath, err := (credentials.Store{HomeDir: home}).BigQueryCredentialPath("production-bigquery")
+	if err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(credentialPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		`"type": "authorized_user"`,
+		`"client_id": "client-id.apps.googleusercontent.com"`,
+		`"refresh_token": "refresh-token"`,
+	} {
+		if !strings.Contains(string(data), want) {
+			t.Fatalf("credential = %s, want %q", string(data), want)
+		}
+	}
+
+	config, _, err := (project.Store{Root: root}).LoadPartial()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if config.Warehouse.Auth != "production-bigquery" {
+		t.Fatalf("warehouse.auth = %q, want production-bigquery", config.Warehouse.Auth)
+	}
+	if !strings.Contains(out.String(), `"method": "oauth"`) {
+		t.Fatalf("json output = %s, want oauth method", out.String())
+	}
+}
+
 func TestWarehouseConfigureJSONWritesValidConfig(t *testing.T) {
 	root := t.TempDir()
 	withWorkingDirectory(t, root)
@@ -903,8 +965,8 @@ func assertInitEnvelopeV2(t *testing.T, envelope cliresult.Envelope) {
 	if envelope.SchemaVersion != cliresult.SchemaVersion {
 		t.Fatalf("schema version = %q, want %q", envelope.SchemaVersion, cliresult.SchemaVersion)
 	}
-	if len(envelope.Capabilities.AuthMethods) != 1 || envelope.Capabilities.AuthMethods[0] != "service_account_key" {
-		t.Fatalf("auth methods = %+v, want service_account_key only", envelope.Capabilities.AuthMethods)
+	if strings.Join(envelope.Capabilities.AuthMethods, ",") != "oauth,service_account_key" {
+		t.Fatalf("auth methods = %+v, want oauth and service_account_key", envelope.Capabilities.AuthMethods)
 	}
 	switch envelope.NextAction.Type {
 	case "human_input":
@@ -942,14 +1004,19 @@ func assertWarehouseAuthNextAction(t *testing.T, action cliresult.NextAction) {
 	if action.Type != "human_input" || action.Stage != "warehouse_auth" {
 		t.Fatalf("next action = %+v, want warehouse_auth human_input", action)
 	}
-	if len(action.Accepts) != 1 {
-		t.Fatalf("accepts = %+v, want one auth method", action.Accepts)
+	if len(action.Accepts) != 2 {
+		t.Fatalf("accepts = %+v, want oauth and service-account auth methods", action.Accepts)
 	}
-	accept := action.Accepts[0]
-	if accept.Method != "service_account_key" || accept.Command != "segmentstream warehouse auth" || len(accept.Inputs) != 1 {
-		t.Fatalf("accept = %+v, want service-account key auth", accept)
+	oauth := action.Accepts[0]
+	if oauth.Method != "oauth" || oauth.Command != "segmentstream warehouse auth login" || len(oauth.Inputs) != 0 {
+		t.Fatalf("accept = %+v, want OAuth login auth", oauth)
 	}
-	input := accept.Inputs[0]
+
+	serviceAccount := action.Accepts[1]
+	if serviceAccount.Method != "service_account_key" || serviceAccount.Command != "segmentstream warehouse auth" || len(serviceAccount.Inputs) != 1 {
+		t.Fatalf("accept = %+v, want service-account key auth", serviceAccount)
+	}
+	input := serviceAccount.Inputs[0]
 	if input.Name != "path" ||
 		input.Type != "filepath" ||
 		input.Flag != "--service-account-key" ||

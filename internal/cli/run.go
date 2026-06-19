@@ -156,12 +156,12 @@ func preflightWarehouseAuth(config project.Config) error {
 	info, err := os.Stat(credentialsPath)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
-			return fmt.Errorf("BigQuery authentication for warehouse.auth %q was not found at %s; run segmentstream warehouse auth --service-account-key <path>", config.Warehouse.Auth, credentialsPath)
+			return fmt.Errorf("BigQuery authentication for warehouse.auth %q was not found at %s; run segmentstream warehouse auth login or segmentstream warehouse auth --service-account-key=<path>", config.Warehouse.Auth, credentialsPath)
 		}
 		return fmt.Errorf("check BigQuery authentication at %s: %w", credentialsPath, err)
 	}
 	if info.IsDir() {
-		return fmt.Errorf("BigQuery authentication path %s is a directory; run segmentstream warehouse auth --service-account-key <path>", credentialsPath)
+		return fmt.Errorf("BigQuery authentication path %s is a directory; run segmentstream warehouse auth login or segmentstream warehouse auth --service-account-key=<path>", credentialsPath)
 	}
 
 	return nil

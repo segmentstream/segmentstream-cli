@@ -27,6 +27,14 @@ type AccessMarker struct {
 	CheckedAt string `json:"checked_at"`
 }
 
+type GoogleOAuthCredential struct {
+	ClientID     string   `json:"client_id"`
+	ClientSecret string   `json:"client_secret"`
+	RefreshToken string   `json:"refresh_token"`
+	TokenURI     string   `json:"token_uri,omitempty"`
+	Scopes       []string `json:"scopes,omitempty"`
+}
+
 func (store Store) BigQueryCredentialPath(name string) (string, error) {
 	if err := validateCredentialName(name); err != nil {
 		return "", err
@@ -82,6 +90,51 @@ func (store Store) SaveServiceAccountKey(name, sourcePath string) (string, error
 	path := filepath.Join(dir, name+".json")
 	if err := os.WriteFile(path, data, 0o600); err != nil {
 		return "", fmt.Errorf("write BigQuery credential: %w", err)
+	}
+	if err := store.deleteAccessMarker(name); err != nil {
+		return "", err
+	}
+	return path, nil
+}
+
+func (store Store) SaveGoogleOAuthCredential(name string, credential GoogleOAuthCredential) (string, error) {
+	if err := validateCredentialName(name); err != nil {
+		return "", err
+	}
+	if err := validateGoogleOAuthCredential(credential); err != nil {
+		return "", err
+	}
+
+	payload := struct {
+		Type         string   `json:"type"`
+		ClientID     string   `json:"client_id"`
+		ClientSecret string   `json:"client_secret"`
+		RefreshToken string   `json:"refresh_token"`
+		TokenURI     string   `json:"token_uri"`
+		Scopes       []string `json:"scopes,omitempty"`
+	}{
+		Type:         "authorized_user",
+		ClientID:     strings.TrimSpace(credential.ClientID),
+		ClientSecret: strings.TrimSpace(credential.ClientSecret),
+		RefreshToken: strings.TrimSpace(credential.RefreshToken),
+		TokenURI:     strings.TrimSpace(credential.TokenURI),
+		Scopes:       credential.Scopes,
+	}
+	data, err := json.MarshalIndent(payload, "", "  ")
+	if err != nil {
+		return "", fmt.Errorf("marshal Google OAuth credential: %w", err)
+	}
+
+	dir, err := store.bigQueryDir()
+	if err != nil {
+		return "", err
+	}
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return "", fmt.Errorf("create BigQuery credential directory: %w", err)
+	}
+	path := filepath.Join(dir, name+".json")
+	if err := os.WriteFile(path, append(data, '\n'), 0o600); err != nil {
+		return "", fmt.Errorf("write Google OAuth credential: %w", err)
 	}
 	if err := store.deleteAccessMarker(name); err != nil {
 		return "", err
@@ -213,6 +266,22 @@ func validateServiceAccountJSON(data []byte) error {
 	}
 	if strings.TrimSpace(payload.ClientEmail) == "" || strings.TrimSpace(payload.PrivateKey) == "" {
 		return errors.New("service account key is missing client_email or private_key")
+	}
+	return nil
+}
+
+func validateGoogleOAuthCredential(credential GoogleOAuthCredential) error {
+	if strings.TrimSpace(credential.ClientID) == "" {
+		return errors.New("Google OAuth client_id is required")
+	}
+	if strings.TrimSpace(credential.ClientSecret) == "" {
+		return errors.New("Google OAuth client_secret is required")
+	}
+	if strings.TrimSpace(credential.RefreshToken) == "" {
+		return errors.New("Google OAuth refresh_token is required")
+	}
+	if strings.TrimSpace(credential.TokenURI) == "" {
+		return errors.New("Google OAuth token_uri is required")
 	}
 	return nil
 }

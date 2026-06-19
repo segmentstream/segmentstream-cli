@@ -334,8 +334,8 @@ func assertInitEnvelopeV2(t *testing.T, envelope cliresult.Envelope) {
 	if envelope.SchemaVersion != cliresult.SchemaVersion {
 		t.Fatalf("schema version = %q, want %q", envelope.SchemaVersion, cliresult.SchemaVersion)
 	}
-	if len(envelope.Capabilities.AuthMethods) != 1 || envelope.Capabilities.AuthMethods[0] != "service_account_key" {
-		t.Fatalf("auth methods = %+v, want service_account_key only", envelope.Capabilities.AuthMethods)
+	if strings.Join(envelope.Capabilities.AuthMethods, ",") != "oauth,service_account_key" {
+		t.Fatalf("auth methods = %+v, want oauth and service_account_key", envelope.Capabilities.AuthMethods)
 	}
 	if envelope.NextAction.Type != actionHumanInput && envelope.NextAction.Type != actionRunCommand {
 		t.Fatalf("next action type = %q, want human_input or run_command", envelope.NextAction.Type)
@@ -366,14 +366,19 @@ func assertWarehouseAuthAction(t *testing.T, action cliresult.NextAction) {
 	if action.Type != actionHumanInput || action.Stage != string(stageWarehouseAuth) || action.Verify != "segmentstream init --json" {
 		t.Fatalf("next action = %+v, want warehouse_auth human_input", action)
 	}
-	if len(action.Accepts) != 1 {
-		t.Fatalf("accepts = %+v, want one auth method", action.Accepts)
+	if len(action.Accepts) != 2 {
+		t.Fatalf("accepts = %+v, want oauth and service-account auth methods", action.Accepts)
 	}
-	accept := action.Accepts[0]
-	if accept.Method != "service_account_key" || accept.Command != "segmentstream warehouse auth" || len(accept.Inputs) != 1 {
-		t.Fatalf("accept = %+v, want service-account key auth", accept)
+	oauth := action.Accepts[0]
+	if oauth.Method != "oauth" || oauth.Command != "segmentstream warehouse auth login" || len(oauth.Inputs) != 0 {
+		t.Fatalf("accept = %+v, want OAuth login auth", oauth)
 	}
-	input := accept.Inputs[0]
+
+	serviceAccount := action.Accepts[1]
+	if serviceAccount.Method != "service_account_key" || serviceAccount.Command != "segmentstream warehouse auth" || len(serviceAccount.Inputs) != 1 {
+		t.Fatalf("accept = %+v, want service-account key auth", serviceAccount)
+	}
+	input := serviceAccount.Inputs[0]
 	if input.Name != "path" ||
 		input.Type != "filepath" ||
 		input.Flag != "--service-account-key" ||

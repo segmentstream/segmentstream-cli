@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -54,6 +56,25 @@ func TestValidateConfigurationRejectsPlaceholderProjectWithoutNetwork(t *testing
 	}
 	if len(result.Diagnostics) != 1 || result.Diagnostics[0].Field != "warehouse.project" {
 		t.Fatalf("diagnostics = %+v, want project diagnostic", result.Diagnostics)
+	}
+}
+
+func TestNewServiceAcceptsAuthorizedUserCredentialFile(t *testing.T) {
+	root := t.TempDir()
+	path := filepath.Join(root, "credential.json")
+	data := []byte(`{
+  "type": "authorized_user",
+  "client_id": "client-id.apps.googleusercontent.com",
+  "client_secret": "client-secret",
+  "refresh_token": "refresh-token",
+  "token_uri": "https://oauth2.googleapis.com/token"
+}`)
+	if err := os.WriteFile(path, data, 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := newService(context.Background(), path); err != nil {
+		t.Fatalf("newService failed for authorized_user credential: %v", err)
 	}
 }
 

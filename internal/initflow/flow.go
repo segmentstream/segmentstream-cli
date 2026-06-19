@@ -9,12 +9,13 @@ import (
 )
 
 const (
-	defaultBigQueryAuth       = "default-bigquery"
-	authWarehouseCommand      = "segmentstream warehouse auth"
-	configureWarehouseCommand = "segmentstream warehouse configure"
-	testWarehouseCommand      = "segmentstream warehouse test --json"
-	initVerifyCommand         = "segmentstream init --json"
-	runCommand                = "segmentstream run"
+	defaultBigQueryAuth            = "default-bigquery"
+	oauthWarehouseCommand          = "segmentstream warehouse auth login"
+	serviceAccountWarehouseCommand = "segmentstream warehouse auth"
+	configureWarehouseCommand      = "segmentstream warehouse configure"
+	testWarehouseCommand           = "segmentstream warehouse test --json"
+	initVerifyCommand              = "segmentstream init --json"
+	runCommand                     = "segmentstream run"
 
 	statusSatisfiedWithWarnings = "satisfied_with_warnings"
 	statusSatisfied             = "satisfied"
@@ -173,7 +174,7 @@ func baseEnvelope(config project.Config) cliresult.Envelope {
 		SchemaVersion: cliresult.SchemaVersion,
 		Warehouse:     warehouse,
 		Capabilities: cliresult.Capabilities{
-			AuthMethods: []string{"service_account_key"},
+			AuthMethods: []string{"oauth", "service_account_key"},
 		},
 		Warnings: []cliresult.Warning{
 			{
@@ -289,9 +290,14 @@ func authenticateWarehouseAction() cliresult.NextAction {
 		Reason: "No BigQuery credential is configured for the warehouse.",
 		Accepts: []cliresult.NextActionAccept{
 			{
+				Method:  "oauth",
+				Label:   "Google OAuth",
+				Command: oauthWarehouseCommand,
+			},
+			{
 				Method:  "service_account_key",
 				Label:   "Service-account key file",
-				Command: authWarehouseCommand,
+				Command: serviceAccountWarehouseCommand,
 				Inputs: []cliresult.NextActionInput{
 					{
 						Name:     "path",

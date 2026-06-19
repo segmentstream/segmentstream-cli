@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"os"
@@ -40,7 +41,10 @@ type cliOptions struct {
 	CommandRunner     commandRunner
 	Credentials       credentials.Store
 	WarehouseRegistry warehouse.Registry
+	WarehouseOAuth    warehouseOAuthLogin
 }
+
+type warehouseOAuthLogin func(context.Context, io.Writer) (credentials.GoogleOAuthCredential, error)
 
 func newRootCommand(out, errOut io.Writer, options cliOptions) *cobra.Command {
 	runner := options.CommandRunner
@@ -70,7 +74,7 @@ func newRootCommand(out, errOut io.Writer, options cliOptions) *cobra.Command {
 	root.AddCommand(newInitCommand(out, options))
 	root.AddCommand(newRunCommand(out, runner))
 	root.AddCommand(newSourceCommand(out))
-	root.AddCommand(newWarehouseCommand(out, options.Credentials, registry))
+	root.AddCommand(newWarehouseCommand(out, errOut, options.Credentials, registry, options.WarehouseOAuth))
 
 	return root
 }
