@@ -1,0 +1,8 @@
+# Workspace: install the SegmentStream CLI (the product under test).
+schema_version: "1"
+box:
+  image: ubuntu:24.04
+  setup:
+    - apt-get update -qq && apt-get install -y -qq curl ca-certificates jq
+    - curl -fsSL https://raw.githubusercontent.com/segmentstream/segmentstream-cli/main/install.sh | sh
+    - echo 'export PATH="$HOME/.segmentstream/bin:$HOME/.local/bin:$PATH"' > /etc/profile.d/segmentstream.sh

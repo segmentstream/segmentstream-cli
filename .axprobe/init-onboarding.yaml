@@ -1,0 +1,16 @@
+# Scenario-first AX spec: the onboarding experience we WANT, asserted as a bar.
+# No credential is provided, so the run should cleanly stop at the credential
+# gate. The bar forbids false errors — which is currently RED because `init`
+# exits 13/10 on not-ready states (SEG-781). It turns GREEN when that is fixed.
+schema_version: "1"
+name: init-onboarding
+goal: Set up segmentstream for the BigQuery warehouse as far as possible WITHOUT a service-account key — select BigQuery and proceed until the tool genuinely requires a credential, then stop. Do not fabricate a credential.
+
+expect:
+  # Robust bar: with no credential, onboarding must stop CLEANLY at the gate.
+  # This is deterministic enough for a CI gate.
+  outcome: stopped_at_gate
+  # Count-based bars (max_false_errors / max_human_interventions) depend on the
+  # agent's path and are nondeterministic — they belong behind multi-run
+  # aggregation (run N, require the bar in M/N), not a single-shot gate.
+  # Example once that exists: max_false_errors: 0  (RED on SEG-781 until fixed).
