@@ -1,11 +1,11 @@
 module github.com/segmentstream/segmentstream-cli
 
-go 1.20
+go 1.23.0
 
 require (
 	github.com/Khan/genqlient v0.7.0
 	github.com/spf13/cobra v1.8.1
-	golang.org/x/oauth2 v0.19.0
+	golang.org/x/oauth2 v0.27.0
 	google.golang.org/api v0.177.0
 )
 
