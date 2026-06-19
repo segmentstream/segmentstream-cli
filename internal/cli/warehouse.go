@@ -59,8 +59,9 @@ func newWarehouseAuthCommand(out, errOut io.Writer, credentialStore credentials.
 		Short: "Store or create warehouse authentication",
 		Long: "Store warehouse authentication for the warehouse selected in segmentstream.yml.\n\n" +
 			"Use --service-account-key to copy a BigQuery service-account key to\n" +
-			"~/.segmentstream/bigquery/<name>.json. Use auth login to authenticate with\n" +
-			"Google OAuth in a browser and store an authorized-user credential there.\n" +
+			"~/.segmentstream/bigquery/<name>.json. Use auth login to print a Google\n" +
+			"OAuth URL and store an authorized-user credential there after the loopback\n" +
+			"redirect completes.\n" +
 			"No credential material is written to segmentstream.yml.",
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -118,10 +119,12 @@ func newWarehouseAuthLoginCommand(out, errOut io.Writer, credentialStore credent
 	cmd := &cobra.Command{
 		Use:   "login",
 		Short: "Authenticate BigQuery with Google OAuth",
-		Long: "Authenticate BigQuery with Google OAuth in a browser and store a local\n" +
-			"authorized-user credential outside the project. The stored credential can be\n" +
-			"used by SegmentStream, dbt, and Google client libraries as Application Default\n" +
-			"Credentials.",
+		Long: "Authenticate BigQuery with Google OAuth by printing a URL for the user to\n" +
+			"open in a browser on the same computer. The command waits for Google's\n" +
+			"loopback redirect and stores a local authorized-user credential outside the\n" +
+			"project. The stored credential can be used by SegmentStream, dbt, and Google\n" +
+			"client libraries as Application Default Credentials. For headless servers or\n" +
+			"CI, use segmentstream warehouse auth --service-account-key=<path> instead.",
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			projectRoot, err := os.Getwd()

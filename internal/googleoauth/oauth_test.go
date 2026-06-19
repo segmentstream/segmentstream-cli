@@ -28,9 +28,3 @@ func TestDefaultConfigRequiresClientCredentials(t *testing.T) {
 		t.Fatal("expected missing client credentials error")
 	}
 }
-
-func TestOpenBrowserRejectsNonHTTPURL(t *testing.T) {
-	if err := OpenBrowser("file:///tmp/secret"); err == nil {
-		t.Fatal("expected non-http URL rejection")
-	}
-}

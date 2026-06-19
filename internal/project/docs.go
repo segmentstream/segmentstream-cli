@@ -113,11 +113,13 @@ source package's ` + "`events`" + ` model.
 the current directory. It is safe to run again: existing ` + "`segmentstream.yml`" + `,
 ` + "`README.md`" + `, and ` + "`AGENTS.md`" + ` are not overwritten.
 
-` + "`segmentstream warehouse auth login`" + ` stores a named BigQuery OAuth
-credential outside the project.
+` + "`segmentstream warehouse auth login`" + ` prints a Google OAuth URL, waits
+for a loopback browser redirect on the same computer, and stores a named
+BigQuery OAuth credential outside the project.
 
 ` + "`segmentstream warehouse auth --service-account-key=<path>`" + ` stores a
-named BigQuery service-account credential outside the project as a fallback.
+named BigQuery service-account credential outside the project for headless
+servers, CI, or other non-interactive environments.
 
 ` + "`segmentstream warehouse browse --json`" + ` lists accessible BigQuery projects.
 Use ` + "`segmentstream warehouse browse --path <project> --json`" + ` to list datasets.

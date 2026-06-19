@@ -89,10 +89,13 @@ Authenticate with Google OAuth:
 segmentstream warehouse auth login
 ```
 
-The CLI stores an authorized-user credential outside the project and writes only
-the credential name to `segmentstream.yml`.
+The CLI prints a Google OAuth URL and waits for the browser redirect on a local
+loopback callback. Open the URL in a browser on the same computer where the CLI
+is running. The CLI stores an authorized-user credential outside the project and
+writes only the credential name to `segmentstream.yml`.
 
-As a fallback, authenticate with a BigQuery service-account key:
+For headless servers, CI, or environments where a browser cannot reach the
+CLI's local callback, authenticate with a BigQuery service-account key:
 
 ```sh
 segmentstream warehouse auth --service-account-key=/path/to/service-account.json
@@ -179,11 +182,13 @@ source package under `sources/<name>/`.
 `segmentstream source init <name>` is a compatibility alias that uses the
 default source contract.
 
-`segmentstream warehouse auth login` stores a BigQuery OAuth credential outside
-the project.
+`segmentstream warehouse auth login` prints a Google OAuth URL, waits for a
+loopback browser redirect on the same computer, and stores a BigQuery OAuth
+credential outside the project.
 
 `segmentstream warehouse auth --service-account-key=<path>` stores a BigQuery
-service-account credential outside the project as a fallback.
+service-account credential outside the project for headless servers, CI, or
+other non-interactive environments.
 
 `segmentstream warehouse browse [--path <project>] [--json]` lists BigQuery
 projects or datasets.

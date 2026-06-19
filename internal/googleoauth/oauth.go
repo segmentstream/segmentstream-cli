@@ -7,14 +7,8 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"net"
-	"net/http"
-	"net/url"
 	"os"
-	"os/exec"
-	"runtime"
 	"strings"
-	"time"
 
 	"github.com/segmentstream/segmentstream-cli/internal/credentials"
 	"golang.org/x/oauth2"
@@ -34,13 +28,10 @@ var (
 	desktopClientSecret string
 )
 
-type BrowserOpener func(string) error
-
 type Config struct {
 	ClientID     string
 	ClientSecret string
 	Scopes       []string
-	OpenBrowser  BrowserOpener
 }
 
 func Login(ctx context.Context, out io.Writer) (credentials.GoogleOAuthCredential, error) {
@@ -61,7 +52,6 @@ func DefaultConfig() (Config, error) {
 		ClientID:     clientID,
 		ClientSecret: clientSecret,
 		Scopes:       DefaultScopes(),
-		OpenBrowser:  OpenBrowser,
 	}, nil
 }
 
@@ -78,64 +68,24 @@ func LoginWithConfig(ctx context.Context, out io.Writer, config Config) (credent
 	if len(config.Scopes) == 0 {
 		config.Scopes = DefaultScopes()
 	}
-	if config.OpenBrowser == nil {
-		config.OpenBrowser = OpenBrowser
-	}
 
 	state, err := randomState()
 	if err != nil {
 		return credentials.GoogleOAuthCredential{}, err
 	}
-	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	callbackServer, err := startLoopbackServer(state)
 	if err != nil {
 		return credentials.GoogleOAuthCredential{}, fmt.Errorf("start OAuth callback listener: %w", err)
 	}
-	defer listener.Close()
+	defer callbackServer.Shutdown()
 
 	oauthConfig := oauth2.Config{
 		ClientID:     config.ClientID,
 		ClientSecret: config.ClientSecret,
 		Scopes:       config.Scopes,
 		Endpoint:     google.Endpoint,
-		RedirectURL:  "http://" + listener.Addr().String() + "/callback",
+		RedirectURL:  callbackServer.RedirectURL(),
 	}
-
-	codeCh := make(chan string, 1)
-	errCh := make(chan error, 1)
-	server := &http.Server{
-		ReadHeaderTimeout: 10 * time.Second,
-		Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			if r.URL.Path != "/callback" {
-				http.NotFound(w, r)
-				return
-			}
-			if got := r.URL.Query().Get("state"); got != state {
-				http.Error(w, "OAuth state mismatch. Return to the terminal and retry.", http.StatusBadRequest)
-				errCh <- errors.New("OAuth state mismatch")
-				return
-			}
-			if oauthErr := r.URL.Query().Get("error"); oauthErr != "" {
-				description := r.URL.Query().Get("error_description")
-				http.Error(w, "OAuth authorization failed. Return to the terminal for details.", http.StatusBadRequest)
-				errCh <- fmt.Errorf("OAuth authorization failed: %s %s", oauthErr, description)
-				return
-			}
-			code := r.URL.Query().Get("code")
-			if code == "" {
-				http.Error(w, "OAuth authorization code is missing. Return to the terminal and retry.", http.StatusBadRequest)
-				errCh <- errors.New("OAuth authorization code is missing")
-				return
-			}
-			fmt.Fprintln(w, "SegmentStream warehouse login succeeded. You can return to the terminal.")
-			codeCh <- code
-		}),
-	}
-	defer server.Shutdown(context.Background())
-	go func() {
-		if err := server.Serve(listener); err != nil && !errors.Is(err, http.ErrServerClosed) {
-			errCh <- err
-		}
-	}()
 
 	authURL := oauthConfig.AuthCodeURL(
 		state,
@@ -143,53 +93,31 @@ func LoginWithConfig(ctx context.Context, out io.Writer, config Config) (credent
 		oauth2.SetAuthURLParam("prompt", "consent"),
 		oauth2.SetAuthURLParam("include_granted_scopes", "true"),
 	)
-	fmt.Fprintf(out, "Opening browser for SegmentStream warehouse login.\n")
-	fmt.Fprintf(out, "If the browser does not open, visit:\n%s\n", authURL)
-	if err := config.OpenBrowser(authURL); err != nil {
-		fmt.Fprintf(out, "Could not open browser automatically: %v\n", err)
-	}
+	fmt.Fprintln(out, "Open this URL in a browser on this computer to finish SegmentStream warehouse login:")
+	fmt.Fprintln(out, authURL)
+	fmt.Fprintln(out)
+	fmt.Fprintf(out, "The browser must be able to reach the local callback at %s.\n", oauthConfig.RedirectURL)
+	fmt.Fprintln(out, "For headless servers or CI, use segmentstream warehouse auth --service-account-key=<path>.")
+	fmt.Fprintln(out, "Waiting for Google OAuth callback. Press Ctrl-C to cancel.")
 
-	select {
-	case <-ctx.Done():
-		return credentials.GoogleOAuthCredential{}, ctx.Err()
-	case err := <-errCh:
-		return credentials.GoogleOAuthCredential{}, err
-	case code := <-codeCh:
-		token, err := oauthConfig.Exchange(ctx, code)
-		if err != nil {
-			return credentials.GoogleOAuthCredential{}, fmt.Errorf("exchange OAuth authorization code: %w", err)
-		}
-		if strings.TrimSpace(token.RefreshToken) == "" {
-			return credentials.GoogleOAuthCredential{}, errors.New("Google did not return a refresh token; revoke prior SegmentStream CLI access in your Google account and retry")
-		}
-		return credentials.GoogleOAuthCredential{
-			ClientID:     config.ClientID,
-			ClientSecret: config.ClientSecret,
-			RefreshToken: token.RefreshToken,
-			TokenURI:     TokenURL,
-			Scopes:       config.Scopes,
-		}, nil
-	}
-}
-
-func OpenBrowser(rawURL string) error {
-	parsed, err := url.Parse(rawURL)
+	code, err := callbackServer.Wait(ctx)
 	if err != nil {
-		return err
+		return credentials.GoogleOAuthCredential{}, err
 	}
-	if parsed.Scheme != "http" && parsed.Scheme != "https" {
-		return fmt.Errorf("refusing to open non-http URL %q", rawURL)
+	token, err := oauthConfig.Exchange(ctx, code)
+	if err != nil {
+		return credentials.GoogleOAuthCredential{}, fmt.Errorf("exchange OAuth authorization code: %w", err)
 	}
-	var cmd *exec.Cmd
-	switch runtime.GOOS {
-	case "darwin":
-		cmd = exec.Command("open", rawURL)
-	case "windows":
-		cmd = exec.Command("rundll32", "url.dll,FileProtocolHandler", rawURL)
-	default:
-		cmd = exec.Command("xdg-open", rawURL)
+	if strings.TrimSpace(token.RefreshToken) == "" {
+		return credentials.GoogleOAuthCredential{}, errors.New("Google did not return a refresh token; revoke prior SegmentStream CLI access in your Google account and retry")
 	}
-	return cmd.Start()
+	return credentials.GoogleOAuthCredential{
+		ClientID:     config.ClientID,
+		ClientSecret: config.ClientSecret,
+		RefreshToken: token.RefreshToken,
+		TokenURI:     TokenURL,
+		Scopes:       config.Scopes,
+	}, nil
 }
 
 func randomState() (string, error) {
