@@ -10,3 +10,5 @@ segmentstream:
       threads: 4
       priority: interactive
       retries: 1
+      scopes:
+        - https://www.googleapis.com/auth/bigquery

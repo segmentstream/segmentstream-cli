@@ -19,6 +19,8 @@ builds:
       - -X github.com/segmentstream/segmentstream-cli/internal/version.Version={{ .Version }}
       - -X github.com/segmentstream/segmentstream-cli/internal/version.Commit={{ .Commit }}
       - -X github.com/segmentstream/segmentstream-cli/internal/version.Date={{ .Date }}
+      - -X github.com/segmentstream/segmentstream-cli/internal/googleoauth.desktopClientID={{ .Env.SEGMENTSTREAM_GOOGLE_OAUTH_CLIENT_ID }}
+      - -X github.com/segmentstream/segmentstream-cli/internal/googleoauth.desktopClientSecret={{ .Env.SEGMENTSTREAM_GOOGLE_OAUTH_CLIENT_SECRET }}
 
 archives:
   - id: segmentstream

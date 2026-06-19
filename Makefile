@@ -10,11 +10,20 @@ GO ?= go
 MKDIR_P = mkdir -p "$(INSTALL_DIR)"
 endif
 
+-include .env
+
 INSTALL_DIR ?= $(HOME_DIR)/.segmentstream/bin
 BINARY := segmentstream$(EXE_EXT)
+LDFLAGS :=
+ifneq ($(SEGMENTSTREAM_GOOGLE_OAUTH_CLIENT_ID),)
+LDFLAGS += -X github.com/segmentstream/segmentstream-cli/internal/googleoauth.desktopClientID=$(SEGMENTSTREAM_GOOGLE_OAUTH_CLIENT_ID)
+endif
+ifneq ($(SEGMENTSTREAM_GOOGLE_OAUTH_CLIENT_SECRET),)
+LDFLAGS += -X github.com/segmentstream/segmentstream-cli/internal/googleoauth.desktopClientSecret=$(SEGMENTSTREAM_GOOGLE_OAUTH_CLIENT_SECRET)
+endif
 
 .PHONY: install
 install:
 	$(MKDIR_P)
-	"$(GO)" build -o "$(INSTALL_DIR)/$(BINARY)" ./cmd/segmentstream
+	@"$(GO)" build -ldflags "$(LDFLAGS)" -o "$(INSTALL_DIR)/$(BINARY)" ./cmd/segmentstream
 	@echo segmentstream installed to "$(INSTALL_DIR)/$(BINARY)"

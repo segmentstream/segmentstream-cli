@@ -83,15 +83,22 @@ package's `events` model.
 
 ## Configure Your Warehouse
 
-Authenticate with a BigQuery service-account key:
+Authenticate with Google OAuth:
 
 ```sh
-segmentstream warehouse auth --service-account-key /path/to/service-account.json
+segmentstream warehouse auth login
 ```
 
-The CLI copies the key to
-`$HOME/.segmentstream/bigquery/default-bigquery.json` and writes only the
-credential name to `segmentstream.yml`.
+The CLI stores an authorized-user credential outside the project and writes only
+the credential name to `segmentstream.yml`.
+
+As a fallback, authenticate with a BigQuery service-account key:
+
+```sh
+segmentstream warehouse auth --service-account-key=/path/to/service-account.json
+```
+
+Credentials are stored under `$HOME/.segmentstream/bigquery/`.
 
 Browse available projects and datasets:
 
@@ -172,8 +179,11 @@ source package under `sources/<name>/`.
 `segmentstream source init <name>` is a compatibility alias that uses the
 default source contract.
 
-`segmentstream warehouse auth --service-account-key <path>` stores a BigQuery
-service-account credential outside the project.
+`segmentstream warehouse auth login` stores a BigQuery OAuth credential outside
+the project.
+
+`segmentstream warehouse auth --service-account-key=<path>` stores a BigQuery
+service-account credential outside the project as a fallback.
 
 `segmentstream warehouse browse [--path <project>] [--json]` lists BigQuery
 projects or datasets.
@@ -202,3 +212,12 @@ Publish a GitHub Release with a semver tag to build and attach release assets:
 The release workflow runs when the release is published and uses GoReleaser to
 attach platform archives and `checksums.txt`. The installer waits for those
 assets, so it is safe to run shortly after publishing a release.
+
+Release builds bundle the SegmentStream desktop OAuth client using these
+GitHub Actions secrets:
+
+- `SEGMENTSTREAM_GOOGLE_OAUTH_CLIENT_ID`
+- `SEGMENTSTREAM_GOOGLE_OAUTH_CLIENT_SECRET`
+
+For local builds, put the same variable names in `.env` or export them before
+running `make install`.

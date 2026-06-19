@@ -27,6 +27,7 @@ func TestEnsureProjectReadmeCreatesReadme(t *testing.T) {
 		"Getting Started",
 		"Docker Compose V2",
 		"Git",
+		"segmentstream warehouse auth login",
 		"segmentstream warehouse auth --service-account-key",
 		"~/.segmentstream/bigquery/<auth>.json",
 		"Run The Pipeline",

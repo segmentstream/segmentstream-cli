@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -151,7 +153,7 @@ func TestInitWarehouseJSONSelectsBigQueryAndReturnsEnvelope(t *testing.T) {
 	if err := json.Unmarshal(out.Bytes(), &envelope); err != nil {
 		t.Fatalf("init --warehouse --json output is not JSON: %v\n%s", err, out.String())
 	}
-	if envelope.NextAction.Command != "segmentstream warehouse auth --service-account-key <path>" {
+	if envelope.NextAction.Command != "segmentstream warehouse auth login" {
 		t.Fatalf("next action = %+v, want warehouse auth command", envelope.NextAction)
 	}
 
@@ -740,6 +742,66 @@ func TestWarehouseAuthStoresServiceAccountAndUpdatesConfig(t *testing.T) {
 	}
 	if config.Warehouse.Auth != "production-bigquery" {
 		t.Fatalf("warehouse.auth = %q, want production-bigquery", config.Warehouse.Auth)
+	}
+}
+
+func TestWarehouseAuthLoginStoresOAuthCredentialAndUpdatesConfig(t *testing.T) {
+	root := t.TempDir()
+	withWorkingDirectory(t, root)
+	if _, err := (project.Store{Root: root}).SelectWarehouse("bigquery"); err != nil {
+		t.Fatal(err)
+	}
+
+	var out bytes.Buffer
+	var errOut bytes.Buffer
+	home := filepath.Join(root, "home")
+	cmd := newRootCommand(&out, &errOut, cliOptions{
+		Credentials: credentials.Store{HomeDir: home},
+		WarehouseOAuth: func(ctx context.Context, out io.Writer) (credentials.GoogleOAuthCredential, error) {
+			_ = ctx
+			fmt.Fprintln(out, "fake oauth login")
+			return credentials.GoogleOAuthCredential{
+				ClientID:     "client-id.apps.googleusercontent.com",
+				ClientSecret: "client-secret",
+				RefreshToken: "refresh-token",
+				TokenURI:     "https://oauth2.googleapis.com/token",
+				Scopes:       []string{"https://www.googleapis.com/auth/bigquery"},
+			}, nil
+		},
+	})
+	cmd.SetArgs([]string{"warehouse", "auth", "login", "--name", "production-bigquery", "--json"})
+
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("warehouse auth login failed: %v", err)
+	}
+
+	credentialPath, err := (credentials.Store{HomeDir: home}).BigQueryCredentialPath("production-bigquery")
+	if err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(credentialPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		`"type": "authorized_user"`,
+		`"client_id": "client-id.apps.googleusercontent.com"`,
+		`"refresh_token": "refresh-token"`,
+	} {
+		if !strings.Contains(string(data), want) {
+			t.Fatalf("credential = %s, want %q", string(data), want)
+		}
+	}
+
+	config, _, err := (project.Store{Root: root}).LoadPartial()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if config.Warehouse.Auth != "production-bigquery" {
+		t.Fatalf("warehouse.auth = %q, want production-bigquery", config.Warehouse.Auth)
+	}
+	if !strings.Contains(out.String(), `"method": "oauth"`) {
+		t.Fatalf("json output = %s, want oauth method", out.String())
 	}
 }
 

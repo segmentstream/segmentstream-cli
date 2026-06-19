@@ -29,7 +29,7 @@ Start by selecting and configuring the warehouse:
 
 ` + "```sh" + `
 segmentstream init --warehouse bigquery
-segmentstream warehouse auth --service-account-key /path/to/service-account.json
+segmentstream warehouse auth login
 segmentstream warehouse configure --project example-project --dataset segmentstream --location US
 segmentstream warehouse test
 ` + "```" + `
@@ -51,7 +51,7 @@ Choose the BigQuery dataset where SegmentStream should produce tables.
 
 ` + "`warehouse.auth`" + ` is a named credential reference. It is not a secret value.
 Do not put tokens, private keys, passwords, or SQL in ` + "`segmentstream.yml`" + `.
-Credentials are copied to ` + "`~/.segmentstream/bigquery/<auth>.json`" + `.
+Credentials are stored outside the project at ` + "`~/.segmentstream/bigquery/<auth>.json`" + `.
 
 ## Run The Pipeline
 
@@ -113,8 +113,11 @@ source package's ` + "`events`" + ` model.
 the current directory. It is safe to run again: existing ` + "`segmentstream.yml`" + `,
 ` + "`README.md`" + `, and ` + "`AGENTS.md`" + ` are not overwritten.
 
-` + "`segmentstream warehouse auth --service-account-key <path>`" + ` stores a named
-BigQuery credential outside the project.
+` + "`segmentstream warehouse auth login`" + ` stores a named BigQuery OAuth
+credential outside the project.
+
+` + "`segmentstream warehouse auth --service-account-key=<path>`" + ` stores a
+named BigQuery service-account credential outside the project as a fallback.
 
 ` + "`segmentstream warehouse browse --json`" + ` lists accessible BigQuery projects.
 Use ` + "`segmentstream warehouse browse --path <project> --json`" + ` to list datasets.

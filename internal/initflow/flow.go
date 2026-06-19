@@ -10,7 +10,7 @@ import (
 
 const (
 	defaultBigQueryAuth              = "default-bigquery"
-	authWarehouseCommand             = "segmentstream warehouse auth --service-account-key <path>"
+	authWarehouseCommand             = "segmentstream warehouse auth login"
 	configureWarehouseCommand        = "segmentstream warehouse configure --project <project> --dataset <dataset> --location <location>"
 	testWarehouseCommand             = "segmentstream warehouse test"
 	browseWarehouseProjectsCommand   = "segmentstream warehouse browse --json"

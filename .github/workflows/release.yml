@@ -40,3 +40,5 @@ jobs:
           args: release --clean
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          SEGMENTSTREAM_GOOGLE_OAUTH_CLIENT_ID: ${{ secrets.SEGMENTSTREAM_GOOGLE_OAUTH_CLIENT_ID }}
+          SEGMENTSTREAM_GOOGLE_OAUTH_CLIENT_SECRET: ${{ secrets.SEGMENTSTREAM_GOOGLE_OAUTH_CLIENT_SECRET }}
