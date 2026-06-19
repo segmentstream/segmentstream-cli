@@ -34,12 +34,20 @@ type Config struct {
 	Scopes       []string
 }
 
+type LoginOptions struct {
+	Port int
+}
+
 func Login(ctx context.Context, out io.Writer) (credentials.GoogleOAuthCredential, error) {
+	return LoginWithOptions(ctx, out, LoginOptions{})
+}
+
+func LoginWithOptions(ctx context.Context, out io.Writer, options LoginOptions) (credentials.GoogleOAuthCredential, error) {
 	config, err := DefaultConfig()
 	if err != nil {
 		return credentials.GoogleOAuthCredential{}, err
 	}
-	return LoginWithConfig(ctx, out, config)
+	return LoginWithConfigOptions(ctx, out, config, options)
 }
 
 func DefaultConfig() (Config, error) {
@@ -60,6 +68,10 @@ func DefaultScopes() []string {
 }
 
 func LoginWithConfig(ctx context.Context, out io.Writer, config Config) (credentials.GoogleOAuthCredential, error) {
+	return LoginWithConfigOptions(ctx, out, config, LoginOptions{})
+}
+
+func LoginWithConfigOptions(ctx context.Context, out io.Writer, config Config, options LoginOptions) (credentials.GoogleOAuthCredential, error) {
 	config.ClientID = strings.TrimSpace(config.ClientID)
 	config.ClientSecret = strings.TrimSpace(config.ClientSecret)
 	if config.ClientID == "" || config.ClientSecret == "" {
@@ -73,7 +85,7 @@ func LoginWithConfig(ctx context.Context, out io.Writer, config Config) (credent
 	if err != nil {
 		return credentials.GoogleOAuthCredential{}, err
 	}
-	callbackServer, err := startLoopbackServer(state)
+	callbackServer, err := startLoopbackServer(state, options.Port)
 	if err != nil {
 		return credentials.GoogleOAuthCredential{}, fmt.Errorf("start OAuth callback listener: %w", err)
 	}

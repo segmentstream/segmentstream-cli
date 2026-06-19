@@ -370,8 +370,16 @@ func assertWarehouseAuthAction(t *testing.T, action cliresult.NextAction) {
 		t.Fatalf("accepts = %+v, want oauth and service-account auth methods", action.Accepts)
 	}
 	oauth := action.Accepts[0]
-	if oauth.Method != "oauth" || oauth.Command != "segmentstream warehouse auth login" || len(oauth.Inputs) != 0 {
+	if oauth.Method != "oauth" || oauth.Command != "segmentstream warehouse auth login" || len(oauth.Inputs) != 1 {
 		t.Fatalf("accept = %+v, want OAuth login auth", oauth)
+	}
+	oauthInput := oauth.Inputs[0]
+	if oauthInput.Name != "port" ||
+		oauthInput.Type != "integer" ||
+		oauthInput.Flag != "--port" ||
+		oauthInput.Label == "" ||
+		oauthInput.Required {
+		t.Fatalf("input = %+v, want optional OAuth callback port", oauthInput)
 	}
 
 	serviceAccount := action.Accepts[1]

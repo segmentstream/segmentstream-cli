@@ -17,6 +17,7 @@ import (
 type warehouseAuthOptions struct {
 	ServiceAccountKey string
 	Name              string
+	Port              int
 	JSON              bool
 }
 
@@ -114,7 +115,7 @@ func newWarehouseAuthCommand(out, errOut io.Writer, credentialStore credentials.
 func newWarehouseAuthLoginCommand(out, errOut io.Writer, credentialStore credentials.Store, oauthLogin warehouseOAuthLogin) *cobra.Command {
 	options := warehouseAuthOptions{Name: "default-bigquery"}
 	if oauthLogin == nil {
-		oauthLogin = googleoauth.Login
+		oauthLogin = googleoauth.LoginWithOptions
 	}
 	cmd := &cobra.Command{
 		Use:   "login",
@@ -127,6 +128,9 @@ func newWarehouseAuthLoginCommand(out, errOut io.Writer, credentialStore credent
 			"CI, use segmentstream warehouse auth --service-account-key=<path> instead.",
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if options.Port < 0 || options.Port > 65535 {
+				return fmt.Errorf("invalid --port %d; use 0-65535", options.Port)
+			}
 			projectRoot, err := os.Getwd()
 			if err != nil {
 				return fmt.Errorf("find current directory: %w", err)
@@ -139,7 +143,9 @@ func newWarehouseAuthLoginCommand(out, errOut io.Writer, credentialStore credent
 			if options.JSON && errOut != nil {
 				loginOut = errOut
 			}
-			credential, err := oauthLogin(cmd.Context(), loginOut)
+			credential, err := oauthLogin(cmd.Context(), loginOut, googleoauth.LoginOptions{
+				Port: options.Port,
+			})
 			if err != nil {
 				return err
 			}
@@ -174,6 +180,7 @@ func newWarehouseAuthLoginCommand(out, errOut io.Writer, credentialStore credent
 		},
 	}
 	cmd.Flags().StringVar(&options.Name, "name", "default-bigquery", "Credential name stored in segmentstream.yml as warehouse.auth")
+	cmd.Flags().IntVar(&options.Port, "port", 0, "Loopback callback port for Google OAuth; 0 chooses a random available port")
 	cmd.Flags().BoolVar(&options.JSON, "json", false, "Emit JSON output for agents and automation")
 	return cmd
 }

@@ -293,6 +293,15 @@ func authenticateWarehouseAction() cliresult.NextAction {
 				Method:  "oauth",
 				Label:   "Google OAuth",
 				Command: oauthWarehouseCommand,
+				Inputs: []cliresult.NextActionInput{
+					{
+						Name:     "port",
+						Type:     "integer",
+						Flag:     "--port",
+						Label:    "OAuth loopback callback port",
+						Required: false,
+					},
+				},
 			},
 			{
 				Method:  "service_account_key",

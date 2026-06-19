@@ -13,6 +13,7 @@ import (
 
 	"github.com/segmentstream/segmentstream-cli/internal/cliresult"
 	"github.com/segmentstream/segmentstream-cli/internal/credentials"
+	"github.com/segmentstream/segmentstream-cli/internal/googleoauth"
 	"github.com/segmentstream/segmentstream-cli/internal/project"
 	"github.com/segmentstream/segmentstream-cli/internal/warehouse"
 )
@@ -799,10 +800,12 @@ func TestWarehouseAuthLoginStoresOAuthCredentialAndUpdatesConfig(t *testing.T) {
 	var out bytes.Buffer
 	var errOut bytes.Buffer
 	home := filepath.Join(root, "home")
+	var oauthOptions googleoauth.LoginOptions
 	cmd := newRootCommand(&out, &errOut, cliOptions{
 		Credentials: credentials.Store{HomeDir: home},
-		WarehouseOAuth: func(ctx context.Context, out io.Writer) (credentials.GoogleOAuthCredential, error) {
+		WarehouseOAuth: func(ctx context.Context, out io.Writer, options googleoauth.LoginOptions) (credentials.GoogleOAuthCredential, error) {
 			_ = ctx
+			oauthOptions = options
 			fmt.Fprintln(out, "fake oauth login")
 			return credentials.GoogleOAuthCredential{
 				ClientID:     "client-id.apps.googleusercontent.com",
@@ -817,6 +820,9 @@ func TestWarehouseAuthLoginStoresOAuthCredentialAndUpdatesConfig(t *testing.T) {
 
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("warehouse auth login failed: %v", err)
+	}
+	if oauthOptions.Port != 0 {
+		t.Fatalf("OAuth port = %d, want default 0", oauthOptions.Port)
 	}
 
 	credentialPath, err := (credentials.Store{HomeDir: home}).BigQueryCredentialPath("production-bigquery")
@@ -846,6 +852,80 @@ func TestWarehouseAuthLoginStoresOAuthCredentialAndUpdatesConfig(t *testing.T) {
 	}
 	if !strings.Contains(out.String(), `"method": "oauth"`) {
 		t.Fatalf("json output = %s, want oauth method", out.String())
+	}
+}
+
+func TestWarehouseAuthLoginPassesPortToOAuth(t *testing.T) {
+	root := t.TempDir()
+	withWorkingDirectory(t, root)
+	if _, err := (project.Store{Root: root}).SelectWarehouse("bigquery"); err != nil {
+		t.Fatal(err)
+	}
+
+	var out bytes.Buffer
+	var errOut bytes.Buffer
+	var oauthOptions googleoauth.LoginOptions
+	cmd := newRootCommand(&out, &errOut, cliOptions{
+		Credentials: credentials.Store{HomeDir: filepath.Join(root, "home")},
+		WarehouseOAuth: func(ctx context.Context, out io.Writer, options googleoauth.LoginOptions) (credentials.GoogleOAuthCredential, error) {
+			_ = ctx
+			_ = out
+			oauthOptions = options
+			return credentials.GoogleOAuthCredential{
+				ClientID:     "client-id.apps.googleusercontent.com",
+				ClientSecret: "client-secret",
+				RefreshToken: "refresh-token",
+				TokenURI:     "https://oauth2.googleapis.com/token",
+				Scopes:       []string{"https://www.googleapis.com/auth/bigquery"},
+			}, nil
+		},
+	})
+	cmd.SetArgs([]string{"warehouse", "auth", "login", "--port", "40473"})
+
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("warehouse auth login failed: %v", err)
+	}
+	if oauthOptions.Port != 40473 {
+		t.Fatalf("OAuth port = %d, want 40473", oauthOptions.Port)
+	}
+}
+
+func TestWarehouseAuthLoginRejectsInvalidPort(t *testing.T) {
+	for _, port := range []string{"-1", "65536"} {
+		t.Run(port, func(t *testing.T) {
+			var out bytes.Buffer
+			var errOut bytes.Buffer
+			called := false
+			cmd := newRootCommand(&out, &errOut, cliOptions{
+				WarehouseOAuth: func(ctx context.Context, out io.Writer, options googleoauth.LoginOptions) (credentials.GoogleOAuthCredential, error) {
+					called = true
+					return credentials.GoogleOAuthCredential{}, nil
+				},
+			})
+			cmd.SetArgs([]string{"warehouse", "auth", "login", "--port=" + port})
+
+			err := cmd.Execute()
+			if err == nil || !strings.Contains(err.Error(), "invalid --port") {
+				t.Fatalf("error = %v, want invalid --port", err)
+			}
+			if called {
+				t.Fatal("OAuth login was called for invalid port")
+			}
+		})
+	}
+}
+
+func TestWarehouseAuthLoginHelpIncludesPort(t *testing.T) {
+	var out bytes.Buffer
+	var errOut bytes.Buffer
+	cmd := newRootCommand(&out, &errOut, cliOptions{})
+	cmd.SetArgs([]string{"warehouse", "auth", "login", "--help"})
+
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("warehouse auth login --help failed: %v", err)
+	}
+	if !strings.Contains(out.String(), "--port") {
+		t.Fatalf("help output = %s, want --port", out.String())
 	}
 }
 
@@ -1125,8 +1205,16 @@ func assertWarehouseAuthNextAction(t *testing.T, action cliresult.NextAction) {
 		t.Fatalf("accepts = %+v, want oauth and service-account auth methods", action.Accepts)
 	}
 	oauth := action.Accepts[0]
-	if oauth.Method != "oauth" || oauth.Command != "segmentstream warehouse auth login" || len(oauth.Inputs) != 0 {
+	if oauth.Method != "oauth" || oauth.Command != "segmentstream warehouse auth login" || len(oauth.Inputs) != 1 {
 		t.Fatalf("accept = %+v, want OAuth login auth", oauth)
+	}
+	oauthInput := oauth.Inputs[0]
+	if oauthInput.Name != "port" ||
+		oauthInput.Type != "integer" ||
+		oauthInput.Flag != "--port" ||
+		oauthInput.Label == "" ||
+		oauthInput.Required {
+		t.Fatalf("input = %+v, want optional OAuth callback port", oauthInput)
 	}
 
 	serviceAccount := action.Accepts[1]

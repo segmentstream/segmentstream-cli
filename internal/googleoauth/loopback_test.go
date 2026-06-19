@@ -1,11 +1,50 @@
 package googleoauth
 
 import (
+	"fmt"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
 )
+
+func TestStartLoopbackServerUsesFixedPort(t *testing.T) {
+	reservation, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	port := reservation.Addr().(*net.TCPAddr).Port
+	if err := reservation.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	server, err := startLoopbackServer("expected-state", port)
+	if err != nil {
+		t.Fatalf("startLoopbackServer failed: %v", err)
+	}
+	defer server.Shutdown()
+
+	want := fmt.Sprintf("http://127.0.0.1:%d/callback", port)
+	if got := server.RedirectURL(); got != want {
+		t.Fatalf("RedirectURL = %q, want %q", got, want)
+	}
+}
+
+func TestStartLoopbackServerRejectsInvalidPort(t *testing.T) {
+	for _, port := range []int{-1, 65536} {
+		t.Run(fmt.Sprint(port), func(t *testing.T) {
+			server, err := startLoopbackServer("expected-state", port)
+			if err == nil {
+				server.Shutdown()
+				t.Fatal("startLoopbackServer succeeded, want invalid port error")
+			}
+			if !strings.Contains(err.Error(), "invalid OAuth callback port") {
+				t.Fatalf("error = %v, want invalid OAuth callback port", err)
+			}
+		})
+	}
+}
 
 func TestCallbackHandlerAcceptsMatchingStateAndCode(t *testing.T) {
 	resultCh := make(chan callbackResult, 1)

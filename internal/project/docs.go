@@ -113,9 +113,11 @@ source package's ` + "`events`" + ` model.
 the current directory. It is safe to run again: existing ` + "`segmentstream.yml`" + `,
 ` + "`README.md`" + `, and ` + "`AGENTS.md`" + ` are not overwritten.
 
-` + "`segmentstream warehouse auth login`" + ` prints a Google OAuth URL, waits
-for a loopback browser redirect on the same computer, and stores a named
-BigQuery OAuth credential outside the project.
+` + "`segmentstream warehouse auth login [--port <port>]`" + ` prints a Google
+OAuth URL, waits for a loopback browser redirect on the same computer, and
+stores a named BigQuery OAuth credential outside the project. Use ` + "`--port`" + `
+when a sandbox or container needs the callback port to be forwarded before the
+command starts.
 
 ` + "`segmentstream warehouse auth --service-account-key=<path>`" + ` stores a
 named BigQuery service-account credential outside the project for headless

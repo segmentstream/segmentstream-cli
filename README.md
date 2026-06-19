@@ -101,6 +101,12 @@ loopback callback. Open the URL in a browser on the same computer where the CLI
 is running. The CLI stores an authorized-user credential outside the project and
 writes only the credential name to `segmentstream.yml`.
 
+For sandbox or forwarded-loopback testing, choose the callback port explicitly:
+
+```sh
+segmentstream warehouse auth login --port 40473
+```
+
 For headless servers, CI, or environments where a browser cannot reach the
 CLI's local callback, authenticate with a BigQuery service-account key:
 
@@ -191,9 +197,10 @@ source package under `sources/<name>/`.
 `segmentstream source init <name>` is a compatibility alias that uses the
 default source contract.
 
-`segmentstream warehouse auth login` prints a Google OAuth URL, waits for a
-loopback browser redirect on the same computer, and stores a BigQuery OAuth
-credential outside the project.
+`segmentstream warehouse auth login [--port <port>]` prints a Google OAuth URL,
+waits for a loopback browser redirect on the same computer, and stores a
+BigQuery OAuth credential outside the project. Use `--port` when a sandbox or
+container needs the callback port to be forwarded before the command starts.
 
 `segmentstream warehouse auth --service-account-key=<path>` stores a BigQuery
 service-account credential outside the project for headless servers, CI, or
