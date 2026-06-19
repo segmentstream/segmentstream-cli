@@ -7,7 +7,7 @@ import (
 )
 
 const (
-	SchemaVersion = "1"
+	SchemaVersion = "2"
 
 	ExitReady               = 0
 	ExitGenericError        = 1
@@ -36,31 +36,40 @@ type Diagnostic struct {
 	Suggestion string `json:"suggestion,omitempty"`
 }
 
-type NextActionOption struct {
-	Value  string `json:"value"`
-	Status string `json:"status,omitempty"`
+type Capabilities struct {
+	AuthMethods []string `json:"auth_methods,omitempty"`
 }
 
-type NextActionHint struct {
-	ID       string   `json:"id"`
-	Message  string   `json:"message"`
-	Commands []string `json:"commands,omitempty"`
+type NextActionInput struct {
+	Name     string `json:"name"`
+	Type     string `json:"type"`
+	Flag     string `json:"flag"`
+	Label    string `json:"label"`
+	Required bool   `json:"required"`
+}
+
+type NextActionAccept struct {
+	Method  string            `json:"method"`
+	Label   string            `json:"label"`
+	Command string            `json:"command"`
+	Value   string            `json:"value,omitempty"`
+	Inputs  []NextActionInput `json:"inputs,omitempty"`
 }
 
 type NextAction struct {
-	Type          string             `json:"type"`
-	Command       string             `json:"command,omitempty"`
-	HumanRequired bool               `json:"human_required,omitempty"`
-	Reason        string             `json:"reason,omitempty"`
-	Suggested     string             `json:"suggested,omitempty"`
-	Options       []NextActionOption `json:"options,omitempty"`
-	Hints         []NextActionHint   `json:"hints,omitempty"`
+	Type    string             `json:"type"`
+	Stage   string             `json:"stage"`
+	Command string             `json:"command,omitempty"`
+	Reason  string             `json:"reason,omitempty"`
+	Accepts []NextActionAccept `json:"accepts,omitempty"`
+	Verify  string             `json:"verify,omitempty"`
 }
 
 type Envelope struct {
 	SchemaVersion string       `json:"schema_version"`
 	Ready         bool         `json:"ready"`
 	Warehouse     *string      `json:"warehouse"`
+	Capabilities  Capabilities `json:"capabilities"`
 	Stages        []Stage      `json:"stages"`
 	Warnings      []Warning    `json:"warnings,omitempty"`
 	Diagnostics   []Diagnostic `json:"diagnostics,omitempty"`

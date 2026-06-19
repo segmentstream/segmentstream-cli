@@ -46,6 +46,13 @@ Use `segmentstream init --json` when an agent or script needs a stable state
 envelope with the next action. JSON mode is read-only unless you pass a mutation
 flag such as `--warehouse`.
 
+The `init --json` envelope uses `schema_version: "2"`. A successful state
+inspection exits `0` even when `ready` is `false`; use `ready`, `stages`,
+`diagnostics`, and `next_action` to decide what to do next. `next_action.type`
+is either `run_command` with an executable command or `human_input` with
+structured `accepts` inputs and a `verify` command. The envelope also reports
+supported auth methods under `capabilities.auth_methods`.
+
 ## Create A Source
 
 Sources are project-owned dbt packages that contain source-specific
