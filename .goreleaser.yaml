@@ -37,6 +37,8 @@ release:
     name: segmentstream-cli
   mode: keep-existing
   replace_existing_artifacts: true
+  extra_files:
+    - glob: ./install.sh
 
 snapshot:
   version_template: "{{ incpatch .Version }}-next"
