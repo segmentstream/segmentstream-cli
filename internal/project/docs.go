@@ -34,6 +34,12 @@ segmentstream warehouse configure --project example-project --dataset segmentstr
 segmentstream warehouse test
 ` + "```" + `
 
+If the dataset does not exist yet, create it explicitly:
+
+` + "```sh" + `
+segmentstream warehouse configure --project example-project --dataset segmentstream --location US --create-dataset
+` + "```" + `
+
 The resulting ` + "`segmentstream.yml`" + ` should look like:
 
 ` + "```yaml" + `
@@ -47,7 +53,8 @@ warehouse:
   location: US
 ` + "```" + `
 
-Choose the BigQuery dataset where SegmentStream should produce tables.
+Choose the BigQuery dataset where SegmentStream should produce tables. The
+configure command only creates the dataset when ` + "`--create-dataset`" + ` is set.
 
 ` + "`warehouse.auth`" + ` is a named credential reference. It is not a secret value.
 Do not put tokens, private keys, passwords, or SQL in ` + "`segmentstream.yml`" + `.

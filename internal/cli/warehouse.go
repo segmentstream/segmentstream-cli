@@ -27,10 +27,11 @@ type warehouseBrowseOptions struct {
 }
 
 type warehouseConfigureOptions struct {
-	Project  string
-	Dataset  string
-	Location string
-	JSON     bool
+	Project       string
+	Dataset       string
+	Location      string
+	CreateDataset bool
+	JSON          bool
 }
 
 type warehouseTestOptions struct {
@@ -252,7 +253,9 @@ func newWarehouseConfigureCommand(out io.Writer, credentialStore credentials.Sto
 			config.Warehouse.Project = options.Project
 			config.Warehouse.Dataset = options.Dataset
 			config.Warehouse.Location = options.Location
-			result, err := connector.ValidateConfiguration(cmd.Context(), credentialPath, config.Warehouse)
+			result, err := connector.ValidateConfiguration(cmd.Context(), credentialPath, config.Warehouse, warehouse.ConfigureOptions{
+				CreateDataset: options.CreateDataset,
+			})
 			if err != nil {
 				return err
 			}
@@ -277,6 +280,7 @@ func newWarehouseConfigureCommand(out io.Writer, credentialStore credentials.Sto
 	cmd.Flags().StringVar(&options.Project, "project", "", "Google Cloud project ID")
 	cmd.Flags().StringVar(&options.Dataset, "dataset", "", "BigQuery dataset ID")
 	cmd.Flags().StringVar(&options.Location, "location", "", "BigQuery dataset location, for example US or EU")
+	cmd.Flags().BoolVar(&options.CreateDataset, "create-dataset", false, "Create the BigQuery dataset if it is missing")
 	cmd.Flags().BoolVar(&options.JSON, "json", false, "Emit JSON output for agents and automation")
 	return cmd
 }
@@ -456,15 +460,27 @@ func writeBrowseField(out io.Writer, field warehouse.BrowseField, indent string)
 func writeConfigureResult(out io.Writer, result warehouse.ConfigureResult) {
 	if len(result.Diagnostics) == 0 {
 		fmt.Fprintln(out, "Warehouse configuration is valid.")
+		for _, validation := range result.Validations {
+			if validation.Status == "created" && validation.Message != "" {
+				fmt.Fprintln(out, validation.Message)
+			}
+		}
 		return
 	}
 	fmt.Fprintln(out, "Warehouse configuration is invalid.")
 	for _, diagnostic := range result.Diagnostics {
 		if diagnostic.Field != "" {
 			fmt.Fprintf(out, "- %s: %s\n", diagnostic.Field, diagnostic.Message)
-			continue
+		} else {
+			fmt.Fprintf(out, "- %s\n", diagnostic.Message)
 		}
-		fmt.Fprintf(out, "- %s\n", diagnostic.Message)
+		if diagnostic.Suggestion != "" {
+			if diagnostic.ID == "missing_dataset" {
+				fmt.Fprintf(out, "  Next action: %s\n", diagnostic.Suggestion)
+				continue
+			}
+			fmt.Fprintf(out, "  Suggestion: %s\n", diagnostic.Suggestion)
+		}
 	}
 }
 

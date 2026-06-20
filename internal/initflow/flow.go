@@ -354,6 +354,13 @@ func configureWarehouseAction() cliresult.NextAction {
 						Label:    "BigQuery dataset location",
 						Required: true,
 					},
+					{
+						Name:     "create_dataset",
+						Type:     "boolean",
+						Flag:     "--create-dataset",
+						Label:    "Create the BigQuery dataset if missing",
+						Required: false,
+					},
 				},
 			},
 		},

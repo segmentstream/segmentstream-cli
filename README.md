@@ -132,6 +132,12 @@ segmentstream warehouse configure --project my-gcp-project --dataset segmentstre
 segmentstream warehouse test
 ```
 
+If the dataset does not exist yet, create it explicitly:
+
+```sh
+segmentstream warehouse configure --project my-gcp-project --dataset segmentstream --location US --create-dataset
+```
+
 The resulting `segmentstream.yml` should look like:
 
 ```yaml
@@ -209,8 +215,9 @@ other non-interactive environments.
 `segmentstream warehouse browse [--path <project>[/<dataset>[/<table>]]] [--json]`
 lists BigQuery projects, datasets, tables, or a table schema.
 
-`segmentstream warehouse configure --project --dataset --location` validates and
-writes warehouse settings.
+`segmentstream warehouse configure --project --dataset --location [--create-dataset]`
+validates and writes warehouse settings. Use `--create-dataset` to create a
+missing BigQuery dataset explicitly.
 
 `segmentstream warehouse test` checks BigQuery connect, read, create table, and
 query permissions.

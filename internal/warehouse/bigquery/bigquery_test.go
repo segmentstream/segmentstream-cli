@@ -2,6 +2,7 @@ package bigquery
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -11,6 +12,7 @@ import (
 	"testing"
 
 	"github.com/segmentstream/segmentstream-cli/internal/project"
+	"github.com/segmentstream/segmentstream-cli/internal/warehouse"
 	bq "google.golang.org/api/bigquery/v2"
 	"google.golang.org/api/option"
 )
@@ -22,7 +24,7 @@ func TestValidateConfigurationRejectsInvalidDatasetWithoutNetwork(t *testing.T) 
 		Project:  "example-project",
 		Dataset:  "segmentstream-new",
 		Location: "EU",
-	})
+	}, warehouse.ConfigureOptions{})
 	if err != nil {
 		t.Fatalf("ValidateConfiguration failed: %v", err)
 	}
@@ -47,7 +49,7 @@ func TestValidateConfigurationRejectsPlaceholderProjectWithoutNetwork(t *testing
 		Project:  "your-gcp-project",
 		Dataset:  "segmentstream",
 		Location: "EU",
-	})
+	}, warehouse.ConfigureOptions{})
 	if err != nil {
 		t.Fatalf("ValidateConfiguration failed: %v", err)
 	}
@@ -56,6 +58,171 @@ func TestValidateConfigurationRejectsPlaceholderProjectWithoutNetwork(t *testing
 	}
 	if len(result.Diagnostics) != 1 || result.Diagnostics[0].Field != "warehouse.project" {
 		t.Fatalf("diagnostics = %+v, want project diagnostic", result.Diagnostics)
+	}
+}
+
+func TestValidateConfigurationMissingDatasetWithoutCreateIsInvalid(t *testing.T) {
+	var insertRequests int
+	connector, cleanup := connectorWithBigQueryServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == http.MethodGet && r.URL.Path == "/bigquery/v2/projects/example-project/datasets/dataset_one":
+			writeGoogleError(w, http.StatusNotFound, "Not found: Dataset example-project:dataset_one")
+		case r.Method == http.MethodPost && r.URL.Path == "/bigquery/v2/projects/example-project/datasets":
+			insertRequests++
+			w.WriteHeader(http.StatusCreated)
+		default:
+			t.Fatalf("unexpected request %s %s", r.Method, r.URL.Path)
+		}
+	}))
+	defer cleanup()
+
+	result, err := connector.ValidateConfiguration(context.Background(), "unused.json", validWarehouseConfig(), warehouse.ConfigureOptions{})
+	if err != nil {
+		t.Fatalf("ValidateConfiguration failed: %v", err)
+	}
+	if result.Status != "invalid" {
+		t.Fatalf("status = %q, want invalid", result.Status)
+	}
+	if insertRequests != 0 {
+		t.Fatalf("insert requests = %d, want none", insertRequests)
+	}
+	if len(result.Diagnostics) != 1 || result.Diagnostics[0].ID != "missing_dataset" {
+		t.Fatalf("diagnostics = %+v, want missing_dataset", result.Diagnostics)
+	}
+	if !strings.Contains(result.Diagnostics[0].Suggestion, "--create-dataset") {
+		t.Fatalf("suggestion = %q, want --create-dataset", result.Diagnostics[0].Suggestion)
+	}
+}
+
+func TestValidateConfigurationCreatesMissingDataset(t *testing.T) {
+	var insertRequests int
+	connector, cleanup := connectorWithBigQueryServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == http.MethodGet && r.URL.Path == "/bigquery/v2/projects/example-project/datasets/dataset_one":
+			writeGoogleError(w, http.StatusNotFound, "Not found: Dataset example-project:dataset_one")
+		case r.Method == http.MethodPost && r.URL.Path == "/bigquery/v2/projects/example-project/datasets":
+			insertRequests++
+			var request bq.Dataset
+			if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+				t.Fatalf("decode insert request: %v", err)
+			}
+			if request.DatasetReference == nil ||
+				request.DatasetReference.ProjectId != "example-project" ||
+				request.DatasetReference.DatasetId != "dataset_one" ||
+				request.Location != "EU" {
+				t.Fatalf("insert request = %+v, want dataset reference and EU location", request)
+			}
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusCreated)
+			fmt.Fprint(w, `{"datasetReference":{"projectId":"example-project","datasetId":"dataset_one"},"location":"EU"}`)
+		default:
+			t.Fatalf("unexpected request %s %s", r.Method, r.URL.Path)
+		}
+	}))
+	defer cleanup()
+
+	result, err := connector.ValidateConfiguration(context.Background(), "unused.json", validWarehouseConfig(), warehouse.ConfigureOptions{CreateDataset: true})
+	if err != nil {
+		t.Fatalf("ValidateConfiguration failed: %v", err)
+	}
+	if result.Status != "valid" {
+		t.Fatalf("status = %q, want valid", result.Status)
+	}
+	if insertRequests != 1 {
+		t.Fatalf("insert requests = %d, want one", insertRequests)
+	}
+	if !hasValidation(result.Validations, "dataset_exists", "created") {
+		t.Fatalf("validations = %+v, want created dataset validation", result.Validations)
+	}
+}
+
+func TestValidateConfigurationCreateFlagDoesNotInsertExistingDataset(t *testing.T) {
+	var insertRequests int
+	connector, cleanup := connectorWithBigQueryServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == http.MethodGet && r.URL.Path == "/bigquery/v2/projects/example-project/datasets/dataset_one":
+			w.Header().Set("Content-Type", "application/json")
+			fmt.Fprint(w, `{"datasetReference":{"projectId":"example-project","datasetId":"dataset_one"},"location":"EU"}`)
+		case r.Method == http.MethodPost && r.URL.Path == "/bigquery/v2/projects/example-project/datasets":
+			insertRequests++
+			writeGoogleError(w, http.StatusConflict, "Already Exists")
+		default:
+			t.Fatalf("unexpected request %s %s", r.Method, r.URL.Path)
+		}
+	}))
+	defer cleanup()
+
+	result, err := connector.ValidateConfiguration(context.Background(), "unused.json", validWarehouseConfig(), warehouse.ConfigureOptions{CreateDataset: true})
+	if err != nil {
+		t.Fatalf("ValidateConfiguration failed: %v", err)
+	}
+	if result.Status != "valid" {
+		t.Fatalf("status = %q, want valid", result.Status)
+	}
+	if insertRequests != 0 {
+		t.Fatalf("insert requests = %d, want none", insertRequests)
+	}
+	if !hasValidation(result.Validations, "dataset_location", "ok") {
+		t.Fatalf("validations = %+v, want existing dataset location validation", result.Validations)
+	}
+}
+
+func TestValidateConfigurationRejectsLocationMismatch(t *testing.T) {
+	connector, cleanup := connectorWithBigQueryServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet || r.URL.Path != "/bigquery/v2/projects/example-project/datasets/dataset_one" {
+			t.Fatalf("unexpected request %s %s", r.Method, r.URL.Path)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		fmt.Fprint(w, `{"datasetReference":{"projectId":"example-project","datasetId":"dataset_one"},"location":"US"}`)
+	}))
+	defer cleanup()
+
+	result, err := connector.ValidateConfiguration(context.Background(), "unused.json", validWarehouseConfig(), warehouse.ConfigureOptions{})
+	if err != nil {
+		t.Fatalf("ValidateConfiguration failed: %v", err)
+	}
+	if result.Status != "invalid" {
+		t.Fatalf("status = %q, want invalid", result.Status)
+	}
+	if len(result.Diagnostics) != 1 || result.Diagnostics[0].ID != "location_mismatch" {
+		t.Fatalf("diagnostics = %+v, want location_mismatch", result.Diagnostics)
+	}
+}
+
+func TestValidateConfigurationCreateConflictRefetchesDataset(t *testing.T) {
+	var getRequests int
+	var insertRequests int
+	connector, cleanup := connectorWithBigQueryServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == http.MethodGet && r.URL.Path == "/bigquery/v2/projects/example-project/datasets/dataset_one":
+			getRequests++
+			if getRequests == 1 {
+				writeGoogleError(w, http.StatusNotFound, "Not found: Dataset example-project:dataset_one")
+				return
+			}
+			w.Header().Set("Content-Type", "application/json")
+			fmt.Fprint(w, `{"datasetReference":{"projectId":"example-project","datasetId":"dataset_one"},"location":"EU"}`)
+		case r.Method == http.MethodPost && r.URL.Path == "/bigquery/v2/projects/example-project/datasets":
+			insertRequests++
+			writeGoogleError(w, http.StatusConflict, "Already Exists: Dataset example-project:dataset_one")
+		default:
+			t.Fatalf("unexpected request %s %s", r.Method, r.URL.Path)
+		}
+	}))
+	defer cleanup()
+
+	result, err := connector.ValidateConfiguration(context.Background(), "unused.json", validWarehouseConfig(), warehouse.ConfigureOptions{CreateDataset: true})
+	if err != nil {
+		t.Fatalf("ValidateConfiguration failed: %v", err)
+	}
+	if result.Status != "valid" {
+		t.Fatalf("status = %q, want valid", result.Status)
+	}
+	if getRequests != 2 || insertRequests != 1 {
+		t.Fatalf("get requests = %d, insert requests = %d, want 2 and 1", getRequests, insertRequests)
+	}
+	if !hasValidation(result.Validations, "dataset_location", "ok") {
+		t.Fatalf("validations = %+v, want existing dataset validation", result.Validations)
 	}
 }
 
@@ -266,4 +433,44 @@ func TestBrowseRejectsInvalidPathsBeforeCreatingClient(t *testing.T) {
 			t.Fatalf("Browse(%q) error = %v, want invalid path error", path, err)
 		}
 	}
+}
+
+func connectorWithBigQueryServer(t *testing.T, handler http.Handler) (Connector, func()) {
+	t.Helper()
+	server := httptest.NewServer(handler)
+	service, err := bq.NewService(context.Background(), option.WithEndpoint(server.URL+"/bigquery/v2/"), option.WithoutAuthentication())
+	if err != nil {
+		server.Close()
+		t.Fatalf("NewService failed: %v", err)
+	}
+	return Connector{
+		newService: func(context.Context, string) (*bq.Service, error) {
+			return service, nil
+		},
+	}, server.Close
+}
+
+func validWarehouseConfig() project.Warehouse {
+	return project.Warehouse{
+		Type:     "bigquery",
+		Auth:     "default-bigquery",
+		Project:  "example-project",
+		Dataset:  "dataset_one",
+		Location: "EU",
+	}
+}
+
+func writeGoogleError(w http.ResponseWriter, status int, message string) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(status)
+	fmt.Fprintf(w, `{"error":{"code":%d,"message":%q}}`, status, message)
+}
+
+func hasValidation(validations []warehouse.Validation, id, status string) bool {
+	for _, validation := range validations {
+		if validation.ID == id && validation.Status == status {
+			return true
+		}
+	}
+	return false
 }

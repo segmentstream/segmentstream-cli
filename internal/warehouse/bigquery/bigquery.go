@@ -15,10 +15,12 @@ import (
 	"google.golang.org/api/option"
 )
 
-type Connector struct{}
+type Connector struct {
+	newService func(context.Context, string) (*bq.Service, error)
+}
 
 func NewConnector() Connector {
-	return Connector{}
+	return Connector{newService: newService}
 }
 
 func (connector Connector) Type() string {
@@ -30,7 +32,7 @@ func (connector Connector) Browse(ctx context.Context, credentialPath string, pa
 	if err != nil {
 		return warehouse.BrowseResult{}, err
 	}
-	service, err := newService(ctx, credentialPath)
+	service, err := connector.service(ctx, credentialPath)
 	if err != nil {
 		return warehouse.BrowseResult{}, err
 	}
@@ -48,7 +50,7 @@ func (connector Connector) Browse(ctx context.Context, credentialPath string, pa
 	}
 }
 
-func (connector Connector) ValidateConfiguration(ctx context.Context, credentialPath string, config project.Warehouse) (warehouse.ConfigureResult, error) {
+func (connector Connector) ValidateConfiguration(ctx context.Context, credentialPath string, config project.Warehouse, options warehouse.ConfigureOptions) (warehouse.ConfigureResult, error) {
 	var validations []warehouse.Validation
 	var diagnostics []cliresult.Diagnostic
 
@@ -89,23 +91,64 @@ func (connector Connector) ValidateConfiguration(ctx context.Context, credential
 		return warehouse.NewConfigureResult(connector.Type(), validations, diagnostics), nil
 	}
 
-	service, err := newService(ctx, credentialPath)
+	service, err := connector.service(ctx, credentialPath)
 	if err != nil {
 		return warehouse.ConfigureResult{}, err
 	}
 	dataset, err := service.Datasets.Get(config.Project, config.Dataset).Do()
 	if err != nil {
 		if isHTTPStatus(err, 404) {
+			if !options.CreateDataset {
+				validations = append(validations, warehouse.Validation{
+					ID:      "dataset_exists",
+					Field:   "warehouse.dataset",
+					Status:  "not_found",
+					Message: fmt.Sprintf("Dataset %s:%s does not exist in %s.", config.Project, config.Dataset, location),
+				})
+				diagnostics = append(diagnostics, cliresult.Diagnostic{
+					ID:         "missing_dataset",
+					Field:      "warehouse.dataset",
+					Message:    fmt.Sprintf("Dataset %s:%s does not exist in %s.", config.Project, config.Dataset, location),
+					Suggestion: fmt.Sprintf("segmentstream warehouse configure --project %s --dataset %s --location %s --create-dataset", config.Project, config.Dataset, location),
+				})
+				return warehouse.NewConfigureResult(connector.Type(), validations, diagnostics), nil
+			}
+			createdDataset, err := service.Datasets.Insert(config.Project, &bq.Dataset{
+				DatasetReference: &bq.DatasetReference{
+					ProjectId: config.Project,
+					DatasetId: config.Dataset,
+				},
+				Location: location,
+			}).Do()
+			if err != nil {
+				if isHTTPStatus(err, 409) {
+					dataset, err = service.Datasets.Get(config.Project, config.Dataset).Do()
+					if err != nil {
+						return warehouse.ConfigureResult{}, fmt.Errorf("check BigQuery dataset after create conflict: %w", explainGoogleAPIError(err))
+					}
+					return validateExistingDataset(connector.Type(), config, location, dataset, validations), nil
+				}
+				return warehouse.ConfigureResult{}, fmt.Errorf("create BigQuery dataset: %w", explainGoogleAPIError(err))
+			}
+			createdLocation := location
+			if createdDataset.Location != "" {
+				createdLocation = createdDataset.Location
+			}
 			validations = append(validations, warehouse.Validation{
 				ID:      "dataset_exists",
 				Field:   "warehouse.dataset",
-				Status:  "not_found",
-				Message: "Dataset does not exist yet; SegmentStream will need create permissions before run.",
+				Status:  "created",
+				Message: fmt.Sprintf("Created dataset %s:%s in %s.", config.Project, config.Dataset, createdLocation),
 			})
 			return warehouse.NewConfigureResult(connector.Type(), validations, nil), nil
 		}
 		return warehouse.ConfigureResult{}, fmt.Errorf("check BigQuery dataset: %w", explainGoogleAPIError(err))
 	}
+	return validateExistingDataset(connector.Type(), config, location, dataset, validations), nil
+}
+
+func validateExistingDataset(warehouseType string, config project.Warehouse, location string, dataset *bq.Dataset, validations []warehouse.Validation) warehouse.ConfigureResult {
+	var diagnostics []cliresult.Diagnostic
 	if !strings.EqualFold(dataset.Location, location) {
 		diagnostics = append(diagnostics, cliresult.Diagnostic{
 			ID:      "location_mismatch",
@@ -120,11 +163,11 @@ func (connector Connector) ValidateConfiguration(ctx context.Context, credential
 			Message: fmt.Sprintf("Existing dataset location is %s.", dataset.Location),
 		})
 	}
-	return warehouse.NewConfigureResult(connector.Type(), validations, diagnostics), nil
+	return warehouse.NewConfigureResult(warehouseType, validations, diagnostics)
 }
 
 func (connector Connector) Test(ctx context.Context, credentialPath string, config project.Warehouse) (warehouse.TestResult, error) {
-	service, err := newService(ctx, credentialPath)
+	service, err := connector.service(ctx, credentialPath)
 	if err != nil {
 		return warehouse.TestResult{}, err
 	}
@@ -191,6 +234,13 @@ func (connector Connector) Test(ctx context.Context, credentialPath string, conf
 	}
 
 	return warehouse.NewTestResult(connector.Type(), checks), nil
+}
+
+func (connector Connector) service(ctx context.Context, credentialPath string) (*bq.Service, error) {
+	if connector.newService != nil {
+		return connector.newService(ctx, credentialPath)
+	}
+	return newService(ctx, credentialPath)
 }
 
 func (connector Connector) browseProjects(ctx context.Context, service *bq.Service) (warehouse.BrowseResult, error) {
