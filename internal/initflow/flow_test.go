@@ -405,24 +405,27 @@ func assertWarehouseConfigAction(t *testing.T, action cliresult.NextAction) {
 		t.Fatalf("accepts = %+v, want one config option", action.Accepts)
 	}
 	accept := action.Accepts[0]
-	if accept.Method != "warehouse_config" || accept.Command != "segmentstream warehouse configure" || len(accept.Inputs) != 3 {
+	if accept.Method != "warehouse_config" || accept.Command != "segmentstream warehouse configure" || len(accept.Inputs) != 4 {
 		t.Fatalf("accept = %+v, want warehouse configure inputs", accept)
 	}
 	want := []struct {
-		name string
-		flag string
+		name      string
+		inputType string
+		flag      string
+		required  bool
 	}{
-		{name: "project", flag: "--project"},
-		{name: "dataset", flag: "--dataset"},
-		{name: "location", flag: "--location"},
+		{name: "project", inputType: "string", flag: "--project", required: true},
+		{name: "dataset", inputType: "string", flag: "--dataset", required: true},
+		{name: "location", inputType: "string", flag: "--location", required: true},
+		{name: "create_dataset", inputType: "boolean", flag: "--create-dataset", required: false},
 	}
 	for i, wantInput := range want {
 		input := accept.Inputs[i]
 		if input.Name != wantInput.name ||
-			input.Type != "string" ||
+			input.Type != wantInput.inputType ||
 			input.Flag != wantInput.flag ||
 			input.Label == "" ||
-			!input.Required {
+			input.Required != wantInput.required {
 			t.Fatalf("input[%d] = %+v, want %+v", i, input, wantInput)
 		}
 	}

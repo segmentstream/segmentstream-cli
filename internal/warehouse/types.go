@@ -11,8 +11,12 @@ import (
 type Connector interface {
 	Type() string
 	Browse(ctx context.Context, credentialPath string, path string) (BrowseResult, error)
-	ValidateConfiguration(ctx context.Context, credentialPath string, config project.Warehouse) (ConfigureResult, error)
+	ValidateConfiguration(ctx context.Context, credentialPath string, config project.Warehouse, options ConfigureOptions) (ConfigureResult, error)
 	Test(ctx context.Context, credentialPath string, config project.Warehouse) (TestResult, error)
+}
+
+type ConfigureOptions struct {
+	CreateDataset bool
 }
 
 type Registry struct {
