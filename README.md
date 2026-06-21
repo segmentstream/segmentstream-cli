@@ -42,16 +42,20 @@ README.md           project guide
 AGENTS.md           instructions for coding agents
 ```
 
-Use `segmentstream init --json` when an agent or script needs a stable state
-envelope with the next action. JSON mode is read-only unless you pass a mutation
-flag such as `--warehouse`.
+Pass `--json` to any command when an agent or script needs structured output.
+JSON mode emits one response object on stdout with `schema_version`, `command`,
+`status`, and command-specific `data`; diagnostics and actions are structured
+when present. Progress and interactive guidance use stderr so stdout remains
+parseable.
 
-The `init --json` envelope uses `schema_version: "2"`. A successful state
-inspection exits `0` even when `ready` is `false`; use `ready`, `stages`,
-`diagnostics`, and `next_action` to decide what to do next. `next_action.type`
-is either `run_command` with an executable command or `human_input` with
-structured `accepts` inputs and a `verify` command. The envelope also reports
-supported auth methods under `capabilities.auth_methods`.
+Use `segmentstream init --json` when an agent needs setup state and the next
+action. The init state machine is returned under `data.envelope`. A successful
+state inspection exits `0` even when `data.envelope.ready` is `false`; use
+`ready`, `stages`, `diagnostics`, and `next_action` to decide what to do next.
+`next_action.type` is either `run_command` with an executable command or
+`human_input` with structured `accepts` inputs and a `verify` command. The
+envelope also reports supported auth methods under `capabilities.auth_methods`.
+JSON mode is read-only unless you pass a mutation flag such as `--warehouse`.
 
 ## Create A Source
 
@@ -187,7 +191,8 @@ environment. Later runs should be faster.
 ## Commands
 
 `segmentstream init` reports current setup state and the next action.
-`segmentstream init --json` emits a stable state-machine envelope for agents.
+`segmentstream init --json` emits the common JSON response with the setup
+state-machine envelope under `data.envelope`.
 `segmentstream init --warehouse bigquery` selects BigQuery in `segmentstream.yml`.
 
 `segmentstream run` runs the configured analytics pipeline and writes results to
@@ -200,8 +205,8 @@ contracts and returns their schemas.
 `segmentstream source create <name> --type events [--json]` creates a local
 source package under `sources/<name>/`.
 
-`segmentstream source init <name>` is a compatibility alias that uses the
-default source contract.
+`segmentstream source init <name> [--json]` is a compatibility alias that uses
+the default source contract.
 
 `segmentstream warehouse auth login [--port <port>]` prints a Google OAuth URL,
 waits for a loopback browser redirect on the same computer, and stores a
@@ -219,15 +224,15 @@ lists BigQuery projects, datasets, tables, or a table schema.
 validates and writes warehouse settings. Use `--create-dataset` to create a
 missing BigQuery dataset explicitly.
 
-`segmentstream warehouse test` checks BigQuery connect, read, create table, and
-query permissions.
+`segmentstream warehouse test [--json]` checks BigQuery connect, read, create
+table, and query permissions.
 
-`segmentstream update` updates an installed CLI release.
+`segmentstream update [--json]` updates an installed CLI release.
 
-`segmentstream update --check` checks whether an update is available without
-installing it.
+`segmentstream update --check [--json]` checks whether an update is available
+without installing it.
 
-`segmentstream version` prints the installed CLI version.
+`segmentstream version [--json]` prints the installed CLI version.
 
 ## Release
 

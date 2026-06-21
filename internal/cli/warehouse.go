@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"os"
@@ -18,12 +19,10 @@ type warehouseAuthOptions struct {
 	ServiceAccountKey string
 	Name              string
 	Port              int
-	JSON              bool
 }
 
 type warehouseBrowseOptions struct {
 	Path string
-	JSON bool
 }
 
 type warehouseConfigureOptions struct {
@@ -31,14 +30,21 @@ type warehouseConfigureOptions struct {
 	Dataset       string
 	Location      string
 	CreateDataset bool
-	JSON          bool
 }
 
-type warehouseTestOptions struct {
-	JSON bool
+type warehouseAuthResult struct {
+	SchemaVersion string `json:"schema_version"`
+	Warehouse     string `json:"warehouse"`
+	Credential    string `json:"credential"`
+	Method        string `json:"method,omitempty"`
+	Path          string `json:"path"`
 }
 
-func newWarehouseCommand(out, errOut io.Writer, credentialStore credentials.Store, registry warehouse.Registry, oauthLogin warehouseOAuthLogin) *cobra.Command {
+type warehouseBrowseData warehouse.BrowseResult
+type warehouseConfigureData warehouse.ConfigureResult
+type warehouseTestData warehouse.TestResult
+
+func newWarehouseCommand(out, errOut io.Writer, commandContext structuredCommandContext, credentialStore credentials.Store, registry warehouse.Registry, oauthLogin warehouseOAuthLogin) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "warehouse",
 		Short: "Manage the configured data warehouse",
@@ -47,16 +53,16 @@ func newWarehouseCommand(out, errOut io.Writer, credentialStore credentials.Stor
 			"are stored outside the project under ~/.segmentstream and segmentstream.yml\n" +
 			"contains only the credential name.",
 	}
-	cmd.AddCommand(newWarehouseAuthCommand(out, errOut, credentialStore, oauthLogin))
-	cmd.AddCommand(newWarehouseBrowseCommand(out, credentialStore, registry))
-	cmd.AddCommand(newWarehouseConfigureCommand(out, credentialStore, registry))
-	cmd.AddCommand(newWarehouseTestCommand(out, credentialStore, registry))
+	cmd.AddCommand(newWarehouseAuthCommand(out, errOut, commandContext, credentialStore, oauthLogin))
+	cmd.AddCommand(newWarehouseBrowseCommand(out, commandContext, credentialStore, registry))
+	cmd.AddCommand(newWarehouseConfigureCommand(out, commandContext, credentialStore, registry))
+	cmd.AddCommand(newWarehouseTestCommand(out, commandContext, credentialStore, registry))
 	return cmd
 }
 
-func newWarehouseAuthCommand(out, errOut io.Writer, credentialStore credentials.Store, oauthLogin warehouseOAuthLogin) *cobra.Command {
+func newWarehouseAuthCommand(out, errOut io.Writer, commandContext structuredCommandContext, credentialStore credentials.Store, oauthLogin warehouseOAuthLogin) *cobra.Command {
 	options := warehouseAuthOptions{Name: "default-bigquery"}
-	cmd := &cobra.Command{
+	cmd := newStructuredCommand(out, errOut, commandContext, structuredCommandSpec{
 		Use:   "auth [--service-account-key <path>]",
 		Short: "Store or create warehouse authentication",
 		Long: "Store warehouse authentication for the warehouse selected in segmentstream.yml.\n\n" +
@@ -65,60 +71,50 @@ func newWarehouseAuthCommand(out, errOut io.Writer, credentialStore credentials.
 			"OAuth URL and store an authorized-user credential there after the loopback\n" +
 			"redirect completes.\n" +
 			"No credential material is written to segmentstream.yml.",
-		Args: cobra.NoArgs,
-		RunE: func(cmd *cobra.Command, args []string) error {
-			if strings.TrimSpace(options.ServiceAccountKey) == "" {
-				return fmt.Errorf("--service-account-key is required, or run segmentstream warehouse auth login")
-			}
-			projectRoot, err := os.Getwd()
-			if err != nil {
-				return fmt.Errorf("find current directory: %w", err)
-			}
-			store, config, err := loadWarehouseAuthConfig(projectRoot)
-			if err != nil {
-				return err
-			}
-			path, err := credentialStore.SaveServiceAccountKey(options.Name, options.ServiceAccountKey)
-			if err != nil {
-				return err
-			}
-			config.Warehouse.Auth = options.Name
-			if err := store.SavePartial(config); err != nil {
-				return err
-			}
+		Args:    cobra.NoArgs,
+		Command: "warehouse.auth",
+	}, func(ctx context.Context, args []string) (cliresult.Response, error) {
+		_ = ctx
+		if strings.TrimSpace(options.ServiceAccountKey) == "" {
+			return cliresult.Response{}, fmt.Errorf("--service-account-key is required, or run segmentstream warehouse auth login")
+		}
+		projectRoot, err := os.Getwd()
+		if err != nil {
+			return cliresult.Response{}, fmt.Errorf("find current directory: %w", err)
+		}
+		store, config, err := loadWarehouseAuthConfig(projectRoot)
+		if err != nil {
+			return cliresult.Response{}, err
+		}
+		path, err := credentialStore.SaveServiceAccountKey(options.Name, options.ServiceAccountKey)
+		if err != nil {
+			return cliresult.Response{}, err
+		}
+		config.Warehouse.Auth = options.Name
+		if err := store.SavePartial(config); err != nil {
+			return cliresult.Response{}, err
+		}
 
-			result := struct {
-				SchemaVersion string `json:"schema_version"`
-				Warehouse     string `json:"warehouse"`
-				Credential    string `json:"credential"`
-				Path          string `json:"path"`
-			}{
-				SchemaVersion: cliresult.SchemaVersion,
-				Warehouse:     "bigquery",
-				Credential:    options.Name,
-				Path:          path,
-			}
-			if options.JSON {
-				return cliresult.WriteJSON(out, result)
-			}
-			fmt.Fprintf(out, "Stored BigQuery credential %q at %s\n", options.Name, path)
-			fmt.Fprintf(out, "Updated %s warehouse.auth to %q\n", project.ConfigFileName, options.Name)
-			return nil
-		},
-	}
+		result := warehouseAuthResult{
+			SchemaVersion: cliresult.SchemaVersion,
+			Warehouse:     "bigquery",
+			Credential:    options.Name,
+			Path:          path,
+		}
+		return cliresult.OK("warehouse.auth", result), nil
+	})
 	cmd.Flags().StringVar(&options.ServiceAccountKey, "service-account-key", "", "Path to a BigQuery service-account JSON key")
 	cmd.Flags().StringVar(&options.Name, "name", "default-bigquery", "Credential name stored in segmentstream.yml as warehouse.auth")
-	cmd.Flags().BoolVar(&options.JSON, "json", false, "Emit JSON output for agents and automation")
-	cmd.AddCommand(newWarehouseAuthLoginCommand(out, errOut, credentialStore, oauthLogin))
+	cmd.AddCommand(newWarehouseAuthLoginCommand(out, errOut, commandContext, credentialStore, oauthLogin))
 	return cmd
 }
 
-func newWarehouseAuthLoginCommand(out, errOut io.Writer, credentialStore credentials.Store, oauthLogin warehouseOAuthLogin) *cobra.Command {
+func newWarehouseAuthLoginCommand(out, errOut io.Writer, commandContext structuredCommandContext, credentialStore credentials.Store, oauthLogin warehouseOAuthLogin) *cobra.Command {
 	options := warehouseAuthOptions{Name: "default-bigquery"}
 	if oauthLogin == nil {
 		oauthLogin = googleoauth.LoginWithOptions
 	}
-	cmd := &cobra.Command{
+	cmd := newStructuredCommand(out, errOut, commandContext, structuredCommandSpec{
 		Use:   "login",
 		Short: "Authenticate BigQuery with Google OAuth",
 		Long: "Authenticate BigQuery with Google OAuth by printing a URL for the user to\n" +
@@ -127,214 +123,185 @@ func newWarehouseAuthLoginCommand(out, errOut io.Writer, credentialStore credent
 			"project. The stored credential can be used by SegmentStream, dbt, and Google\n" +
 			"client libraries as Application Default Credentials. For headless servers or\n" +
 			"CI, use segmentstream warehouse auth --service-account-key=<path> instead.",
-		Args: cobra.NoArgs,
-		RunE: func(cmd *cobra.Command, args []string) error {
-			if options.Port < 0 || options.Port > 65535 {
-				return fmt.Errorf("invalid --port %d; use 0-65535", options.Port)
-			}
-			projectRoot, err := os.Getwd()
-			if err != nil {
-				return fmt.Errorf("find current directory: %w", err)
-			}
-			store, config, err := loadWarehouseAuthConfig(projectRoot)
-			if err != nil {
-				return err
-			}
-			loginOut := out
-			if options.JSON && errOut != nil {
-				loginOut = errOut
-			}
-			credential, err := oauthLogin(cmd.Context(), loginOut, googleoauth.LoginOptions{
-				Port: options.Port,
-			})
-			if err != nil {
-				return err
-			}
-			path, err := credentialStore.SaveGoogleOAuthCredential(options.Name, credential)
-			if err != nil {
-				return err
-			}
-			config.Warehouse.Auth = options.Name
-			if err := store.SavePartial(config); err != nil {
-				return err
-			}
+		Args:    cobra.NoArgs,
+		Command: "warehouse.auth.login",
+	}, func(ctx context.Context, args []string) (cliresult.Response, error) {
+		if options.Port < 0 || options.Port > 65535 {
+			return cliresult.Response{}, fmt.Errorf("invalid --port %d; use 0-65535", options.Port)
+		}
+		projectRoot, err := os.Getwd()
+		if err != nil {
+			return cliresult.Response{}, fmt.Errorf("find current directory: %w", err)
+		}
+		store, config, err := loadWarehouseAuthConfig(projectRoot)
+		if err != nil {
+			return cliresult.Response{}, err
+		}
+		loginOut := out
+		if commandContext.Output != nil && commandContext.Output.JSON && errOut != nil {
+			loginOut = errOut
+		}
+		credential, err := oauthLogin(ctx, loginOut, googleoauth.LoginOptions{
+			Port: options.Port,
+		})
+		if err != nil {
+			return cliresult.Response{}, err
+		}
+		path, err := credentialStore.SaveGoogleOAuthCredential(options.Name, credential)
+		if err != nil {
+			return cliresult.Response{}, err
+		}
+		config.Warehouse.Auth = options.Name
+		if err := store.SavePartial(config); err != nil {
+			return cliresult.Response{}, err
+		}
 
-			result := struct {
-				SchemaVersion string `json:"schema_version"`
-				Warehouse     string `json:"warehouse"`
-				Credential    string `json:"credential"`
-				Method        string `json:"method"`
-				Path          string `json:"path"`
-			}{
-				SchemaVersion: cliresult.SchemaVersion,
-				Warehouse:     "bigquery",
-				Credential:    options.Name,
-				Method:        "oauth",
-				Path:          path,
-			}
-			if options.JSON {
-				return cliresult.WriteJSON(out, result)
-			}
-			fmt.Fprintf(out, "Stored BigQuery OAuth credential %q at %s\n", options.Name, path)
-			fmt.Fprintf(out, "Updated %s warehouse.auth to %q\n", project.ConfigFileName, options.Name)
-			return nil
-		},
-	}
+		result := warehouseAuthResult{
+			SchemaVersion: cliresult.SchemaVersion,
+			Warehouse:     "bigquery",
+			Credential:    options.Name,
+			Method:        "oauth",
+			Path:          path,
+		}
+		return cliresult.OK("warehouse.auth.login", result), nil
+	})
 	cmd.Flags().StringVar(&options.Name, "name", "default-bigquery", "Credential name stored in segmentstream.yml as warehouse.auth")
 	cmd.Flags().IntVar(&options.Port, "port", 0, "Loopback callback port for Google OAuth; 0 chooses a random available port")
-	cmd.Flags().BoolVar(&options.JSON, "json", false, "Emit JSON output for agents and automation")
 	return cmd
 }
 
-func newWarehouseBrowseCommand(out io.Writer, credentialStore credentials.Store, registry warehouse.Registry) *cobra.Command {
+func newWarehouseBrowseCommand(out io.Writer, commandContext structuredCommandContext, credentialStore credentials.Store, registry warehouse.Registry) *cobra.Command {
 	options := warehouseBrowseOptions{}
-	cmd := &cobra.Command{
+	cmd := newStructuredCommand(out, nil, commandContext, structuredCommandSpec{
 		Use:   "browse",
 		Short: "Browse warehouse projects, datasets, tables, and schemas",
 		Long: "Browse the configured warehouse using the credential named by warehouse.auth.\n\n" +
 			"Without --path, BigQuery browse lists accessible projects. With --path <project>,\n" +
 			"it lists datasets in that project with their locations. With --path <project>/<dataset>,\n" +
 			"it lists tables. With --path <project>/<dataset>/<table>, it returns the table schema.",
-		Args: cobra.NoArgs,
-		RunE: func(cmd *cobra.Command, args []string) error {
-			connector, credentialPath, err := loadWarehouseBrowseState(credentialStore, registry)
-			if err != nil {
-				return err
-			}
-			result, err := connector.Browse(cmd.Context(), credentialPath, options.Path)
-			if err != nil {
-				return err
-			}
-			if options.JSON {
-				return cliresult.WriteJSON(out, result)
-			}
-			writeBrowseResult(out, result)
-			return nil
-		},
-	}
+		Args:    cobra.NoArgs,
+		Command: "warehouse.browse",
+	}, func(ctx context.Context, args []string) (cliresult.Response, error) {
+		connector, credentialPath, err := loadWarehouseBrowseState(credentialStore, registry)
+		if err != nil {
+			return cliresult.Response{}, err
+		}
+		result, err := connector.Browse(ctx, credentialPath, options.Path)
+		if err != nil {
+			return cliresult.Response{}, err
+		}
+		return cliresult.OK("warehouse.browse", warehouseBrowseData(result)), nil
+	})
 	cmd.Flags().StringVar(&options.Path, "path", "", "Browse below this path; for BigQuery, use <project>, <project>/<dataset>, or <project>/<dataset>/<table>")
-	cmd.Flags().BoolVar(&options.JSON, "json", false, "Emit JSON output for agents and automation")
 	return cmd
 }
 
-func newWarehouseConfigureCommand(out io.Writer, credentialStore credentials.Store, registry warehouse.Registry) *cobra.Command {
+func newWarehouseConfigureCommand(out io.Writer, commandContext structuredCommandContext, credentialStore credentials.Store, registry warehouse.Registry) *cobra.Command {
 	options := warehouseConfigureOptions{}
-	cmd := &cobra.Command{
+	cmd := newStructuredCommand(out, nil, commandContext, structuredCommandSpec{
 		Use:   "configure --project <project> --dataset <dataset> --location <location>",
 		Short: "Configure warehouse project, dataset, and location",
 		Long: "Validate and write warehouse project, dataset, and location to segmentstream.yml.\n\n" +
 			"For BigQuery, dataset IDs may contain only letters, numbers, and underscores.\n" +
 			"If the dataset already exists, its location must match --location.",
-		Args: cobra.NoArgs,
-		RunE: func(cmd *cobra.Command, args []string) error {
-			projectRoot, err := os.Getwd()
-			if err != nil {
-				return fmt.Errorf("find current directory: %w", err)
+		Args:    cobra.NoArgs,
+		Command: "warehouse.configure",
+	}, func(ctx context.Context, args []string) (cliresult.Response, error) {
+		projectRoot, err := os.Getwd()
+		if err != nil {
+			return cliresult.Response{}, fmt.Errorf("find current directory: %w", err)
+		}
+		store := project.Store{Root: projectRoot}
+		config, exists, err := store.LoadPartial()
+		if err != nil {
+			return cliresult.Response{}, err
+		}
+		if !exists || config.Warehouse.Type == "" {
+			return cliresult.Response{}, fmt.Errorf("%s does not select a warehouse; run segmentstream init --warehouse bigquery first", project.ConfigFileName)
+		}
+		connector, err := registry.Connector(config.Warehouse.Type)
+		if err != nil {
+			return cliresult.Response{}, err
+		}
+		if config.Warehouse.Auth == "" {
+			config.Warehouse.Auth = "default-bigquery"
+		}
+		credentialPath, err := credentialStore.BigQueryCredentialPath(config.Warehouse.Auth)
+		if err != nil {
+			return cliresult.Response{}, err
+		}
+		config.Warehouse.Project = options.Project
+		config.Warehouse.Dataset = options.Dataset
+		config.Warehouse.Location = options.Location
+		result, err := connector.ValidateConfiguration(ctx, credentialPath, config.Warehouse, warehouse.ConfigureOptions{
+			CreateDataset: options.CreateDataset,
+		})
+		if err != nil {
+			return cliresult.Response{}, err
+		}
+		if len(result.Diagnostics) == 0 {
+			if err := store.Save(config); err != nil {
+				return cliresult.Response{}, err
 			}
-			store := project.Store{Root: projectRoot}
-			config, exists, err := store.LoadPartial()
-			if err != nil {
-				return err
-			}
-			if !exists || config.Warehouse.Type == "" {
-				return fmt.Errorf("%s does not select a warehouse; run segmentstream init --warehouse bigquery first", project.ConfigFileName)
-			}
-			connector, err := registry.Connector(config.Warehouse.Type)
-			if err != nil {
-				return err
-			}
-			if config.Warehouse.Auth == "" {
-				config.Warehouse.Auth = "default-bigquery"
-			}
-			credentialPath, err := credentialStore.BigQueryCredentialPath(config.Warehouse.Auth)
-			if err != nil {
-				return err
-			}
-			config.Warehouse.Project = options.Project
-			config.Warehouse.Dataset = options.Dataset
-			config.Warehouse.Location = options.Location
-			result, err := connector.ValidateConfiguration(cmd.Context(), credentialPath, config.Warehouse, warehouse.ConfigureOptions{
-				CreateDataset: options.CreateDataset,
-			})
-			if err != nil {
-				return err
-			}
-			if len(result.Diagnostics) == 0 {
-				if err := store.Save(config); err != nil {
-					return err
-				}
-			}
-			if options.JSON {
-				if err := cliresult.WriteJSON(out, result); err != nil {
-					return err
-				}
-			} else {
-				writeConfigureResult(out, result)
-			}
-			if len(result.Diagnostics) > 0 {
-				return cliresult.WithExitCode(cliresult.ExitMisconfigured, nil)
-			}
-			return nil
-		},
-	}
+		}
+		data := warehouseConfigureData(result)
+		if len(result.Diagnostics) > 0 {
+			return cliresult.Invalid("warehouse.configure", data, result.Diagnostics), nil
+		}
+		return cliresult.OK("warehouse.configure", data), nil
+	})
 	cmd.Flags().StringVar(&options.Project, "project", "", "Google Cloud project ID")
 	cmd.Flags().StringVar(&options.Dataset, "dataset", "", "BigQuery dataset ID")
 	cmd.Flags().StringVar(&options.Location, "location", "", "BigQuery dataset location, for example US or EU")
 	cmd.Flags().BoolVar(&options.CreateDataset, "create-dataset", false, "Create the BigQuery dataset if it is missing")
-	cmd.Flags().BoolVar(&options.JSON, "json", false, "Emit JSON output for agents and automation")
 	return cmd
 }
 
-func newWarehouseTestCommand(out io.Writer, credentialStore credentials.Store, registry warehouse.Registry) *cobra.Command {
-	options := warehouseTestOptions{}
-	cmd := &cobra.Command{
+func newWarehouseTestCommand(out io.Writer, commandContext structuredCommandContext, credentialStore credentials.Store, registry warehouse.Registry) *cobra.Command {
+	cmd := newStructuredCommand(out, nil, commandContext, structuredCommandSpec{
 		Use:   "test",
 		Short: "Test warehouse credential and IAM access",
 		Long: "Test the configured warehouse credential and report granular access checks.\n\n" +
 			"For BigQuery, this checks connect, read, create_table, and query_in_location.\n" +
 			"The create_table check creates a temporary __segmentstream_probe_* table and\n" +
 			"deletes it before returning.",
-		Args: cobra.NoArgs,
-		RunE: func(cmd *cobra.Command, args []string) error {
-			projectRoot, err := os.Getwd()
-			if err != nil {
-				return fmt.Errorf("find current directory: %w", err)
+		Args:    cobra.NoArgs,
+		Command: "warehouse.test",
+	}, func(ctx context.Context, args []string) (cliresult.Response, error) {
+		projectRoot, err := os.Getwd()
+		if err != nil {
+			return cliresult.Response{}, fmt.Errorf("find current directory: %w", err)
+		}
+		config, err := project.LoadConfig(projectRoot)
+		if err != nil {
+			return cliresult.Response{}, err
+		}
+		connector, err := registry.Connector(config.Warehouse.Type)
+		if err != nil {
+			return cliresult.Response{}, err
+		}
+		credentialPath, err := credentialStore.BigQueryCredentialPath(config.Warehouse.Auth)
+		if err != nil {
+			return cliresult.Response{}, err
+		}
+		result, err := connector.Test(ctx, credentialPath, config.Warehouse)
+		if err != nil {
+			return cliresult.Response{}, err
+		}
+		if warehouse.AllChecksOK(result.Checks) {
+			if err := credentialStore.SaveAccessMarker(config.Warehouse.Auth, config.Warehouse.Project, config.Warehouse.Dataset, config.Warehouse.Location); err != nil {
+				return cliresult.Response{}, err
 			}
-			config, err := project.LoadConfig(projectRoot)
-			if err != nil {
-				return err
-			}
-			connector, err := registry.Connector(config.Warehouse.Type)
-			if err != nil {
-				return err
-			}
-			credentialPath, err := credentialStore.BigQueryCredentialPath(config.Warehouse.Auth)
-			if err != nil {
-				return err
-			}
-			result, err := connector.Test(cmd.Context(), credentialPath, config.Warehouse)
-			if err != nil {
-				return err
-			}
-			if warehouse.AllChecksOK(result.Checks) {
-				if err := credentialStore.SaveAccessMarker(config.Warehouse.Auth, config.Warehouse.Project, config.Warehouse.Dataset, config.Warehouse.Location); err != nil {
-					return err
-				}
-			}
-			if options.JSON {
-				if err := cliresult.WriteJSON(out, result); err != nil {
-					return err
-				}
-			} else {
-				writeTestResult(out, result)
-			}
-			if !warehouse.AllChecksOK(result.Checks) {
-				return cliresult.WithExitCode(cliresult.ExitMisconfigured, nil)
-			}
-			return nil
-		},
-	}
-	cmd.Flags().BoolVar(&options.JSON, "json", false, "Emit JSON output for agents and automation")
+		}
+		data := warehouseTestData(result)
+		if !warehouse.AllChecksOK(result.Checks) {
+			response := cliresult.OK("warehouse.test", data)
+			response.Status = cliresult.StatusInvalid
+			response.ExitCode = cliresult.ExitMisconfigured
+			return response, nil
+		}
+		return cliresult.OK("warehouse.test", data), nil
+	})
 	return cmd
 }
 
@@ -398,6 +365,35 @@ func loadWarehouseCommandState(credentialStore credentials.Store, registry wareh
 		return project.Config{}, nil, "", err
 	}
 	return config, connector, credentialPath, nil
+}
+
+func (result warehouseAuthResult) HumanDocument() cliresult.Document {
+	return textDocument(func(out io.Writer) {
+		if result.Method == "oauth" {
+			fmt.Fprintf(out, "Stored BigQuery OAuth credential %q at %s\n", result.Credential, result.Path)
+		} else {
+			fmt.Fprintf(out, "Stored BigQuery credential %q at %s\n", result.Credential, result.Path)
+		}
+		fmt.Fprintf(out, "Updated %s warehouse.auth to %q\n", project.ConfigFileName, result.Credential)
+	})
+}
+
+func (data warehouseBrowseData) HumanDocument() cliresult.Document {
+	return textDocument(func(out io.Writer) {
+		writeBrowseResult(out, warehouse.BrowseResult(data))
+	})
+}
+
+func (data warehouseConfigureData) HumanDocument() cliresult.Document {
+	return textDocument(func(out io.Writer) {
+		writeConfigureResult(out, warehouse.ConfigureResult(data))
+	})
+}
+
+func (data warehouseTestData) HumanDocument() cliresult.Document {
+	return textDocument(func(out io.Writer) {
+		writeTestResult(out, warehouse.TestResult(data))
+	})
 }
 
 func writeBrowseResult(out io.Writer, result warehouse.BrowseResult) {

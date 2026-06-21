@@ -37,6 +37,69 @@ func TestVersionCommand(t *testing.T) {
 	}
 }
 
+func TestVersionCommandJSONOutput(t *testing.T) {
+	var out bytes.Buffer
+	var errOut bytes.Buffer
+
+	cmd := NewRootCommand(&out, &errOut)
+	cmd.SetArgs([]string{"version", "--json"})
+
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("version --json command failed: %v", err)
+	}
+
+	var result struct {
+		SchemaVersion string `json:"schema_version"`
+		Command       string `json:"command"`
+		Status        string `json:"status"`
+		Data          struct {
+			Version string `json:"version"`
+			Commit  string `json:"commit"`
+			Date    string `json:"date"`
+			OS      string `json:"os"`
+			Arch    string `json:"arch"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &result); err != nil {
+		t.Fatalf("version --json output is not JSON: %v\n%s", err, out.String())
+	}
+	if result.SchemaVersion != cliresult.SchemaVersion ||
+		result.Command != "version" ||
+		result.Status != string(cliresult.StatusOK) ||
+		result.Data.Version == "" ||
+		result.Data.OS == "" ||
+		result.Data.Arch == "" {
+		t.Fatalf("result = %+v, want structured version response", result)
+	}
+	if errOut.String() != "" {
+		t.Fatalf("stderr = %q, want empty", errOut.String())
+	}
+}
+
+type testJSONResponse struct {
+	SchemaVersion string          `json:"schema_version"`
+	Command       string          `json:"command"`
+	Status        string          `json:"status"`
+	Data          json.RawMessage `json:"data"`
+}
+
+func decodeJSONResponseData(t *testing.T, output []byte, data any) testJSONResponse {
+	t.Helper()
+	var response testJSONResponse
+	if err := json.Unmarshal(output, &response); err != nil {
+		t.Fatalf("structured JSON output is not JSON: %v\n%s", err, string(output))
+	}
+	if response.SchemaVersion != cliresult.SchemaVersion {
+		t.Fatalf("schema version = %q, want %q", response.SchemaVersion, cliresult.SchemaVersion)
+	}
+	if data != nil {
+		if err := json.Unmarshal(response.Data, data); err != nil {
+			t.Fatalf("structured JSON data is not expected shape: %v\n%s", err, string(output))
+		}
+	}
+	return response
+}
+
 func TestMainReturnsErrorCodeAndPrintsError(t *testing.T) {
 	var out bytes.Buffer
 	var errOut bytes.Buffer
@@ -48,6 +111,28 @@ func TestMainReturnsErrorCodeAndPrintsError(t *testing.T) {
 	}
 	if !strings.Contains(errOut.String(), "unknown command") {
 		t.Fatalf("stderr = %q, want unknown command error", errOut.String())
+	}
+}
+
+func TestMainReturnsJSONErrorWhenJSONFlagIsSet(t *testing.T) {
+	var out bytes.Buffer
+	var errOut bytes.Buffer
+
+	code := Main([]string{"--json", "does-not-exist"}, &out, &errOut)
+
+	if code != 1 {
+		t.Fatalf("exit code = %d, want 1", code)
+	}
+	if errOut.String() != "" {
+		t.Fatalf("stderr = %q, want empty", errOut.String())
+	}
+	var response testJSONResponse
+	if err := json.Unmarshal(out.Bytes(), &response); err != nil {
+		t.Fatalf("json error output is not JSON: %v\n%s", err, out.String())
+	}
+	if response.Status != string(cliresult.StatusError) ||
+		!strings.Contains(string(response.Data)+out.String(), "unknown command") {
+		t.Fatalf("response = %+v output=%q, want unknown command JSON error", response, out.String())
 	}
 }
 
@@ -67,10 +152,9 @@ func TestInitJSONIsReadOnlyWhenWarehouseIsMissing(t *testing.T) {
 	}
 	assertFileMissing(t, filepath.Join(root, "segmentstream.yml"))
 
-	var envelope cliresult.Envelope
-	if err := json.Unmarshal(out.Bytes(), &envelope); err != nil {
-		t.Fatalf("init --json output is not JSON: %v\n%s", err, out.String())
-	}
+	var data initResponseData
+	decodeJSONResponseData(t, out.Bytes(), &data)
+	envelope := data.Envelope
 	if envelope.SchemaVersion != cliresult.SchemaVersion || envelope.Ready {
 		t.Fatalf("envelope = %+v, want schema version and not ready", envelope)
 	}
@@ -138,10 +222,9 @@ func TestInitWarehouseJSONSelectsBigQueryAndReturnsEnvelope(t *testing.T) {
 		t.Fatalf("json output contains human text: %q", out.String())
 	}
 
-	var envelope cliresult.Envelope
-	if err := json.Unmarshal(out.Bytes(), &envelope); err != nil {
-		t.Fatalf("init --warehouse --json output is not JSON: %v\n%s", err, out.String())
-	}
+	var data initResponseData
+	decodeJSONResponseData(t, out.Bytes(), &data)
+	envelope := data.Envelope
 	assertInitEnvelopeV2(t, envelope)
 	assertWarehouseAuthNextAction(t, envelope.NextAction)
 
@@ -211,10 +294,9 @@ func TestInitJSONIncludesBrowseHintWhenWarehouseConfigIsMissing(t *testing.T) {
 		t.Fatalf("init failed: %v", err)
 	}
 
-	var envelope cliresult.Envelope
-	if err := json.Unmarshal(out.Bytes(), &envelope); err != nil {
-		t.Fatalf("init --json output is not JSON: %v\n%s", err, out.String())
-	}
+	var data initResponseData
+	decodeJSONResponseData(t, out.Bytes(), &data)
+	envelope := data.Envelope
 	assertInitEnvelopeV2(t, envelope)
 	assertWarehouseConfigNextAction(t, envelope.NextAction)
 }
@@ -254,10 +336,9 @@ warehouse:
 		t.Fatalf("init --json mutated config:\nbefore:\n%s\nafter:\n%s", string(before), string(after))
 	}
 
-	var envelope cliresult.Envelope
-	if err := json.Unmarshal(out.Bytes(), &envelope); err != nil {
-		t.Fatalf("init --json output is not JSON: %v\n%s", err, out.String())
-	}
+	var data initResponseData
+	decodeJSONResponseData(t, out.Bytes(), &data)
+	envelope := data.Envelope
 	assertInitEnvelopeV2(t, envelope)
 	assertWarehouseConfigNextAction(t, envelope.NextAction)
 }
@@ -287,10 +368,9 @@ warehouse:
 		t.Fatalf("init failed: %v", err)
 	}
 
-	var envelope cliresult.Envelope
-	if err := json.Unmarshal(out.Bytes(), &envelope); err != nil {
-		t.Fatalf("init --json output is not JSON: %v\n%s", err, out.String())
-	}
+	var data initResponseData
+	decodeJSONResponseData(t, out.Bytes(), &data)
+	envelope := data.Envelope
 	assertInitEnvelopeV2(t, envelope)
 	if envelope.NextAction.Type != "run_command" ||
 		envelope.NextAction.Stage != "warehouse_access" ||
@@ -327,10 +407,9 @@ warehouse:
 		t.Fatalf("init failed: %v", err)
 	}
 
-	var envelope cliresult.Envelope
-	if err := json.Unmarshal(out.Bytes(), &envelope); err != nil {
-		t.Fatalf("init --json output is not JSON: %v\n%s", err, out.String())
-	}
+	var data initResponseData
+	decodeJSONResponseData(t, out.Bytes(), &data)
+	envelope := data.Envelope
 	assertInitEnvelopeV2(t, envelope)
 	if !envelope.Ready ||
 		envelope.NextAction.Type != "run_command" ||
@@ -487,23 +566,8 @@ func TestSourceContractsJSONOutput(t *testing.T) {
 		t.Fatalf("source contracts --json failed: %v", err)
 	}
 
-	var result struct {
-		SchemaVersion string `json:"schema_version"`
-		Contracts     []struct {
-			Contract struct {
-				Type          string `json:"type"`
-				SchemaVersion int    `json:"schema_version"`
-			} `json:"contract"`
-			Default bool `json:"default"`
-			Actions []struct {
-				Type    string `json:"type"`
-				Command string `json:"command"`
-			} `json:"actions"`
-		} `json:"contracts"`
-	}
-	if err := json.Unmarshal(out.Bytes(), &result); err != nil {
-		t.Fatalf("source contracts --json output is not JSON: %v\n%s", err, out.String())
-	}
+	var result sourceContractsListResult
+	decodeJSONResponseData(t, out.Bytes(), &result)
 	if result.SchemaVersion != cliresult.SchemaVersion || len(result.Contracts) != 1 {
 		t.Fatalf("result = %+v, want one schema-versioned contract", result)
 	}
@@ -528,24 +592,8 @@ func TestSourceContractsTypeJSONIncludesFullSchema(t *testing.T) {
 		t.Fatalf("source contracts --type events --json failed: %v", err)
 	}
 
-	var result struct {
-		Contract struct {
-			Type          string `json:"type"`
-			SchemaVersion int    `json:"schema_version"`
-		} `json:"contract"`
-		Model struct {
-			Name      string `json:"name"`
-			Partition string `json:"partition"`
-		} `json:"model"`
-		Columns []struct {
-			Name     string `json:"name"`
-			Type     string `json:"type"`
-			Required bool   `json:"required"`
-		} `json:"columns"`
-	}
-	if err := json.Unmarshal(out.Bytes(), &result); err != nil {
-		t.Fatalf("source contract detail output is not JSON: %v\n%s", err, out.String())
-	}
+	var result sourceContractDetailResult
+	decodeJSONResponseData(t, out.Bytes(), &result)
 	if result.Contract.Type != "events" || result.Contract.SchemaVersion != 1 {
 		t.Fatalf("contract = %+v, want events/1", result.Contract)
 	}
@@ -622,23 +670,8 @@ warehouse:
 		t.Fatalf("source create mutated segmentstream.yml:\nbefore:\n%s\nafter:\n%s", string(configBefore), string(configAfter))
 	}
 
-	var result struct {
-		SchemaVersion string   `json:"schema_version"`
-		Directory     string   `json:"directory"`
-		CreatedFiles  []string `json:"created_files"`
-		Contract      struct {
-			Type          string `json:"type"`
-			SchemaVersion int    `json:"schema_version"`
-		} `json:"contract"`
-		Actions []struct {
-			Type    string `json:"type"`
-			Path    string `json:"path"`
-			Snippet string `json:"snippet"`
-		} `json:"actions"`
-	}
-	if err := json.Unmarshal(out.Bytes(), &result); err != nil {
-		t.Fatalf("source create --json output is not JSON: %v\n%s", err, out.String())
-	}
+	var result sourceCreateResult
+	decodeJSONResponseData(t, out.Bytes(), &result)
 	if result.Directory != "sources/ga4" {
 		t.Fatalf("directory = %q, want sources/ga4", result.Directory)
 	}

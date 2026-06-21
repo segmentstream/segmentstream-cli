@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/segmentstream/segmentstream-cli/internal/cliresult"
 	"github.com/segmentstream/segmentstream-cli/internal/credentials"
 	"github.com/segmentstream/segmentstream-cli/internal/dagster"
 	"github.com/segmentstream/segmentstream-cli/internal/project"
@@ -31,48 +32,64 @@ type runOptions struct {
 	StartDate string
 }
 
-func newRunCommand(out io.Writer, runner commandRunner) *cobra.Command {
+type runResult struct {
+	Status           string `json:"status"`
+	RuntimeURL       string `json:"runtime_url"`
+	StartDate        string `json:"start_date"`
+	EndInclusiveDate string `json:"end_inclusive_date"`
+	Assets           int    `json:"assets"`
+}
+
+func newRunCommand(out, errOut io.Writer, commandContext structuredCommandContext, runner commandRunner) *cobra.Command {
 	options := runOptions{}
-	cmd := &cobra.Command{
-		Use:   "run",
-		Short: "Run SegmentStream analytics",
-		Args:  cobra.NoArgs,
-		RunE: func(cmd *cobra.Command, args []string) error {
-			projectRoot, err := os.Getwd()
-			if err != nil {
-				return fmt.Errorf("find current directory: %w", err)
-			}
-			return runAnalytics(cmd.Context(), projectRoot, out, runner, options)
-		},
-	}
+	cmd := newStructuredCommand(out, errOut, commandContext, structuredCommandSpec{
+		Use:     "run",
+		Short:   "Run SegmentStream analytics",
+		Args:    cobra.NoArgs,
+		Command: "run",
+	}, func(ctx context.Context, args []string) (cliresult.Response, error) {
+		projectRoot, err := os.Getwd()
+		if err != nil {
+			return cliresult.Response{}, fmt.Errorf("find current directory: %w", err)
+		}
+		progressOut := out
+		if commandContext.Output != nil && commandContext.Output.JSON && errOut != nil {
+			progressOut = errOut
+		}
+		result, err := runAnalytics(ctx, projectRoot, progressOut, runner, options)
+		if err != nil {
+			return cliresult.Response{}, err
+		}
+		return cliresult.OK("run", result), nil
+	})
 	cmd.Flags().StringVar(&options.StartDate, "start-date", "", "Run from this UTC date in YYYY-MM-DD format; defaults to the last 30 days")
 	return cmd
 }
 
-func runAnalytics(ctx context.Context, projectRoot string, out io.Writer, runner commandRunner, options runOptions) error {
+func runAnalytics(ctx context.Context, projectRoot string, progressOut io.Writer, runner commandRunner, options runOptions) (runResult, error) {
 	config, err := project.LoadConfig(projectRoot)
 	if err != nil {
-		return err
+		return runResult{}, err
 	}
 	runRange, err := resolveRunDateRange(options)
 	if err != nil {
-		return err
+		return runResult{}, err
 	}
 	if err := preflightProjectSanity(config); err != nil {
-		return err
+		return runResult{}, err
 	}
 
-	progress := newRunProgress(out, 4)
+	progress := newRunProgress(progressOut, 4)
 
 	progress.Start("Checking local environment")
 	if err := preflightDocker(ctx, runner); err != nil {
-		return err
+		return runResult{}, err
 	}
 	progress.OK("")
 
 	progress.Start("Preparing project files")
 	if err := projectruntime.Prepare(projectRoot, config); err != nil {
-		return err
+		return runResult{}, err
 	}
 	progress.OK("")
 
@@ -86,12 +103,12 @@ func runAnalytics(ctx context.Context, projectRoot string, out io.Writer, runner
 		Dir:  runtimeDir,
 	}, "Still starting SegmentStream")
 	if err != nil {
-		return commandError("SegmentStream failed to start.", output, err)
+		return runResult{}, commandError("SegmentStream failed to start.", output, err)
 	}
 
 	client := newDagsterClient(runtimeURL)
 	if err := runOperationWithProgress(ctx, progress, client.WaitUntilReady, "Still starting SegmentStream"); err != nil {
-		return operationError("SegmentStream failed to start.", err)
+		return runResult{}, operationError("SegmentStream failed to start.", err)
 	}
 	progress.OK(fmt.Sprintf("ready at %s", runtimeURL))
 
@@ -100,13 +117,17 @@ func runAnalytics(ctx context.Context, projectRoot string, out io.Writer, runner
 
 	assets, err := client.MaterializableAssets(ctx)
 	if err != nil {
-		return operationError("SegmentStream pipeline failed.", err)
+		return runResult{}, operationError("SegmentStream pipeline failed.", err)
 	}
 	if len(assets) == 0 {
 		progress.OK("nothing to run")
-		fmt.Fprintln(out)
-		fmt.Fprintln(out, "Nothing to run")
-		return nil
+		return runResult{
+			Status:           "nothing_to_run",
+			RuntimeURL:       runtimeURL,
+			StartDate:        runRange.StartDate,
+			EndInclusiveDate: runRange.EndInclusiveDate,
+			Assets:           0,
+		}, nil
 	}
 
 	backfillID, err := client.LaunchBackfill(ctx, assets, dagster.DateRange{
@@ -114,18 +135,34 @@ func runAnalytics(ctx context.Context, projectRoot string, out io.Writer, runner
 		EndInclusiveDate: runRange.EndInclusiveDate,
 	})
 	if err != nil {
-		return operationError("SegmentStream pipeline failed.", err)
+		return runResult{}, operationError("SegmentStream pipeline failed.", err)
 	}
 	if err := runOperationWithProgress(ctx, progress, func(ctx context.Context) error {
 		return client.WaitForBackfill(ctx, backfillID)
 	}, "Still running pipeline"); err != nil {
-		return operationError("SegmentStream pipeline failed.", err)
+		return runResult{}, operationError("SegmentStream pipeline failed.", err)
 	}
 	progress.OK("")
 
-	fmt.Fprintln(out)
-	fmt.Fprintln(out, "Finished SegmentStream pipeline")
-	return nil
+	return runResult{
+		Status:           "finished",
+		RuntimeURL:       runtimeURL,
+		StartDate:        runRange.StartDate,
+		EndInclusiveDate: runRange.EndInclusiveDate,
+		Assets:           len(assets),
+	}, nil
+}
+
+func (result runResult) HumanDocument() cliresult.Document {
+	message := "Finished SegmentStream pipeline"
+	if result.Status == "nothing_to_run" {
+		message = "Nothing to run"
+	}
+	return cliresult.Document{
+		Blocks: []cliresult.Block{
+			{Kind: cliresult.BlockCode, Text: message},
+		},
+	}
 }
 
 func preflightProjectSanity(config project.Config) error {

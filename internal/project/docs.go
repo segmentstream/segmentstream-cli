@@ -113,8 +113,13 @@ source package's ` + "`events`" + ` model.
 
 ## Commands
 
+Pass ` + "`--json`" + ` to any command for a structured response object on stdout.
+The response includes ` + "`schema_version`" + `, ` + "`command`" + `, ` + "`status`" + `, and command-specific
+` + "`data`" + `; diagnostics and actions are structured when present.
+
 ` + "`segmentstream init`" + ` reports setup state and the next action. Use
-` + "`segmentstream init --json`" + ` for stable agent-readable output.
+` + "`segmentstream init --json`" + ` for stable agent-readable output with the
+setup state machine under ` + "`data.envelope`" + `.
 
 ` + "`segmentstream init --warehouse bigquery`" + ` initializes warehouse selection in
 the current directory. It is safe to run again: existing ` + "`segmentstream.yml`" + `,
@@ -151,8 +156,8 @@ source contracts and returns their schemas.
 ` + "`segmentstream source create <name> --type events [--json]`" + ` creates a local
 source package under ` + "`sources/<name>/`" + `.
 
-` + "`segmentstream source init <name>`" + ` is a compatibility alias that uses the
-default source contract.
+` + "`segmentstream source init <name> [--json]`" + ` is a compatibility alias that
+uses the default source contract.
 
 ## Files
 
