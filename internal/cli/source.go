@@ -1,10 +1,12 @@
 package cli
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/segmentstream/segmentstream-cli/internal/cliresult"
 	"github.com/segmentstream/segmentstream-cli/internal/projectsource"
@@ -13,12 +15,10 @@ import (
 
 type sourceContractsOptions struct {
 	Type string
-	JSON bool
 }
 
 type sourceCreateOptions struct {
 	Type string
-	JSON bool
 }
 
 type sourceContractAction struct {
@@ -72,105 +72,93 @@ type sourceCreateResultSource struct {
 	PackageName string `json:"package_name"`
 }
 
-func newSourceCommand(out io.Writer) *cobra.Command {
+func newSourceCommand(out io.Writer, commandContext structuredCommandContext) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "source",
 		Short: "Manage SegmentStream sources",
 	}
 
-	cmd.AddCommand(newSourceContractsCommand(out))
-	cmd.AddCommand(newSourceCreateCommand(out))
-	cmd.AddCommand(newSourceInitCommand(out))
+	cmd.AddCommand(newSourceContractsCommand(out, commandContext))
+	cmd.AddCommand(newSourceCreateCommand(out, commandContext))
+	cmd.AddCommand(newSourceInitCommand(out, commandContext))
 
 	return cmd
 }
 
-func newSourceContractsCommand(out io.Writer) *cobra.Command {
+func newSourceContractsCommand(out io.Writer, commandContext structuredCommandContext) *cobra.Command {
 	options := sourceContractsOptions{}
-	cmd := &cobra.Command{
-		Use:   "contracts",
-		Short: "List supported custom source contracts",
-		Args:  cobra.NoArgs,
-		RunE: func(cmd *cobra.Command, args []string) error {
-			if options.Type != "" {
-				contract, err := projectsource.ContractByType(options.Type)
-				if err != nil {
-					return err
-				}
-				if options.JSON {
-					return cliresult.WriteJSON(out, sourceContractDetail(contract))
-				}
-				writeSourceContractDetail(out, contract)
-				return nil
-			}
-
-			contracts, err := projectsource.Contracts()
+	cmd := newStructuredCommand(out, nil, commandContext, structuredCommandSpec{
+		Use:     "contracts",
+		Short:   "List supported custom source contracts",
+		Args:    cobra.NoArgs,
+		Command: "source.contracts",
+	}, func(ctx context.Context, args []string) (cliresult.Response, error) {
+		_ = ctx
+		if options.Type != "" {
+			contract, err := projectsource.ContractByType(options.Type)
 			if err != nil {
-				return err
+				return cliresult.Response{}, err
 			}
-			if options.JSON {
-				return cliresult.WriteJSON(out, sourceContractsList(contracts))
-			}
-			writeSourceContractsList(out, contracts)
-			return nil
-		},
-	}
+			return cliresult.OK("source.contracts", sourceContractDetail(contract)), nil
+		}
+
+		contracts, err := projectsource.Contracts()
+		if err != nil {
+			return cliresult.Response{}, err
+		}
+		return cliresult.OK("source.contracts", sourceContractsList(contracts)), nil
+	})
 	cmd.Flags().StringVar(&options.Type, "type", "", "Show the full schema for a source contract type")
-	cmd.Flags().BoolVar(&options.JSON, "json", false, "Emit JSON output for agents and automation")
 	return cmd
 }
 
-func newSourceCreateCommand(out io.Writer) *cobra.Command {
+func newSourceCreateCommand(out io.Writer, commandContext structuredCommandContext) *cobra.Command {
 	options := sourceCreateOptions{}
-	cmd := &cobra.Command{
-		Use:   "create <name> --type <contract>",
-		Short: "Create a local source package from a contract",
-		Args:  cobra.ExactArgs(1),
-		RunE: func(cmd *cobra.Command, args []string) error {
-			if options.Type == "" {
-				return fmt.Errorf("--type is required; run segmentstream source contracts to list supported contracts")
-			}
-			projectRoot, err := os.Getwd()
-			if err != nil {
-				return fmt.Errorf("find current directory: %w", err)
-			}
+	cmd := newStructuredCommand(out, nil, commandContext, structuredCommandSpec{
+		Use:     "create <name> --type <contract>",
+		Short:   "Create a local source package from a contract",
+		Args:    cobra.ExactArgs(1),
+		Command: "source.create",
+	}, func(ctx context.Context, args []string) (cliresult.Response, error) {
+		_ = ctx
+		if options.Type == "" {
+			return cliresult.Response{}, fmt.Errorf("--type is required; run segmentstream source contracts to list supported contracts")
+		}
+		projectRoot, err := os.Getwd()
+		if err != nil {
+			return cliresult.Response{}, fmt.Errorf("find current directory: %w", err)
+		}
 
-			source, err := projectsource.Create(projectRoot, args[0], options.Type)
-			if err != nil {
-				return err
-			}
-			if options.JSON {
-				return cliresult.WriteJSON(out, sourceCreateJSON(source))
-			}
-			writeSourceCreateResult(out, source)
-			return nil
-		},
-	}
+		source, err := projectsource.Create(projectRoot, args[0], options.Type)
+		if err != nil {
+			return cliresult.Response{}, err
+		}
+		return cliresult.OK("source.create", sourceCreateJSON(source)), nil
+	})
 	cmd.Flags().StringVar(&options.Type, "type", "", "Source contract type")
-	cmd.Flags().BoolVar(&options.JSON, "json", false, "Emit JSON output for agents and automation")
 	return cmd
 }
 
-func newSourceInitCommand(out io.Writer) *cobra.Command {
-	return &cobra.Command{
-		Use:   "init <name>",
-		Short: "Create a local source package from the default contract",
-		Args:  cobra.ExactArgs(1),
-		RunE: func(cmd *cobra.Command, args []string) error {
-			projectRoot, err := os.Getwd()
-			if err != nil {
-				return fmt.Errorf("find current directory: %w", err)
-			}
+func newSourceInitCommand(out io.Writer, commandContext structuredCommandContext) *cobra.Command {
+	return newStructuredCommand(out, nil, commandContext, structuredCommandSpec{
+		Use:     "init <name>",
+		Short:   "Create a local source package from the default contract",
+		Args:    cobra.ExactArgs(1),
+		Command: "source.init",
+	}, func(ctx context.Context, args []string) (cliresult.Response, error) {
+		_ = ctx
+		projectRoot, err := os.Getwd()
+		if err != nil {
+			return cliresult.Response{}, fmt.Errorf("find current directory: %w", err)
+		}
 
-			source, err := projectsource.Init(projectRoot, args[0])
-			if err != nil {
-				return err
-			}
+		source, err := projectsource.Init(projectRoot, args[0])
+		if err != nil {
+			return cliresult.Response{}, err
+		}
 
-			writeSourceCreateResult(out, source)
-			return nil
-		},
-	}
+		return cliresult.OK("source.init", sourceCreateJSON(source)), nil
+	})
 }
 
 func sourceContractsList(contracts []projectsource.Contract) sourceContractsListResult {
@@ -242,52 +230,71 @@ func sourceCreateJSON(source projectsource.Source) sourceCreateResult {
 	}
 }
 
-func writeSourceContractsList(out io.Writer, contracts []projectsource.Contract) {
-	fmt.Fprintln(out, "Supported source contracts:")
-	for _, contract := range contracts {
-		marker := ""
-		if contract.Default {
-			marker = ", default"
+func (result sourceContractsListResult) HumanDocument() cliresult.Document {
+	return textDocument(func(out io.Writer) {
+		fmt.Fprintln(out, "Supported source contracts:")
+		for _, contract := range result.Contracts {
+			marker := ""
+			if contract.Default {
+				marker = ", default"
+			}
+			fmt.Fprintf(out, "- %s (schema_version: %d, %s%s)\n", contract.Contract.Type, contract.Contract.SchemaVersion, contract.Status, marker)
+			fmt.Fprintf(out, "  %s\n", contract.Description)
+			for _, action := range contract.Actions {
+				switch action.Type {
+				case "inspect_schema":
+					fmt.Fprintf(out, "  Inspect: %s\n", strings.TrimSuffix(action.Command, " --json"))
+				case "create_source":
+					fmt.Fprintf(out, "  Create: %s\n", strings.TrimSuffix(action.Command, " --json"))
+				}
+			}
 		}
-		fmt.Fprintf(out, "- %s (schema_version: %d, %s%s)\n", contract.Type, contract.SchemaVersion, contract.Status, marker)
-		fmt.Fprintf(out, "  %s\n", contract.Description)
-		fmt.Fprintf(out, "  Inspect: segmentstream source contracts --type %s\n", contract.Type)
-		fmt.Fprintf(out, "  Create: segmentstream source create <name> --type %s\n", contract.Type)
-	}
+	})
 }
 
-func writeSourceContractDetail(out io.Writer, contract projectsource.Contract) {
-	fmt.Fprintf(out, "Source contract: %s\n", contract.Type)
-	fmt.Fprintf(out, "Schema version: %d\n", contract.SchemaVersion)
-	fmt.Fprintf(out, "Status: %s\n", contract.Status)
-	if contract.Default {
-		fmt.Fprintln(out, "Default: yes")
-	} else {
-		fmt.Fprintln(out, "Default: no")
-	}
-	fmt.Fprintf(out, "Model: %s\n", contract.Model.Name)
-	fmt.Fprintf(out, "Partition: %s\n", contract.Model.Partition)
-	fmt.Fprintln(out)
-	fmt.Fprintln(out, "Columns:")
-	for _, column := range contract.Columns {
-		required := "optional"
-		if column.Required {
-			required = "required"
+func (result sourceContractDetailResult) HumanDocument() cliresult.Document {
+	return textDocument(func(out io.Writer) {
+		fmt.Fprintf(out, "Source contract: %s\n", result.Contract.Type)
+		fmt.Fprintf(out, "Schema version: %d\n", result.Contract.SchemaVersion)
+		fmt.Fprintf(out, "Status: %s\n", result.Status)
+		if result.Default {
+			fmt.Fprintln(out, "Default: yes")
+		} else {
+			fmt.Fprintln(out, "Default: no")
 		}
-		fmt.Fprintf(out, "- %s %s %s: %s\n", column.Name, column.Type, required, column.Description)
-	}
+		fmt.Fprintf(out, "Model: %s\n", result.Model.Name)
+		fmt.Fprintf(out, "Partition: %s\n", result.Model.Partition)
+		fmt.Fprintln(out)
+		fmt.Fprintln(out, "Columns:")
+		for _, column := range result.Columns {
+			required := "optional"
+			if column.Required {
+				required = "required"
+			}
+			fmt.Fprintf(out, "- %s %s %s: %s\n", column.Name, column.Type, required, column.Description)
+		}
+	})
 }
 
-func writeSourceCreateResult(out io.Writer, source projectsource.Source) {
-	relativePath := sourceRelativePath(source)
-	fmt.Fprintf(out, "Created source %q at %s\n", source.Name, relativePath)
-	fmt.Fprintf(out, "Contract: %s (schema_version: %d)\n", source.Contract.Type, source.Contract.SchemaVersion)
-	fmt.Fprintln(out)
-	fmt.Fprintln(out, "Implement:")
-	fmt.Fprintf(out, "- %s\n", sourceImplementationPath(source))
-	fmt.Fprintln(out)
-	fmt.Fprintln(out, "Add this source to segmentstream.yml:")
-	fmt.Fprint(out, sourceConfigSnippet(source))
+func (result sourceCreateResult) HumanDocument() cliresult.Document {
+	return textDocument(func(out io.Writer) {
+		fmt.Fprintf(out, "Created source %q at %s\n", result.Source.Name, result.Directory)
+		fmt.Fprintf(out, "Contract: %s (schema_version: %d)\n", result.Contract.Type, result.Contract.SchemaVersion)
+		fmt.Fprintln(out)
+		fmt.Fprintln(out, "Implement:")
+		for _, action := range result.Actions {
+			if action.Type == "implement" && action.Path != "" {
+				fmt.Fprintf(out, "- %s\n", action.Path)
+			}
+		}
+		fmt.Fprintln(out)
+		for _, action := range result.Actions {
+			if action.Type == "tell_user" && action.Snippet != "" {
+				fmt.Fprintln(out, "Add this source to segmentstream.yml:")
+				fmt.Fprint(out, action.Snippet)
+			}
+		}
+	})
 }
 
 func sourceRelativePath(source projectsource.Source) string {
