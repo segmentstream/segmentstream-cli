@@ -18,8 +18,8 @@ import (
 )
 
 const (
-	MarkerDirName  = ".segmentstream_verify"
-	MarkerFileName = "last_pass.json"
+	MarkerDirName  = ".segmentstream"
+	MarkerFileName = "verification.json"
 	SchemaVersion  = "1"
 )
 

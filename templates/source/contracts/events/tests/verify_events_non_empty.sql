@@ -13,8 +13,6 @@ with source_rows as (
   limit 1
 )
 
-select 'Source returned no rows for the SegmentStream verification window.' as failure
-where not exists (
-  select 1
-  from source_rows
-)
+select failure
+from unnest(['Source returned no rows for the SegmentStream verification window.']) as failure
+where not exists (select 1 from source_rows)

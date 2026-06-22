@@ -147,7 +147,7 @@ func TestSourceVerifyRunsTemplateDbtTestsInDocker(t *testing.T) {
 		result.Fingerprint == "" {
 		t.Fatalf("result = %+v, want passed verification window", result)
 	}
-	assertFileExists(t, filepath.Join(root, "sources", "ga4", ".segmentstream_verify", "last_pass.json"))
+	assertFileExists(t, filepath.Join(root, "sources", "ga4", ".segmentstream", "verification.json"))
 	status, err := sourcepkg.Check(root, project.Source{Name: "ga4", Path: "./sources/ga4"})
 	if err != nil {
 		t.Fatalf("Check failed: %v", err)
