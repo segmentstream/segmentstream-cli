@@ -1,6 +1,7 @@
 package source
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -8,12 +9,14 @@ import (
 	"fmt"
 	"io/fs"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"sort"
 	"strings"
 	"time"
 
 	"github.com/segmentstream/segmentstream-cli/internal/project"
+	"github.com/segmentstream/segmentstream-cli/internal/projectruntime"
 	"gopkg.in/yaml.v3"
 )
 
@@ -21,7 +24,11 @@ const (
 	MarkerDirName  = ".segmentstream"
 	MarkerFileName = "verification.json"
 	SchemaVersion  = "1"
+
+	DefaultVerifyDays = 7
 )
+
+var verifyProgressInterval = 15 * time.Second
 
 type Marker struct {
 	SchemaVersion    string           `json:"schema_version"`
@@ -39,6 +46,170 @@ type Status struct {
 	MarkerPath  string
 	Fingerprint string
 	Contract    ContractIdentity
+}
+
+type VerifyRequest struct {
+	ProjectRoot        string
+	SourceName         string
+	StartDate          string
+	Runner             CommandRunner
+	Progress           Progress
+	WarehousePreflight func(project.Config) error
+	Now                func() time.Time
+}
+
+type VerifyResult struct {
+	Source           string
+	SourcePath       string
+	Status           string
+	StartDate        string
+	EndExclusiveDate string
+	EndInclusiveDate string
+	MarkerPath       string
+	Fingerprint      string
+}
+
+type CommandInvocation struct {
+	Name string
+	Args []string
+	Dir  string
+}
+
+type CommandRunner interface {
+	LookPath(file string) (string, error)
+	Run(ctx context.Context, invocation CommandInvocation) (string, error)
+}
+
+type Progress interface {
+	Start(message string)
+	Detail(message string)
+	OK(message string)
+	StillWorking(message string, elapsed time.Duration)
+}
+
+type verifyDateRange struct {
+	StartDate        string
+	EndExclusiveDate string
+}
+
+func Verify(ctx context.Context, request VerifyRequest) (VerifyResult, error) {
+	sourceName := strings.TrimSpace(request.SourceName)
+	if sourceName == "" {
+		return VerifyResult{}, errors.New("source name is required")
+	}
+	if strings.TrimSpace(request.ProjectRoot) == "" {
+		return VerifyResult{}, errors.New("project root is required")
+	}
+	if request.Runner == nil {
+		return VerifyResult{}, errors.New("source verification runner is required")
+	}
+
+	now := request.Now
+	if now == nil {
+		now = func() time.Time { return time.Now().UTC() }
+	}
+	progress := request.Progress
+	if progress == nil {
+		progress = noopProgress{}
+	}
+
+	config, err := project.LoadConfig(request.ProjectRoot)
+	if err != nil {
+		return VerifyResult{}, err
+	}
+	source, ok := findConfiguredSource(config, sourceName)
+	if !ok {
+		return VerifyResult{}, fmt.Errorf("source %q is not declared in %s", sourceName, project.ConfigFileName)
+	}
+	verifyRange, err := resolveVerifyDateRange(request.StartDate, now())
+	if err != nil {
+		return VerifyResult{}, err
+	}
+	sourcePath, err := ResolveSourcePath(request.ProjectRoot, source)
+	if err != nil {
+		return VerifyResult{}, err
+	}
+	if err := RequireTemplateTests(sourcePath); err != nil {
+		return VerifyResult{}, err
+	}
+	containerSourcePath, err := ContainerSourcePath(request.ProjectRoot, source)
+	if err != nil {
+		return VerifyResult{}, err
+	}
+	if request.WarehousePreflight != nil {
+		if err := request.WarehousePreflight(config); err != nil {
+			return VerifyResult{}, err
+		}
+	}
+
+	progress.Start("Checking local environment")
+	if err := preflightDocker(ctx, request.Runner); err != nil {
+		return VerifyResult{}, err
+	}
+	progress.OK("")
+
+	progress.Start("Preparing project files")
+	if err := projectruntime.Prepare(request.ProjectRoot, config); err != nil {
+		return VerifyResult{}, err
+	}
+	progress.OK("")
+
+	runtimeDir := filepath.Join(request.ProjectRoot, projectruntime.RuntimeDirName)
+	progress.Start("Building verification container")
+	output, err := runWithProgress(ctx, progress, request.Runner, CommandInvocation{
+		Name: "docker",
+		Args: []string{"compose", "build", "segmentstream"},
+		Dir:  runtimeDir,
+	}, "Still building verification container")
+	if err != nil {
+		return VerifyResult{}, commandError("Source verification failed while building the SegmentStream runtime.", output, err)
+	}
+	progress.OK("")
+
+	progress.Start("Running source dbt tests")
+	progress.Detail(fmt.Sprintf("Verifying %s from %s through %s", source.Name, verifyRange.StartDate, verifyEndInclusiveDate(verifyRange)))
+	vars, err := json.Marshal(map[string]string{
+		"segmentstream_start_date": verifyRange.StartDate,
+		"segmentstream_end_date":   verifyRange.EndExclusiveDate,
+	})
+	if err != nil {
+		return VerifyResult{}, fmt.Errorf("marshal dbt vars: %w", err)
+	}
+	if output, err = runWithProgress(ctx, progress, request.Runner, sourceVerifyDockerInvocation(runtimeDir, []string{
+		"dbt",
+		"deps",
+		"--project-dir", containerSourcePath,
+		"--profiles-dir", "/workspace/.segmentstream",
+	}), "Still installing source dbt dependencies"); err != nil {
+		return VerifyResult{}, commandError("Source verification failed while installing dbt dependencies.", output, err)
+	}
+	if output, err = runWithProgress(ctx, progress, request.Runner, sourceVerifyDockerInvocation(runtimeDir, []string{
+		"dbt",
+		"test",
+		"--project-dir", containerSourcePath,
+		"--profiles-dir", "/workspace/.segmentstream",
+		"--select", "tag:segmentstream_source_verify",
+		"--vars", string(vars),
+	}), "Still running source dbt tests"); err != nil {
+		return VerifyResult{}, commandError("Source verification failed.", output, err)
+	}
+
+	marker, markerPath, err := SavePassing(request.ProjectRoot, source, verifyRange.StartDate, verifyRange.EndExclusiveDate, now())
+	if err != nil {
+		return VerifyResult{}, err
+	}
+	progress.OK("")
+
+	return VerifyResult{
+		Source:           source.Name,
+		SourcePath:       filepath.ToSlash(source.Path),
+		Status:           "passed",
+		StartDate:        verifyRange.StartDate,
+		EndExclusiveDate: verifyRange.EndExclusiveDate,
+		EndInclusiveDate: verifyEndInclusiveDate(verifyRange),
+		MarkerPath:       filepath.ToSlash(markerPath),
+		Fingerprint:      marker.Fingerprint,
+	}, nil
 }
 
 func Check(projectRoot string, source project.Source) (Status, error) {
@@ -220,6 +391,134 @@ func RequireTemplateTests(sourcePath string) error {
 	}
 	return nil
 }
+
+func sourceVerifyDockerInvocation(runtimeDir string, args []string) CommandInvocation {
+	dockerArgs := []string{"compose", "run", "--rm", "--no-deps", "segmentstream"}
+	dockerArgs = append(dockerArgs, args...)
+	return CommandInvocation{
+		Name: "docker",
+		Args: dockerArgs,
+		Dir:  runtimeDir,
+	}
+}
+
+func resolveVerifyDateRange(startDate string, now time.Time) (verifyDateRange, error) {
+	today := utcDate(now)
+	start := today.AddDate(0, 0, -(DefaultVerifyDays - 1))
+	if strings.TrimSpace(startDate) != "" {
+		parsed, err := parseDate(startDate, "--start-date")
+		if err != nil {
+			return verifyDateRange{}, err
+		}
+		start = parsed
+	}
+	if start.After(today) {
+		return verifyDateRange{}, fmt.Errorf("--start-date %s is after current UTC date %s", formatDate(start), formatDate(today))
+	}
+	return verifyDateRange{
+		StartDate:        formatDate(start),
+		EndExclusiveDate: formatDate(today.AddDate(0, 0, 1)),
+	}, nil
+}
+
+func verifyEndInclusiveDate(dateRange verifyDateRange) string {
+	end, err := parseDate(dateRange.EndExclusiveDate, "end_date")
+	if err != nil {
+		return dateRange.EndExclusiveDate
+	}
+	return formatDate(end.AddDate(0, 0, -1))
+}
+
+func findConfiguredSource(config project.Config, sourceName string) (project.Source, bool) {
+	for _, source := range config.Sources {
+		if source.Name == sourceName {
+			return source, true
+		}
+	}
+	return project.Source{}, false
+}
+
+func preflightDocker(ctx context.Context, runner CommandRunner) error {
+	if _, err := runner.LookPath("docker"); err != nil {
+		if errors.Is(err, exec.ErrNotFound) {
+			return errors.New("Docker is required to run source verification. Install Docker Desktop or Docker Engine and make sure docker is on PATH.")
+		}
+		return fmt.Errorf("check Docker CLI: %w", err)
+	}
+
+	if output, err := runner.Run(ctx, CommandInvocation{Name: "docker", Args: []string{"info", "--format", "{{json .ServerVersion}}"}}); err != nil {
+		return commandError("Docker is installed, but Docker Engine is not running or this user cannot access it.", output, err)
+	}
+
+	if output, err := runner.Run(ctx, CommandInvocation{Name: "docker", Args: []string{"compose", "version"}}); err != nil {
+		return commandError("Docker Compose V2 is required. Install or update Docker so 'docker compose' is available.", output, err)
+	}
+
+	return nil
+}
+
+func runWithProgress(ctx context.Context, progress Progress, runner CommandRunner, invocation CommandInvocation, progressMessage string) (string, error) {
+	type commandResult struct {
+		output string
+		err    error
+	}
+
+	done := make(chan commandResult, 1)
+	startedAt := time.Now()
+	go func() {
+		output, err := runner.Run(ctx, invocation)
+		done <- commandResult{output: output, err: err}
+	}()
+
+	ticker := time.NewTicker(verifyProgressInterval)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case result := <-done:
+			return result.output, result.err
+		case <-ticker.C:
+			progress.StillWorking(progressMessage, time.Since(startedAt))
+		case <-ctx.Done():
+			return "", ctx.Err()
+		}
+	}
+}
+
+func commandError(message, output string, err error) error {
+	output = strings.TrimSpace(output)
+	if output != "" {
+		return fmt.Errorf("%s\n\nDetails:\n%s", message, output)
+	}
+	if err != nil {
+		return fmt.Errorf("%s: %w", message, err)
+	}
+	return errors.New(message)
+}
+
+func parseDate(value, name string) (time.Time, error) {
+	parsed, err := time.Parse("2006-01-02", strings.TrimSpace(value))
+	if err != nil {
+		return time.Time{}, fmt.Errorf("invalid %s %q; use YYYY-MM-DD", name, value)
+	}
+	return utcDate(parsed), nil
+}
+
+func utcDate(value time.Time) time.Time {
+	year, month, day := value.UTC().Date()
+	return time.Date(year, month, day, 0, 0, 0, 0, time.UTC)
+}
+
+func formatDate(value time.Time) string {
+	return value.UTC().Format("2006-01-02")
+}
+
+type noopProgress struct{}
+
+func (noopProgress) Start(message string)                               {}
+func (noopProgress) Detail(message string)                              {}
+func (noopProgress) OK(message string)                                  {}
+func (noopProgress) StillWorking(message string, elapsed time.Duration) {}
 
 func Fingerprint(sourcePath string) (string, error) {
 	var files []string
