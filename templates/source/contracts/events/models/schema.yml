@@ -1,14 +1,19 @@
 version: 2
 
+# Example raw input declaration for this source package.
+# Replace these placeholders with the warehouse tables this source reads from.
+# For BigQuery, database is the project, schema is the dataset, and identifier
+# is the physical table name. Add or remove tables as needed, then reference
+# them from models/events.sql.
 sources:
   - name: __SOURCE_NAME___raw
-    description: Raw tables for the __SOURCE_NAME__ source.
-    database: "{{ var('__SOURCE_NAME___raw_project', env_var('SEGMENTSTREAM_BQ_PROJECT')) }}"
-    schema: "{{ var('__SOURCE_NAME___raw_dataset', env_var('SEGMENTSTREAM_BQ_DATASET')) }}"
+    description: REPLACE_WITH_RAW_INPUT_DESCRIPTION
+    database: REPLACE_WITH_RAW_BIGQUERY_PROJECT
+    schema: REPLACE_WITH_RAW_BIGQUERY_DATASET
     tables:
       - name: events
-        identifier: "{{ var('__SOURCE_NAME___raw_events_table', '__SOURCE_NAME___events') }}"
-        description: Raw event records for the __SOURCE_NAME__ source.
+        identifier: REPLACE_WITH_RAW_EVENTS_TABLE
+        description: REPLACE_WITH_RAW_TABLE_DESCRIPTION
 
 models:
   - name: events

@@ -17,7 +17,7 @@ type sourceContractsOptions struct {
 	Type string
 }
 
-type sourceCreateOptions struct {
+type sourceScaffoldOptions struct {
 	Type string
 }
 
@@ -51,23 +51,22 @@ type sourceContractDetailResult struct {
 	Actions       []sourceContractAction         `json:"actions"`
 }
 
-type sourceCreateAction struct {
+type sourceScaffoldAction struct {
 	Type    string `json:"type"`
-	Path    string `json:"path,omitempty"`
-	Message string `json:"message,omitempty"`
-	Snippet string `json:"snippet,omitempty"`
+	Path    string `json:"path"`
+	Message string `json:"message"`
 }
 
-type sourceCreateResult struct {
+type sourceScaffoldResult struct {
 	SchemaVersion string                         `json:"schema_version"`
-	Source        sourceCreateResultSource       `json:"source"`
+	Source        sourceScaffoldResultSource     `json:"source"`
 	Directory     string                         `json:"directory"`
 	CreatedFiles  []string                       `json:"created_files"`
 	Contract      projectsource.ContractIdentity `json:"contract"`
-	Actions       []sourceCreateAction           `json:"actions"`
+	Actions       []sourceScaffoldAction         `json:"actions"`
 }
 
-type sourceCreateResultSource struct {
+type sourceScaffoldResultSource struct {
 	Name        string `json:"name"`
 	PackageName string `json:"package_name"`
 }
@@ -76,11 +75,16 @@ func newSourceCommand(out io.Writer, commandContext structuredCommandContext) *c
 	cmd := &cobra.Command{
 		Use:   "source",
 		Short: "Manage SegmentStream sources",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if len(args) > 0 {
+				return fmt.Errorf("unknown source command %q", args[0])
+			}
+			return cmd.Help()
+		},
 	}
 
 	cmd.AddCommand(newSourceContractsCommand(out, commandContext))
-	cmd.AddCommand(newSourceCreateCommand(out, commandContext))
-	cmd.AddCommand(newSourceInitCommand(out, commandContext))
+	cmd.AddCommand(newSourceScaffoldCommand(out, commandContext))
 
 	return cmd
 }
@@ -112,13 +116,17 @@ func newSourceContractsCommand(out io.Writer, commandContext structuredCommandCo
 	return cmd
 }
 
-func newSourceCreateCommand(out io.Writer, commandContext structuredCommandContext) *cobra.Command {
-	options := sourceCreateOptions{}
+func newSourceScaffoldCommand(out io.Writer, commandContext structuredCommandContext) *cobra.Command {
+	options := sourceScaffoldOptions{}
 	cmd := newStructuredCommand(out, nil, commandContext, structuredCommandSpec{
-		Use:     "create <name> --type <contract>",
-		Short:   "Create a local source package from a contract",
+		Use:   "scaffold <name> --type <contract>",
+		Short: "Scaffold a source template from a contract",
+		Long: "Scaffold a local source template from a contract.\n\n" +
+			"The generated source is not implemented yet. Read IMPLEMENTATION_GUIDE.md\n" +
+			"inside the generated source directory, then declare raw inputs and write\n" +
+			"the source model SQL.",
 		Args:    cobra.ExactArgs(1),
-		Command: "source.create",
+		Command: "source.scaffold",
 	}, func(ctx context.Context, args []string) (cliresult.Response, error) {
 		_ = ctx
 		if options.Type == "" {
@@ -133,32 +141,10 @@ func newSourceCreateCommand(out io.Writer, commandContext structuredCommandConte
 		if err != nil {
 			return cliresult.Response{}, err
 		}
-		return cliresult.OK("source.create", sourceCreateJSON(source)), nil
+		return cliresult.OK("source.scaffold", sourceScaffoldJSON(source)), nil
 	})
 	cmd.Flags().StringVar(&options.Type, "type", "", "Source contract type")
 	return cmd
-}
-
-func newSourceInitCommand(out io.Writer, commandContext structuredCommandContext) *cobra.Command {
-	return newStructuredCommand(out, nil, commandContext, structuredCommandSpec{
-		Use:     "init <name>",
-		Short:   "Create a local source package from the default contract",
-		Args:    cobra.ExactArgs(1),
-		Command: "source.init",
-	}, func(ctx context.Context, args []string) (cliresult.Response, error) {
-		_ = ctx
-		projectRoot, err := os.Getwd()
-		if err != nil {
-			return cliresult.Response{}, fmt.Errorf("find current directory: %w", err)
-		}
-
-		source, err := projectsource.Init(projectRoot, args[0])
-		if err != nil {
-			return cliresult.Response{}, err
-		}
-
-		return cliresult.OK("source.init", sourceCreateJSON(source)), nil
-	})
 }
 
 func sourceContractsList(contracts []projectsource.Contract) sourceContractsListResult {
@@ -199,32 +185,28 @@ func sourceContractActions(contract projectsource.Contract) []sourceContractActi
 			Command: fmt.Sprintf("segmentstream source contracts --type %s --json", contract.Type),
 		},
 		{
-			Type:    "create_source",
-			Command: fmt.Sprintf("segmentstream source create <name> --type %s --json", contract.Type),
+			Type:    "scaffold_source",
+			Command: fmt.Sprintf("segmentstream source scaffold <name> --type %s --json", contract.Type),
 		},
 	}
 }
 
-func sourceCreateJSON(source projectsource.Source) sourceCreateResult {
+func sourceScaffoldJSON(source projectsource.Source) sourceScaffoldResult {
 	relativePath := sourceRelativePath(source)
-	return sourceCreateResult{
+	return sourceScaffoldResult{
 		SchemaVersion: cliresult.SchemaVersion,
-		Source: sourceCreateResultSource{
+		Source: sourceScaffoldResultSource{
 			Name:        source.Name,
 			PackageName: source.PackageName,
 		},
 		Directory:    relativePath,
 		CreatedFiles: append([]string(nil), source.CreatedFiles...),
 		Contract:     source.Contract,
-		Actions: []sourceCreateAction{
+		Actions: []sourceScaffoldAction{
 			{
-				Type: "implement",
-				Path: sourceImplementationPath(source),
-			},
-			{
-				Type:    "tell_user",
-				Message: "Add this source to segmentstream.yml.",
-				Snippet: sourceConfigSnippet(source),
+				Type:    "read_implementation_guide",
+				Path:    sourceImplementationGuidePath(source),
+				Message: "Read this guide to implement the source package.",
 			},
 		},
 	}
@@ -244,8 +226,8 @@ func (result sourceContractsListResult) HumanDocument() cliresult.Document {
 				switch action.Type {
 				case "inspect_schema":
 					fmt.Fprintf(out, "  Inspect: %s\n", strings.TrimSuffix(action.Command, " --json"))
-				case "create_source":
-					fmt.Fprintf(out, "  Create: %s\n", strings.TrimSuffix(action.Command, " --json"))
+				case "scaffold_source":
+					fmt.Fprintf(out, "  Scaffold: %s\n", strings.TrimSuffix(action.Command, " --json"))
 				}
 			}
 		}
@@ -276,22 +258,15 @@ func (result sourceContractDetailResult) HumanDocument() cliresult.Document {
 	})
 }
 
-func (result sourceCreateResult) HumanDocument() cliresult.Document {
+func (result sourceScaffoldResult) HumanDocument() cliresult.Document {
 	return textDocument(func(out io.Writer) {
-		fmt.Fprintf(out, "Created source %q at %s\n", result.Source.Name, result.Directory)
+		fmt.Fprintf(out, "Scaffolded source template %q at %s\n", result.Source.Name, result.Directory)
 		fmt.Fprintf(out, "Contract: %s (schema_version: %d)\n", result.Contract.Type, result.Contract.SchemaVersion)
 		fmt.Fprintln(out)
-		fmt.Fprintln(out, "Implement:")
+		fmt.Fprintln(out, "Next action:")
 		for _, action := range result.Actions {
-			if action.Type == "implement" && action.Path != "" {
-				fmt.Fprintf(out, "- %s\n", action.Path)
-			}
-		}
-		fmt.Fprintln(out)
-		for _, action := range result.Actions {
-			if action.Type == "tell_user" && action.Snippet != "" {
-				fmt.Fprintln(out, "Add this source to segmentstream.yml:")
-				fmt.Fprint(out, action.Snippet)
+			if action.Type == "read_implementation_guide" && action.Path != "" {
+				fmt.Fprintf(out, "- Read %s to implement this source.\n", action.Path)
 			}
 		}
 	})
@@ -301,11 +276,6 @@ func sourceRelativePath(source projectsource.Source) string {
 	return filepath.ToSlash(filepath.Join(projectsource.SourcesDirName, source.Name))
 }
 
-func sourceImplementationPath(source projectsource.Source) string {
-	return filepath.ToSlash(filepath.Join(sourceRelativePath(source), "models", source.ModelName+".sql"))
-}
-
-func sourceConfigSnippet(source projectsource.Source) string {
-	relativePath := sourceRelativePath(source)
-	return fmt.Sprintf("sources:\n  - name: %s\n    path: ./%s\n", source.Name, relativePath)
+func sourceImplementationGuidePath(source projectsource.Source) string {
+	return filepath.ToSlash(filepath.Join(sourceRelativePath(source), "IMPLEMENTATION_GUIDE.md"))
 }

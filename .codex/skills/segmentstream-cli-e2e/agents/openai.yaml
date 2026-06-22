@@ -1,0 +1,4 @@
+interface:
+  display_name: "SegmentStream CLI E2E"
+  short_description: "Run SegmentStream CLI end-to-end tests"
+  default_prompt: "Use $segmentstream-cli-e2e to verify this SegmentStream CLI change against a scratch project and BigQuery dataset."

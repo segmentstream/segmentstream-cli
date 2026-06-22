@@ -180,9 +180,37 @@ func TestEvaluateNeedsAccessTestAfterConfiguration(t *testing.T) {
 	assertStage(t, result.Envelope.Stages, 4, stageWarehouseAccess, statusUntested, true)
 }
 
-func TestEvaluateReadyAfterAccessMarker(t *testing.T) {
+func TestEvaluateNeedsSourcesAfterAccessMarker(t *testing.T) {
 	result, err := (Service{
 		ProjectStore: configuredProjectStore(),
+		Credentials: &fakeCredentialStore{
+			hasBigQueryCredential: true,
+			hasAccessMarker:       true,
+		},
+		Scaffolder: &fakeScaffolder{},
+	}).Evaluate(context.Background(), Options{})
+	if err != nil {
+		t.Fatalf("Evaluate failed: %v", err)
+	}
+
+	assertInitEnvelopeV2(t, result.Envelope)
+	if result.ExitCode != cliresult.ExitReady || result.Envelope.Ready {
+		t.Fatalf("result = %+v, want not ready without sources", result)
+	}
+	if len(result.Envelope.Diagnostics) != 1 || result.Envelope.Diagnostics[0].ID != "missing_sources" {
+		t.Fatalf("diagnostics = %+v, want missing_sources", result.Envelope.Diagnostics)
+	}
+	if result.Envelope.NextAction.Type != actionRunCommand ||
+		result.Envelope.NextAction.Stage != string(stageSources) ||
+		result.Envelope.NextAction.Command != "segmentstream source contracts" {
+		t.Fatalf("next action = %+v, want source contracts command", result.Envelope.NextAction)
+	}
+	assertStage(t, result.Envelope.Stages, 5, stageSources, statusMissing, true)
+}
+
+func TestEvaluateReadyAfterAccessMarkerAndSource(t *testing.T) {
+	result, err := (Service{
+		ProjectStore: configuredProjectStoreWithSource(),
 		Credentials: &fakeCredentialStore{
 			hasBigQueryCredential: true,
 			hasAccessMarker:       true,
@@ -306,6 +334,7 @@ func TestBuildStagesProjectsBlockerOntoStagePlan(t *testing.T) {
 	assertStage(t, stages, 2, stageWarehouseAuth, statusSatisfied, false)
 	assertStage(t, stages, 3, stageWarehouseConfig, statusInvalid, true)
 	assertStage(t, stages, 4, stageWarehouseAccess, statusPending, false)
+	assertStage(t, stages, 5, stageSources, statusPending, false)
 }
 
 func TestBuildStagesRequiresCompletedDependencies(t *testing.T) {
@@ -452,6 +481,14 @@ func configuredProjectStore() *fakeProjectStore {
 			},
 		},
 	}
+}
+
+func configuredProjectStoreWithSource() *fakeProjectStore {
+	store := configuredProjectStore()
+	store.config.Sources = []project.Source{
+		{Name: "ga4", Path: "./sources/ga4"},
+	}
+	return store
 }
 
 type fakeProjectStore struct {

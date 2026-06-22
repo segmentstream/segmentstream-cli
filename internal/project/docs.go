@@ -82,22 +82,20 @@ Pipeline state persists across ` + "`segmentstream run`" + ` even though
 The first run can take a few minutes while SegmentStream sets up the local
 environment. Later runs should be faster.
 
-## Create A Source
+## Scaffold A Source
 
 Sources are project-owned dbt packages for source-specific transformations.
 
 ` + "```sh" + `
 segmentstream source contracts --json
 segmentstream source contracts --type events --json
-segmentstream source create ga4 --type events
+segmentstream source scaffold ga4 --type events
 ` + "```" + `
 
-This creates ` + "`sources/ga4/`" + ` as a minimal dbt package with a pinned
-` + "`contract.yml`" + ` snapshot and one author-editable model:
-` + "`sources/ga4/models/events.sql`" + `.
-
-` + "`segmentstream source init ga4`" + ` is kept as a compatibility alias for
-creating a source from the default contract.
+This scaffolds ` + "`sources/ga4/`" + ` as a source template with a pinned
+` + "`contract.yml`" + ` snapshot, ` + "`IMPLEMENTATION_GUIDE.md`" + `, and one
+author-editable model: ` + "`sources/ga4/models/events.sql`" + `. The scaffold is
+not implemented yet; read the guide before editing the source.
 
 Declare the source in ` + "`segmentstream.yml`" + `:
 
@@ -153,11 +151,8 @@ use ` + "`segmentstream run --start-date YYYY-MM-DD`" + ` to start earlier or la
 ` + "`segmentstream source contracts [--type events] [--json]`" + ` lists supported
 source contracts and returns their schemas.
 
-` + "`segmentstream source create <name> --type events [--json]`" + ` creates a local
-source package under ` + "`sources/<name>/`" + `.
-
-` + "`segmentstream source init <name> [--json]`" + ` is a compatibility alias that
-uses the default source contract.
+` + "`segmentstream source scaffold <name> --type events [--json]`" + ` scaffolds a local
+source template under ` + "`sources/<name>/`" + `. The template must be implemented next.
 
 ## Files
 
@@ -192,7 +187,7 @@ Before editing SegmentStream project files, read ` + "`README.md`" + ` in this d
 - Use ` + "`segmentstream init`" + ` to initialize the project.
 - Use ` + "`segmentstream run`" + ` to run the pipeline and produce tables in the configured warehouse.
 - Use ` + "`segmentstream source contracts`" + ` to inspect supported source contracts.
-- Use ` + "`segmentstream source create <name> --type events`" + ` or ` + "`segmentstream source init <name>`" + ` to create local source packages outside the generated environment.
+- Use ` + "`segmentstream source scaffold <name> --type events`" + ` to scaffold local source templates outside the generated environment.
 - Do not put secrets, credentials, private keys, tokens, or SQL in ` + "`segmentstream.yml`" + `.
 - For BigQuery warehouse configuration, use the guidance in ` + "`README.md`" + `.
 `

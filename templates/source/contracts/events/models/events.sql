@@ -7,14 +7,20 @@
   {{ exceptions.raise_compiler_error("SegmentStream vars segmentstream_start_date and segmentstream_end_date are required") }}
 {% endif %}
 
+{% if execute %}
+  {{ exceptions.raise_compiler_error("Implement sources/__SOURCE_NAME__/models/events.sql by mapping raw inputs from models/schema.yml to the events contract.") }}
+{% endif %}
+
+-- Template query. Replace this example with source-specific SQL.
+-- 1. Declare raw warehouse inputs in models/schema.yml.
+-- 2. Inspect the target contract with: segmentstream source contracts --type events --json
+-- 3. Return the contract columns below, filtered to the SegmentStream date window.
 select
-  cast(event_id as string) as event_id,
-  cast(anonymous_id as string) as anonymous_id,
-  cast(event_name as string) as event_name,
-  cast(page_url as string) as page_url,
-  cast(page_referrer as string) as page_referrer,
-  cast(event_timestamp as timestamp) as event_timestamp,
-  date(cast(event_timestamp as timestamp)) as event_date
-from {{ source('__SOURCE_NAME___raw', 'events') }}
-where date(cast(event_timestamp as timestamp)) >= date('{{ segmentstream_start_date }}')
-  and date(cast(event_timestamp as timestamp)) < date('{{ segmentstream_end_date }}')
+  cast(null as string) as event_id,
+  cast(null as string) as anonymous_id,
+  cast(null as string) as event_name,
+  cast(null as string) as page_url,
+  cast(null as string) as page_referrer,
+  cast(null as timestamp) as event_timestamp,
+  cast(null as date) as event_date
+where false

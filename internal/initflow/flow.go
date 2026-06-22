@@ -14,6 +14,7 @@ const (
 	serviceAccountWarehouseCommand = "segmentstream warehouse auth"
 	configureWarehouseCommand      = "segmentstream warehouse configure"
 	testWarehouseCommand           = "segmentstream warehouse test --json"
+	sourceContractsCommand         = "segmentstream source contracts"
 	initVerifyCommand              = "segmentstream init --json"
 	runCommand                     = "segmentstream run"
 
@@ -36,6 +37,7 @@ const (
 	stageWarehouseAuth   stageID = "warehouse_auth"
 	stageWarehouseConfig stageID = "warehouse_config"
 	stageWarehouseAccess stageID = "warehouse_access"
+	stageSources         stageID = "sources"
 )
 
 type Options struct {
@@ -65,6 +67,7 @@ var stagePlan = []stageSpec{
 	{ID: stageWarehouseAuth, DependsOn: []stageID{stageWarehouseType}},
 	{ID: stageWarehouseConfig, DependsOn: []stageID{stageWarehouseAuth}},
 	{ID: stageWarehouseAccess, DependsOn: []stageID{stageWarehouseConfig}},
+	{ID: stageSources, DependsOn: []stageID{stageWarehouseAccess}},
 }
 
 type blocker struct {
@@ -158,6 +161,23 @@ func (service Service) Evaluate(ctx context.Context, options Options) (Result, e
 		})), nil
 	}
 	eval.complete(stageWarehouseAccess)
+
+	if len(config.Sources) == 0 {
+		return resultFor(envelope, eval.withBlocker(blocker{
+			StageID:    stageSources,
+			Status:     statusMissing,
+			NextAction: selectSourceAction(),
+			Diagnostics: []cliresult.Diagnostic{
+				{
+					ID:      "missing_sources",
+					Field:   "sources",
+					Message: "segmentstream.yml does not declare any sources.",
+				},
+			},
+		})), nil
+	}
+
+	eval.complete(stageSources)
 
 	eval.ready = true
 	return resultFor(envelope, eval), nil
@@ -374,6 +394,15 @@ func testWarehouseAction() cliresult.NextAction {
 		Stage:   string(stageWarehouseAccess),
 		Command: testWarehouseCommand,
 		Reason:  "Warehouse access has not been verified for this project, dataset, and location.",
+	}
+}
+
+func selectSourceAction() cliresult.NextAction {
+	return cliresult.NextAction{
+		Type:    actionRunCommand,
+		Stage:   string(stageSources),
+		Command: sourceContractsCommand,
+		Reason:  "No sources are configured. Inspect supported source contracts, then ask the user which source to implement.",
 	}
 }
 
