@@ -16,7 +16,7 @@ type sourceContractsOptions struct {
 	JSON bool
 }
 
-type sourceCreateOptions struct {
+type sourceScaffoldOptions struct {
 	Type string
 	JSON bool
 }
@@ -51,23 +51,22 @@ type sourceContractDetailResult struct {
 	Actions       []sourceContractAction         `json:"actions"`
 }
 
-type sourceCreateAction struct {
+type sourceScaffoldAction struct {
 	Type    string `json:"type"`
-	Path    string `json:"path,omitempty"`
-	Message string `json:"message,omitempty"`
-	Snippet string `json:"snippet,omitempty"`
+	Path    string `json:"path"`
+	Message string `json:"message"`
 }
 
-type sourceCreateResult struct {
+type sourceScaffoldResult struct {
 	SchemaVersion string                         `json:"schema_version"`
-	Source        sourceCreateResultSource       `json:"source"`
+	Source        sourceScaffoldResultSource     `json:"source"`
 	Directory     string                         `json:"directory"`
 	CreatedFiles  []string                       `json:"created_files"`
 	Contract      projectsource.ContractIdentity `json:"contract"`
-	Actions       []sourceCreateAction           `json:"actions"`
+	Actions       []sourceScaffoldAction         `json:"actions"`
 }
 
-type sourceCreateResultSource struct {
+type sourceScaffoldResultSource struct {
 	Name        string `json:"name"`
 	PackageName string `json:"package_name"`
 }
@@ -76,11 +75,16 @@ func newSourceCommand(out io.Writer) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "source",
 		Short: "Manage SegmentStream sources",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if len(args) > 0 {
+				return fmt.Errorf("unknown source command %q", args[0])
+			}
+			return cmd.Help()
+		},
 	}
 
 	cmd.AddCommand(newSourceContractsCommand(out))
-	cmd.AddCommand(newSourceCreateCommand(out))
-	cmd.AddCommand(newSourceInitCommand(out))
+	cmd.AddCommand(newSourceScaffoldCommand(out))
 
 	return cmd
 }
@@ -120,12 +124,16 @@ func newSourceContractsCommand(out io.Writer) *cobra.Command {
 	return cmd
 }
 
-func newSourceCreateCommand(out io.Writer) *cobra.Command {
-	options := sourceCreateOptions{}
+func newSourceScaffoldCommand(out io.Writer) *cobra.Command {
+	options := sourceScaffoldOptions{}
 	cmd := &cobra.Command{
-		Use:   "create <name> --type <contract>",
-		Short: "Create a local source package from a contract",
-		Args:  cobra.ExactArgs(1),
+		Use:   "scaffold <name> --type <contract>",
+		Short: "Scaffold a source template from a contract",
+		Long: "Scaffold a local source template from a contract.\n\n" +
+			"The generated source is not implemented yet. Read IMPLEMENTATION_GUIDE.md\n" +
+			"inside the generated source directory, then declare raw inputs and write\n" +
+			"the source model SQL.",
+		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if options.Type == "" {
 				return fmt.Errorf("--type is required; run segmentstream source contracts to list supported contracts")
@@ -140,37 +148,15 @@ func newSourceCreateCommand(out io.Writer) *cobra.Command {
 				return err
 			}
 			if options.JSON {
-				return cliresult.WriteJSON(out, sourceCreateJSON(source))
+				return cliresult.WriteJSON(out, sourceScaffoldJSON(source))
 			}
-			writeSourceCreateResult(out, source)
+			writeSourceScaffoldResult(out, source)
 			return nil
 		},
 	}
 	cmd.Flags().StringVar(&options.Type, "type", "", "Source contract type")
 	cmd.Flags().BoolVar(&options.JSON, "json", false, "Emit JSON output for agents and automation")
 	return cmd
-}
-
-func newSourceInitCommand(out io.Writer) *cobra.Command {
-	return &cobra.Command{
-		Use:   "init <name>",
-		Short: "Create a local source package from the default contract",
-		Args:  cobra.ExactArgs(1),
-		RunE: func(cmd *cobra.Command, args []string) error {
-			projectRoot, err := os.Getwd()
-			if err != nil {
-				return fmt.Errorf("find current directory: %w", err)
-			}
-
-			source, err := projectsource.Init(projectRoot, args[0])
-			if err != nil {
-				return err
-			}
-
-			writeSourceCreateResult(out, source)
-			return nil
-		},
-	}
 }
 
 func sourceContractsList(contracts []projectsource.Contract) sourceContractsListResult {
@@ -211,32 +197,28 @@ func sourceContractActions(contract projectsource.Contract) []sourceContractActi
 			Command: fmt.Sprintf("segmentstream source contracts --type %s --json", contract.Type),
 		},
 		{
-			Type:    "create_source",
-			Command: fmt.Sprintf("segmentstream source create <name> --type %s --json", contract.Type),
+			Type:    "scaffold_source",
+			Command: fmt.Sprintf("segmentstream source scaffold <name> --type %s --json", contract.Type),
 		},
 	}
 }
 
-func sourceCreateJSON(source projectsource.Source) sourceCreateResult {
+func sourceScaffoldJSON(source projectsource.Source) sourceScaffoldResult {
 	relativePath := sourceRelativePath(source)
-	return sourceCreateResult{
+	return sourceScaffoldResult{
 		SchemaVersion: cliresult.SchemaVersion,
-		Source: sourceCreateResultSource{
+		Source: sourceScaffoldResultSource{
 			Name:        source.Name,
 			PackageName: source.PackageName,
 		},
 		Directory:    relativePath,
 		CreatedFiles: append([]string(nil), source.CreatedFiles...),
 		Contract:     source.Contract,
-		Actions: []sourceCreateAction{
+		Actions: []sourceScaffoldAction{
 			{
-				Type: "implement",
-				Path: sourceImplementationPath(source),
-			},
-			{
-				Type:    "tell_user",
-				Message: "Add this source to segmentstream.yml.",
-				Snippet: sourceConfigSnippet(source),
+				Type:    "read_implementation_guide",
+				Path:    sourceImplementationGuidePath(source),
+				Message: "Read this guide to implement the source package.",
 			},
 		},
 	}
@@ -252,7 +234,7 @@ func writeSourceContractsList(out io.Writer, contracts []projectsource.Contract)
 		fmt.Fprintf(out, "- %s (schema_version: %d, %s%s)\n", contract.Type, contract.SchemaVersion, contract.Status, marker)
 		fmt.Fprintf(out, "  %s\n", contract.Description)
 		fmt.Fprintf(out, "  Inspect: segmentstream source contracts --type %s\n", contract.Type)
-		fmt.Fprintf(out, "  Create: segmentstream source create <name> --type %s\n", contract.Type)
+		fmt.Fprintf(out, "  Scaffold: segmentstream source scaffold <name> --type %s\n", contract.Type)
 	}
 }
 
@@ -278,27 +260,19 @@ func writeSourceContractDetail(out io.Writer, contract projectsource.Contract) {
 	}
 }
 
-func writeSourceCreateResult(out io.Writer, source projectsource.Source) {
+func writeSourceScaffoldResult(out io.Writer, source projectsource.Source) {
 	relativePath := sourceRelativePath(source)
-	fmt.Fprintf(out, "Created source %q at %s\n", source.Name, relativePath)
+	fmt.Fprintf(out, "Scaffolded source template %q at %s\n", source.Name, relativePath)
 	fmt.Fprintf(out, "Contract: %s (schema_version: %d)\n", source.Contract.Type, source.Contract.SchemaVersion)
 	fmt.Fprintln(out)
-	fmt.Fprintln(out, "Implement:")
-	fmt.Fprintf(out, "- %s\n", sourceImplementationPath(source))
-	fmt.Fprintln(out)
-	fmt.Fprintln(out, "Add this source to segmentstream.yml:")
-	fmt.Fprint(out, sourceConfigSnippet(source))
+	fmt.Fprintln(out, "Next action:")
+	fmt.Fprintf(out, "- Read %s to implement this source.\n", sourceImplementationGuidePath(source))
 }
 
 func sourceRelativePath(source projectsource.Source) string {
 	return filepath.ToSlash(filepath.Join(projectsource.SourcesDirName, source.Name))
 }
 
-func sourceImplementationPath(source projectsource.Source) string {
-	return filepath.ToSlash(filepath.Join(sourceRelativePath(source), "models", source.ModelName+".sql"))
-}
-
-func sourceConfigSnippet(source projectsource.Source) string {
-	relativePath := sourceRelativePath(source)
-	return fmt.Sprintf("sources:\n  - name: %s\n    path: ./%s\n", source.Name, relativePath)
+func sourceImplementationGuidePath(source projectsource.Source) string {
+	return filepath.ToSlash(filepath.Join(sourceRelativePath(source), "IMPLEMENTATION_GUIDE.md"))
 }

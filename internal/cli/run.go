@@ -135,7 +135,7 @@ func preflightProjectSanity(config project.Config) error {
 		failures = append(failures, err.Error())
 	}
 	if len(config.Sources) == 0 {
-		failures = append(failures, "segmentstream.yml must declare at least one source under sources; run segmentstream source create <name> --type events, then add it to segmentstream.yml")
+		failures = append(failures, "segmentstream.yml must declare at least one source under sources; run segmentstream source contracts, choose a source with the user, then run segmentstream source scaffold <name> --type events")
 	}
 	if len(failures) > 0 {
 		return runSanityError(failures)

@@ -53,7 +53,7 @@ is either `run_command` with an executable command or `human_input` with
 structured `accepts` inputs and a `verify` command. The envelope also reports
 supported auth methods under `capabilities.auth_methods`.
 
-## Create A Source
+## Scaffold A Source
 
 Sources are project-owned dbt packages that contain source-specific
 transformations. Agents should start by discovering supported source contracts:
@@ -63,18 +63,16 @@ segmentstream source contracts --json
 segmentstream source contracts --type events --json
 ```
 
-Create a local source package from a contract:
+Scaffold a local source template from a contract:
 
 ```sh
-segmentstream source create ga4 --type events
+segmentstream source scaffold ga4 --type events
 ```
 
-`segmentstream source init ga4` is kept as a compatibility alias for creating a
-source from the default contract.
-
-This creates `sources/ga4/` as a minimal dbt package with a pinned
-`contract.yml` snapshot and one author-editable model:
-`sources/ga4/models/events.sql`.
+This scaffolds `sources/ga4/` as a source template with a pinned `contract.yml`,
+an `IMPLEMENTATION_GUIDE.md`, and one author-editable model:
+`sources/ga4/models/events.sql`. The scaffold is not implemented yet; read the
+guide before editing the source.
 
 Declare the source in `segmentstream.yml`:
 
@@ -197,11 +195,8 @@ use `segmentstream run --start-date YYYY-MM-DD` to start earlier or later.
 `segmentstream source contracts [--type events] [--json]` lists supported source
 contracts and returns their schemas.
 
-`segmentstream source create <name> --type events [--json]` creates a local
-source package under `sources/<name>/`.
-
-`segmentstream source init <name>` is a compatibility alias that uses the
-default source contract.
+`segmentstream source scaffold <name> --type events [--json]` scaffolds a local
+source template under `sources/<name>/`. The template must be implemented next.
 
 `segmentstream warehouse auth login [--port <port>]` prints a Google OAuth URL,
 waits for a loopback browser redirect on the same computer, and stores a

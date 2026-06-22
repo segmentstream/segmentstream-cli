@@ -146,7 +146,7 @@ def resolve_source_path(name: str, value: str) -> Path:
         raise RuntimeError(f'source "{name}" path must not be inside .segmentstream')
     if not path.is_dir():
         raise RuntimeError(
-            f'source "{name}" path {value} does not exist; run segmentstream source create {name} --type events or update segmentstream.yml'
+            f'source "{name}" path {value} does not exist; run segmentstream source scaffold {name} --type events or update segmentstream.yml'
         )
     return path
 

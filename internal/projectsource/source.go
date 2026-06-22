@@ -63,14 +63,6 @@ type templateData struct {
 	PackageName string
 }
 
-func Init(projectRoot, name string) (Source, error) {
-	contract, err := DefaultContract()
-	if err != nil {
-		return Source{}, err
-	}
-	return createWithContract(projectRoot, name, contract)
-}
-
 func Create(projectRoot, name, contractType string) (Source, error) {
 	contract, err := ContractByType(contractType)
 	if err != nil {

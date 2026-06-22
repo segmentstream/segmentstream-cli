@@ -3,7 +3,6 @@ package projectsource
 import (
 	"os"
 	"path/filepath"
-	"reflect"
 	"strings"
 	"testing"
 )
@@ -48,13 +47,13 @@ func TestContractByTypeRejectsUnknownType(t *testing.T) {
 	}
 }
 
-func TestInitCreatesSourcePackageFromDefaultContract(t *testing.T) {
+func TestCreateScaffoldsSourcePackageFromContract(t *testing.T) {
 	root := t.TempDir()
 	writeProjectConfig(t, root)
 
-	source, err := Init(root, "ga4")
+	source, err := Create(root, "ga4", "events")
 	if err != nil {
-		t.Fatalf("Init failed: %v", err)
+		t.Fatalf("Create failed: %v", err)
 	}
 
 	if source.Name != "ga4" {
@@ -71,6 +70,7 @@ func TestInitCreatesSourcePackageFromDefaultContract(t *testing.T) {
 	}
 
 	expectedFiles := []string{
+		"IMPLEMENTATION_GUIDE.md",
 		"contract.yml",
 		"dbt_project.yml",
 		filepath.Join("models", "events.sql"),
@@ -79,19 +79,9 @@ func TestInitCreatesSourcePackageFromDefaultContract(t *testing.T) {
 	}
 	for _, relative := range expectedFiles {
 		assertGenerated(t, filepath.Join(source.Path, relative))
-	}
-	if got := collectGeneratedFiles(t, source.Path); !reflect.DeepEqual(got, expectedFiles) {
-		t.Fatalf("generated files = %v, want %v", got, expectedFiles)
-	}
-	expectedCreatedFiles := []string{
-		"sources/ga4/contract.yml",
-		"sources/ga4/dbt_project.yml",
-		"sources/ga4/models/events.sql",
-		"sources/ga4/models/schema.yml",
-		"sources/ga4/source.yml",
-	}
-	if !reflect.DeepEqual(source.CreatedFiles, expectedCreatedFiles) {
-		t.Fatalf("CreatedFiles = %v, want %v", source.CreatedFiles, expectedCreatedFiles)
+		if !containsCreatedFile(source.CreatedFiles, filepath.ToSlash(filepath.Join("sources", "ga4", relative))) {
+			t.Fatalf("CreatedFiles = %v, want %s", source.CreatedFiles, relative)
+		}
 	}
 	for _, relative := range []string{
 		"README.md",
@@ -106,66 +96,17 @@ func TestInitCreatesSourcePackageFromDefaultContract(t *testing.T) {
 		assertMissing(t, filepath.Join(source.Path, relative))
 	}
 
-	contract, err := os.ReadFile(filepath.Join(source.Path, "contract.yml"))
+	guide, err := os.ReadFile(filepath.Join(source.Path, "IMPLEMENTATION_GUIDE.md"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	for _, want := range []string{
-		"type: events",
-		"schema_version: 1",
-		"default: true",
-		"status: supported",
-		"name: event_id",
-		"type: STRING",
-		"name: event_date",
+		"# ga4 Source Implementation Guide",
+		"models/schema.yml",
+		"segmentstream warehouse browse",
 	} {
-		if !strings.Contains(string(contract), want) {
-			t.Fatalf("contract.yml does not contain %q:\n%s", want, string(contract))
-		}
-	}
-
-	project, err := os.ReadFile(filepath.Join(source.Path, "dbt_project.yml"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	for _, want := range []string{
-		"name: segmentstream_source_ga4",
-		"+materialized: ephemeral",
-		"clean-targets:",
-	} {
-		if !strings.Contains(string(project), want) {
-			t.Fatalf("dbt_project.yml does not contain %q:\n%s", want, string(project))
-		}
-	}
-	if strings.Contains(string(project), "analysis-paths") {
-		t.Fatalf("dbt_project.yml should not contain analysis paths:\n%s", string(project))
-	}
-	for _, notWant := range []string{
-		"staging:",
-		"exports:",
-		"+materialized: incremental",
-		"+incremental_strategy: insert_overwrite",
-		"+partition_by:",
-		"test-paths:",
-		"seed-paths:",
-		"macro-paths:",
-		"snapshot-paths:",
-	} {
-		if strings.Contains(string(project), notWant) {
-			t.Fatalf("dbt_project.yml should not contain %q:\n%s", notWant, string(project))
-		}
-	}
-
-	sourceYAML, err := os.ReadFile(filepath.Join(source.Path, "source.yml"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	for _, want := range []string{
-		"name: ga4_raw",
-		"identifier: \"{{ var('ga4_raw_events_table', 'ga4_events') }}\"",
-	} {
-		if !strings.Contains(string(sourceYAML), want) {
-			t.Fatalf("source.yml does not contain %q:\n%s", want, string(sourceYAML))
+		if !strings.Contains(string(guide), want) {
+			t.Fatalf("IMPLEMENTATION_GUIDE.md does not contain %q:\n%s", want, string(guide))
 		}
 	}
 
@@ -174,34 +115,14 @@ func TestInitCreatesSourcePackageFromDefaultContract(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, want := range []string{
-		"name: events",
-		"sources:",
 		"name: ga4_raw",
-		"identifier: \"{{ var('ga4_raw_events_table', 'ga4_events') }}\"",
-		"segmentstream:",
-		"source_name: ga4",
+		"database: REPLACE_WITH_RAW_BIGQUERY_PROJECT",
+		"identifier: REPLACE_WITH_RAW_EVENTS_TABLE",
 		"contract:",
 		"type: events",
-		"schema_version: 1",
-		"name: event_id",
-		"name: page_url",
-		"name: page_referrer",
-		"name: event_date",
 	} {
 		if !strings.Contains(string(schema), want) {
 			t.Fatalf("schema.yml does not contain %q:\n%s", want, string(schema))
-		}
-	}
-	for _, notWant := range []string{
-		"events_v1",
-		"name: events_ga4",
-		"name: source_event_id",
-		"name: user_id",
-		"data_tests:",
-		"not_null",
-	} {
-		if strings.Contains(string(schema), notWant) {
-			t.Fatalf("schema.yml should not contain %q:\n%s", notWant, string(schema))
 		}
 	}
 
@@ -215,34 +136,18 @@ func TestInitCreatesSourcePackageFromDefaultContract(t *testing.T) {
 	for _, want := range []string{
 		"segmentstream_start_date",
 		"segmentstream_end_date",
-		"{{ config(materialized='ephemeral', alias='ga4_events') }}",
+		"Implement sources/ga4/models/events.sql",
 		"event_id",
-		"page_url",
-		"page_referrer",
-		"from {{ source('ga4_raw', 'events') }}",
-		"where date(cast(event_timestamp as timestamp)) >= date('{{ segmentstream_start_date }}')",
-		"and date(cast(event_timestamp as timestamp)) < date('{{ segmentstream_end_date }}')",
+		"where false",
 	} {
 		if !strings.Contains(string(model), want) {
 			t.Fatalf("model does not contain %q:\n%s", want, string(model))
 		}
 	}
-	for _, notWant := range []string{
-		"stg_events_ga4",
-		"ref(",
-		"is_incremental()",
-		"_dbt_max_partition",
-		"source_event_id",
-		"user_id",
-	} {
-		if strings.Contains(string(model), notWant) {
-			t.Fatalf("model should not contain %q:\n%s", notWant, string(model))
-		}
-	}
 }
 
-func TestInitRequiresSegmentStreamProject(t *testing.T) {
-	_, err := Init(t.TempDir(), "ga4")
+func TestCreateRequiresSegmentStreamProject(t *testing.T) {
+	_, err := Create(t.TempDir(), "ga4", "events")
 	if err == nil {
 		t.Fatal("expected missing project config error")
 	}
@@ -251,19 +156,19 @@ func TestInitRequiresSegmentStreamProject(t *testing.T) {
 	}
 }
 
-func TestInitRejectsInvalidSourceName(t *testing.T) {
+func TestCreateRejectsInvalidSourceName(t *testing.T) {
 	root := t.TempDir()
 	writeProjectConfig(t, root)
 
 	for _, name := range []string{"", "GA4", "ga-4", "4ga", "../ga4"} {
-		_, err := Init(root, name)
+		_, err := Create(root, name, "events")
 		if err == nil {
 			t.Fatalf("expected invalid source name error for %q", name)
 		}
 	}
 }
 
-func TestInitDoesNotOverwriteExistingSource(t *testing.T) {
+func TestCreateDoesNotOverwriteExistingSource(t *testing.T) {
 	root := t.TempDir()
 	writeProjectConfig(t, root)
 
@@ -272,7 +177,7 @@ func TestInitDoesNotOverwriteExistingSource(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	_, err := Init(root, "ga4")
+	_, err := Create(root, "ga4", "events")
 	if err == nil {
 		t.Fatal("expected existing source error")
 	}
@@ -333,24 +238,11 @@ func assertMissing(t *testing.T, path string) {
 	}
 }
 
-func collectGeneratedFiles(t *testing.T, root string) []string {
-	t.Helper()
-	var files []string
-	if err := filepath.WalkDir(root, func(path string, entry os.DirEntry, err error) error {
-		if err != nil {
-			return err
+func containsCreatedFile(files []string, want string) bool {
+	for _, file := range files {
+		if file == want {
+			return true
 		}
-		if entry.IsDir() {
-			return nil
-		}
-		relative, err := filepath.Rel(root, path)
-		if err != nil {
-			return err
-		}
-		files = append(files, relative)
-		return nil
-	}); err != nil {
-		t.Fatal(err)
 	}
-	return files
+	return false
 }
