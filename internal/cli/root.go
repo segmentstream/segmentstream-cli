@@ -23,15 +23,33 @@ func Main(args []string, out, errOut io.Writer) int {
 		errOut = io.Discard
 	}
 
-	cmd := NewRootCommand(out, errOut)
+	output := &outputOptions{}
+	output.JSON = argsRequestJSON(args)
+	cmd := newRootCommand(out, errOut, cliOptions{Output: output})
 	cmd.SetArgs(args)
 	if err := cmd.Execute(); err != nil {
 		if err.Error() != "" {
-			fmt.Fprintln(errOut, err)
+			if output.JSON {
+				_ = cliresult.WriteJSON(out, cliresult.Error("segmentstream", err))
+			} else {
+				fmt.Fprintln(errOut, err)
+			}
 		}
 		return cliresult.ExitCode(err)
 	}
 	return 0
+}
+
+func argsRequestJSON(args []string) bool {
+	for _, arg := range args {
+		switch arg {
+		case "--json", "--json=true":
+			return true
+		case "--json=false":
+			return false
+		}
+	}
+	return false
 }
 
 func NewRootCommand(out, errOut io.Writer) *cobra.Command {
@@ -43,6 +61,7 @@ type cliOptions struct {
 	Credentials       credentials.Store
 	WarehouseRegistry warehouse.Registry
 	WarehouseOAuth    warehouseOAuthLogin
+	Output            *outputOptions
 }
 
 type warehouseOAuthLogin func(context.Context, io.Writer, googleoauth.LoginOptions) (credentials.GoogleOAuthCredential, error)
@@ -56,6 +75,11 @@ func newRootCommand(out, errOut io.Writer, options cliOptions) *cobra.Command {
 	if registry.IsZero() {
 		registry = warehouse.NewRegistry(bigquery.NewConnector())
 	}
+	output := options.Output
+	if output == nil {
+		output = &outputOptions{}
+	}
+	commandContext := structuredCommandContext{Output: output}
 
 	root := &cobra.Command{
 		Use:           "segmentstream",
@@ -69,13 +93,14 @@ func newRootCommand(out, errOut io.Writer, options cliOptions) *cobra.Command {
 	if errOut != nil {
 		root.SetErr(errOut)
 	}
+	root.PersistentFlags().BoolVar(&output.JSON, "json", output.JSON, "Emit JSON output for agents and automation")
 
-	root.AddCommand(newVersionCommand(out))
-	root.AddCommand(newUpdateCommand(out, errOut))
-	root.AddCommand(newInitCommand(out, options))
-	root.AddCommand(newRunCommand(out, runner))
-	root.AddCommand(newSourceCommand(out))
-	root.AddCommand(newWarehouseCommand(out, errOut, options.Credentials, registry, options.WarehouseOAuth))
+	root.AddCommand(newVersionCommand(out, commandContext))
+	root.AddCommand(newUpdateCommand(out, errOut, commandContext))
+	root.AddCommand(newInitCommand(out, commandContext, options))
+	root.AddCommand(newRunCommand(out, errOut, commandContext, runner))
+	root.AddCommand(newSourceCommand(out, commandContext))
+	root.AddCommand(newWarehouseCommand(out, errOut, commandContext, options.Credentials, registry, options.WarehouseOAuth))
 
 	return root
 }

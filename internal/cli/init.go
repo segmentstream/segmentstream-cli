@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"os"
@@ -13,12 +14,16 @@ import (
 
 type initCommandOptions struct {
 	Warehouse string
-	JSON      bool
 }
 
-func newInitCommand(out io.Writer, cliOptions cliOptions) *cobra.Command {
+type initResponseData struct {
+	SelectedWarehouse string             `json:"selected_warehouse,omitempty"`
+	Envelope          cliresult.Envelope `json:"envelope"`
+}
+
+func newInitCommand(out io.Writer, commandContext structuredCommandContext, cliOptions cliOptions) *cobra.Command {
 	options := initCommandOptions{}
-	cmd := &cobra.Command{
+	cmd := newStructuredCommand(out, nil, commandContext, structuredCommandSpec{
 		Use:   "init",
 		Short: "Inspect or initialize SegmentStream project state",
 		Long: "Inspect SegmentStream project setup and report the next action.\n\n" +
@@ -26,33 +31,34 @@ func newInitCommand(out io.Writer, cliOptions cliOptions) *cobra.Command {
 			"state-machine envelope for agents and automation. Running init --json is\n" +
 			"read-only. Running init --warehouse bigquery creates or updates\n" +
 			"segmentstream.yml with the selected warehouse type and credential name.",
-		Args: cobra.NoArgs,
-		RunE: func(cmd *cobra.Command, args []string) error {
-			projectRoot, err := os.Getwd()
-			if err != nil {
-				return fmt.Errorf("find current directory: %w", err)
-			}
+		Args:    cobra.NoArgs,
+		Command: "init",
+	}, func(cmdContext context.Context, args []string) (cliresult.Response, error) {
+		projectRoot, err := os.Getwd()
+		if err != nil {
+			return cliresult.Response{}, fmt.Errorf("find current directory: %w", err)
+		}
 
-			result, err := (initflow.Service{
-				ProjectRoot: projectRoot,
-				Credentials: cliOptions.Credentials,
-			}).Evaluate(cmd.Context(), initflow.Options{SelectWarehouse: options.Warehouse})
-			if err != nil {
-				return err
-			}
-			if options.JSON {
-				if err := cliresult.WriteJSON(out, result.Envelope); err != nil {
-					return err
-				}
-			} else {
-				writeInitResult(out, options.Warehouse, result)
-			}
-			return nil
-		},
-	}
+		result, err := (initflow.Service{
+			ProjectRoot: projectRoot,
+			Credentials: cliOptions.Credentials,
+		}).Evaluate(cmdContext, initflow.Options{SelectWarehouse: options.Warehouse})
+		if err != nil {
+			return cliresult.Response{}, err
+		}
+		return cliresult.OK("init", initResponseData{
+			SelectedWarehouse: options.Warehouse,
+			Envelope:          result.Envelope,
+		}), nil
+	})
 	cmd.Flags().StringVar(&options.Warehouse, "warehouse", "", "Select and persist the warehouse type; currently only bigquery is available")
-	cmd.Flags().BoolVar(&options.JSON, "json", false, "Emit a stable JSON state envelope for agents and automation")
 	return cmd
+}
+
+func (data initResponseData) HumanDocument() cliresult.Document {
+	return textDocument(func(out io.Writer) {
+		writeInitResult(out, data.SelectedWarehouse, initflow.Result{Envelope: data.Envelope})
+	})
 }
 
 func writeInitResult(out io.Writer, selectedWarehouse string, result initflow.Result) {

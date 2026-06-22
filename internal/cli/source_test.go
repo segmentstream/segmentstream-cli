@@ -2,7 +2,6 @@ package cli
 
 import (
 	"bytes"
-	"encoding/json"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -20,17 +19,10 @@ func TestSourceContractsJSONOutput(t *testing.T) {
 		t.Fatalf("source contracts failed: %v", err)
 	}
 
-	var result struct {
-		SchemaVersion string `json:"schema_version"`
-		Contract      struct {
-			Type string `json:"type"`
-		} `json:"contract"`
-		Columns []struct {
-			Name string `json:"name"`
-		} `json:"columns"`
-	}
-	if err := json.Unmarshal(out.Bytes(), &result); err != nil {
-		t.Fatalf("source contracts output is not JSON: %v\n%s", err, out.String())
+	var result sourceContractDetailResult
+	response := decodeJSONResponseData(t, out.Bytes(), &result)
+	if response.Command != "source.contracts" {
+		t.Fatalf("command = %q, want source.contracts", response.Command)
 	}
 	if result.SchemaVersion != cliresult.SchemaVersion || result.Contract.Type != "events" || len(result.Columns) == 0 {
 		t.Fatalf("result = %+v, want events contract with columns", result)
@@ -53,14 +45,10 @@ func TestSourceScaffoldPointsToImplementationGuide(t *testing.T) {
 
 	assertFileExists(t, filepath.Join(root, "sources", "ga4", "IMPLEMENTATION_GUIDE.md"))
 
-	var result struct {
-		Actions []struct {
-			Type string `json:"type"`
-			Path string `json:"path"`
-		} `json:"actions"`
-	}
-	if err := json.Unmarshal(out.Bytes(), &result); err != nil {
-		t.Fatalf("source scaffold output is not JSON: %v\n%s", err, out.String())
+	var result sourceScaffoldResult
+	response := decodeJSONResponseData(t, out.Bytes(), &result)
+	if response.Command != "source.scaffold" {
+		t.Fatalf("command = %q, want source.scaffold", response.Command)
 	}
 	if len(result.Actions) != 1 ||
 		result.Actions[0].Type != "read_implementation_guide" ||

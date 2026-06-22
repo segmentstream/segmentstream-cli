@@ -1,25 +1,56 @@
 package cli
 
 import (
-	"fmt"
+	"context"
 	"io"
 
+	"github.com/segmentstream/segmentstream-cli/internal/cliresult"
 	"github.com/segmentstream/segmentstream-cli/internal/version"
 	"github.com/spf13/cobra"
 )
 
-func newVersionCommand(out io.Writer) *cobra.Command {
-	return &cobra.Command{
-		Use:   "version",
-		Short: "Print version information",
-		Args:  cobra.NoArgs,
-		RunE: func(cmd *cobra.Command, args []string) error {
-			info := version.Current()
-			fmt.Fprintf(out, "segmentstream %s\n", info.Version)
-			fmt.Fprintf(out, "commit: %s\n", info.Commit)
-			fmt.Fprintf(out, "date: %s\n", info.Date)
-			fmt.Fprintf(out, "os/arch: %s/%s\n", info.OS, info.Arch)
-			return nil
+type versionResult struct {
+	Version string `json:"version"`
+	Commit  string `json:"commit"`
+	Date    string `json:"date"`
+	OS      string `json:"os"`
+	Arch    string `json:"arch"`
+}
+
+func newVersionCommand(out io.Writer, commandContext structuredCommandContext) *cobra.Command {
+	return newStructuredCommand(out, nil, commandContext, structuredCommandSpec{
+		Use:     "version",
+		Short:   "Print version information",
+		Command: "version",
+		Args:    cobra.NoArgs,
+	}, runVersionCommand)
+}
+
+func runVersionCommand(ctx context.Context, args []string) (cliresult.Response, error) {
+	_ = ctx
+	_ = args
+	info := version.Current()
+	return cliresult.OK("version", versionResult{
+		Version: info.Version,
+		Commit:  info.Commit,
+		Date:    info.Date,
+		OS:      info.OS,
+		Arch:    info.Arch,
+	}), nil
+}
+
+func (result versionResult) HumanDocument() cliresult.Document {
+	return cliresult.Document{
+		Summary: "segmentstream " + result.Version,
+		Blocks: []cliresult.Block{
+			{
+				Kind: cliresult.BlockFields,
+				Fields: []cliresult.Field{
+					{Name: "commit", Value: result.Commit},
+					{Name: "date", Value: result.Date},
+					{Name: "os/arch", Value: result.OS + "/" + result.Arch},
+				},
+			},
 		},
 	}
 }

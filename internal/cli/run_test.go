@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/segmentstream/segmentstream-cli/internal/cliresult"
 	"github.com/segmentstream/segmentstream-cli/internal/credentials"
 	"github.com/segmentstream/segmentstream-cli/internal/dagster"
 )
@@ -242,6 +243,51 @@ func TestRunPreparesRuntimeStartsDockerComposeAndRunsMaterialization(t *testing.
 			t.Fatalf("run output = %q, want command output suppressed", got)
 		}
 	}
+}
+
+func TestRunJSONWritesProgressToStderrAndResultToStdout(t *testing.T) {
+	root := t.TempDir()
+	withWorkingDirectory(t, root)
+	writeValidConfig(t, root)
+	withCurrentTime(t, time.Date(2026, 6, 17, 10, 30, 0, 0, time.UTC))
+	client := withDagsterClient(t, &stubDagsterClient{
+		assets: []dagster.AssetNode{
+			{Key: []string{"events"}, IsPartitioned: true},
+		},
+		launchBackfillID: "backfill-1",
+	})
+
+	runner := &stubCommandRunner{
+		results: []stubCommandResult{
+			{output: "docker info"},
+			{output: "Docker Compose version v2.32.0"},
+			{output: "compose started noisily"},
+		},
+	}
+	var out bytes.Buffer
+	var errOut bytes.Buffer
+	cmd := newRootCommand(&out, &errOut, cliOptions{CommandRunner: runner})
+	cmd.SetArgs([]string{"run", "--json"})
+
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("run command failed: %v", err)
+	}
+
+	var result runResult
+	response := decodeJSONResponseData(t, out.Bytes(), &result)
+	if response.Command != "run" || response.Status != string(cliresult.StatusOK) {
+		t.Fatalf("response = %+v, want successful run response", response)
+	}
+	if result.Status != "finished" ||
+		result.StartDate != "2026-05-19" ||
+		result.EndInclusiveDate != "2026-06-17" ||
+		result.Assets != 1 {
+		t.Fatalf("run result = %+v, want finished one-asset run", result)
+	}
+	if strings.Contains(out.String(), "[1/4]") || !strings.Contains(errOut.String(), "[1/4] Checking local environment") {
+		t.Fatalf("stdout=%q stderr=%q, want progress on stderr only", out.String(), errOut.String())
+	}
+	assertStringSlicesEqual(t, client.calls, []string{"waitReady", "materializableAssets", "launchBackfill", "waitBackfill"})
 }
 
 func TestRunAcceptsStartDate(t *testing.T) {
@@ -827,9 +873,21 @@ func assertCommand(t *testing.T, got commandInvocation, name string, args []stri
 	if strings.Join(got.Args, "\x00") != strings.Join(args, "\x00") {
 		t.Fatalf("command args = %v, want %v", got.Args, args)
 	}
-	if filepath.Clean(got.Dir) != filepath.Clean(dir) {
+	if comparablePath(t, got.Dir) != comparablePath(t, dir) {
 		t.Fatalf("command dir = %q, want %q", got.Dir, dir)
 	}
+}
+
+func comparablePath(t *testing.T, path string) string {
+	t.Helper()
+	if path == "" {
+		return ""
+	}
+	resolved, err := filepath.EvalSymlinks(path)
+	if err == nil {
+		return filepath.Clean(resolved)
+	}
+	return filepath.Clean(path)
 }
 
 func assertStringSlicesEqual(t *testing.T, got, want []string) {

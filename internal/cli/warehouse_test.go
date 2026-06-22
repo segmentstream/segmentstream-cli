@@ -3,7 +3,6 @@ package cli
 import (
 	"bytes"
 	"context"
-	"encoding/json"
 	"fmt"
 	"io"
 	"os"
@@ -263,9 +262,7 @@ func TestWarehouseConfigureCreateDatasetJSONForwardsOptionAndWritesCreatedResult
 		t.Fatalf("saved warehouse = %+v", config.Warehouse)
 	}
 	var result warehouse.ConfigureResult
-	if err := json.Unmarshal(out.Bytes(), &result); err != nil {
-		t.Fatalf("warehouse configure output is not JSON: %v\n%s", err, out.String())
-	}
+	decodeJSONResponseData(t, out.Bytes(), &result)
 	if !hasWarehouseValidation(result.Validations, "dataset_exists", "created") {
 		t.Fatalf("validations = %+v, want created dataset validation", result.Validations)
 	}
@@ -434,9 +431,7 @@ func TestWarehouseBrowseTableJSONForwardsPath(t *testing.T) {
 		t.Fatalf("browse path = %q, want table-list path", fake.browsePath)
 	}
 	var result warehouse.BrowseResult
-	if err := json.Unmarshal(out.Bytes(), &result); err != nil {
-		t.Fatalf("warehouse browse output is not JSON: %v\n%s", err, out.String())
-	}
+	decodeJSONResponseData(t, out.Bytes(), &result)
 	if result.Level != "table" ||
 		result.Path != "example-project/dataset_one" ||
 		len(result.Children) != 1 ||
