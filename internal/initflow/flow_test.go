@@ -215,7 +215,8 @@ func TestEvaluateReadyAfterAccessMarkerAndSource(t *testing.T) {
 			hasBigQueryCredential: true,
 			hasAccessMarker:       true,
 		},
-		Scaffolder: &fakeScaffolder{},
+		Scaffolder:     &fakeScaffolder{},
+		SourceVerifier: &fakeSourceVerifier{valid: true},
 	}).Evaluate(context.Background(), Options{})
 	if err != nil {
 		t.Fatalf("Evaluate failed: %v", err)
@@ -236,13 +237,42 @@ func TestEvaluateReadyAfterAccessMarkerAndSource(t *testing.T) {
 			t.Fatalf("stage[%d] = %+v, want no current stage when ready", i, stage)
 		}
 		wantStatus := statusSatisfied
-		if stage.ID == string(stagePrerequisites) {
-			wantStatus = statusSatisfiedWithWarnings
-		}
 		if stage.Status != wantStatus {
 			t.Fatalf("stage[%d] = %+v, want status %q", i, stage, wantStatus)
 		}
 	}
+}
+
+func TestEvaluateNeedsSourceVerificationAfterSourceIsDeclared(t *testing.T) {
+	result, err := (Service{
+		ProjectStore: configuredProjectStoreWithSource(),
+		Credentials: &fakeCredentialStore{
+			hasBigQueryCredential: true,
+			hasAccessMarker:       true,
+		},
+		Scaffolder:     &fakeScaffolder{},
+		SourceVerifier: &fakeSourceVerifier{valid: false, reason: "source files changed since verification"},
+	}).Evaluate(context.Background(), Options{})
+	if err != nil {
+		t.Fatalf("Evaluate failed: %v", err)
+	}
+
+	assertInitEnvelopeV2(t, result.Envelope)
+	if result.ExitCode != cliresult.ExitReady || result.Envelope.Ready {
+		t.Fatalf("result = %+v, want not ready without source verification", result)
+	}
+	if len(result.Envelope.Diagnostics) != 1 ||
+		result.Envelope.Diagnostics[0].ID != "source_verification_required" ||
+		!strings.Contains(result.Envelope.Diagnostics[0].Message, "source files changed") {
+		t.Fatalf("diagnostics = %+v, want source verification diagnostic", result.Envelope.Diagnostics)
+	}
+	if result.Envelope.NextAction.Type != actionRunCommand ||
+		result.Envelope.NextAction.Stage != string(stageSources) ||
+		result.Envelope.NextAction.Command != "segmentstream source verify ga4" ||
+		result.Envelope.NextAction.Verify != "segmentstream init --json" {
+		t.Fatalf("next action = %+v, want source verify command", result.Envelope.NextAction)
+	}
+	assertStage(t, result.Envelope.Stages, 5, stageSources, statusUntested, true)
 }
 
 func TestEvaluatePropagatesProjectLoadError(t *testing.T) {
@@ -329,7 +359,7 @@ func TestBuildStagesProjectsBlockerOntoStagePlan(t *testing.T) {
 		stageWarehouseAuth: true,
 	}, &stageBlocker)
 
-	assertStage(t, stages, 0, stagePrerequisites, statusSatisfiedWithWarnings, false)
+	assertStage(t, stages, 0, stagePrerequisites, statusSatisfied, false)
 	assertStage(t, stages, 1, stageWarehouseType, statusSatisfied, false)
 	assertStage(t, stages, 2, stageWarehouseAuth, statusSatisfied, false)
 	assertStage(t, stages, 3, stageWarehouseConfig, statusInvalid, true)
@@ -553,4 +583,17 @@ type fakeScaffolder struct {
 func (scaffolder *fakeScaffolder) EnsureInitFiles() error {
 	scaffolder.called = true
 	return scaffolder.err
+}
+
+type fakeSourceVerifier struct {
+	valid  bool
+	reason string
+	err    error
+}
+
+func (verifier *fakeSourceVerifier) CheckSource(projectRoot string, source project.Source) (SourceVerificationStatus, error) {
+	if verifier.err != nil {
+		return SourceVerificationStatus{}, verifier.err
+	}
+	return SourceVerificationStatus{Valid: verifier.valid, Reason: verifier.reason}, nil
 }

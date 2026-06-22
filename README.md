@@ -74,9 +74,9 @@ segmentstream source scaffold ga4 --type events
 ```
 
 This scaffolds `sources/ga4/` as a source template with a pinned `contract.yml`,
-an `IMPLEMENTATION_GUIDE.md`, and one author-editable model:
-`sources/ga4/models/events.sql`. The scaffold is not implemented yet; read the
-guide before editing the source.
+an `IMPLEMENTATION_GUIDE.md`, dbt verification tests, and one author-editable
+model: `sources/ga4/models/events.sql`. The scaffold is not implemented yet;
+read the guide before editing the source.
 
 Declare the source in `segmentstream.yml`:
 
@@ -84,6 +84,12 @@ Declare the source in `segmentstream.yml`:
 sources:
   - name: ga4
     path: ./sources/ga4
+```
+
+Verify the implemented source before running the pipeline:
+
+```sh
+segmentstream source verify ga4
 ```
 
 On run, SegmentStream reads `segmentstream.yml`, installs declared sources as
@@ -202,6 +208,10 @@ contracts and returns their schemas.
 
 `segmentstream source scaffold <name> --type events [--json]` scaffolds a local
 source template under `sources/<name>/`. The template must be implemented next.
+
+`segmentstream source verify <name> [--start-date YYYY-MM-DD] [--json]` runs the
+source package's dbt verification tests inside Docker. It defaults to the last 7
+UTC days.
 
 `segmentstream warehouse auth login [--port <port>]` prints a Google OAuth URL,
 waits for a loopback browser redirect on the same computer, and stores a

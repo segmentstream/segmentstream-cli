@@ -9,7 +9,7 @@ import (
 	"strings"
 
 	"github.com/segmentstream/segmentstream-cli/internal/cliresult"
-	"github.com/segmentstream/segmentstream-cli/internal/projectsource"
+	sourcepkg "github.com/segmentstream/segmentstream-cli/internal/source"
 	"github.com/spf13/cobra"
 )
 
@@ -21,18 +21,22 @@ type sourceScaffoldOptions struct {
 	Type string
 }
 
+type sourceVerifyOptions struct {
+	StartDate string
+}
+
 type sourceContractAction struct {
 	Type    string `json:"type"`
 	Command string `json:"command"`
 }
 
 type sourceContractSummary struct {
-	Contract    projectsource.ContractIdentity `json:"contract"`
-	Description string                         `json:"description"`
-	Default     bool                           `json:"default,omitempty"`
-	Status      string                         `json:"status"`
-	Model       string                         `json:"model"`
-	Actions     []sourceContractAction         `json:"actions"`
+	Contract    sourcepkg.ContractIdentity `json:"contract"`
+	Description string                     `json:"description"`
+	Default     bool                       `json:"default,omitempty"`
+	Status      string                     `json:"status"`
+	Model       string                     `json:"model"`
+	Actions     []sourceContractAction     `json:"actions"`
 }
 
 type sourceContractsListResult struct {
@@ -41,14 +45,14 @@ type sourceContractsListResult struct {
 }
 
 type sourceContractDetailResult struct {
-	SchemaVersion string                         `json:"schema_version"`
-	Contract      projectsource.ContractIdentity `json:"contract"`
-	Description   string                         `json:"description"`
-	Default       bool                           `json:"default,omitempty"`
-	Status        string                         `json:"status"`
-	Model         projectsource.ContractModel    `json:"model"`
-	Columns       []projectsource.ContractColumn `json:"columns"`
-	Actions       []sourceContractAction         `json:"actions"`
+	SchemaVersion string                     `json:"schema_version"`
+	Contract      sourcepkg.ContractIdentity `json:"contract"`
+	Description   string                     `json:"description"`
+	Default       bool                       `json:"default,omitempty"`
+	Status        string                     `json:"status"`
+	Model         sourcepkg.ContractModel    `json:"model"`
+	Columns       []sourcepkg.ContractColumn `json:"columns"`
+	Actions       []sourceContractAction     `json:"actions"`
 }
 
 type sourceScaffoldAction struct {
@@ -58,12 +62,12 @@ type sourceScaffoldAction struct {
 }
 
 type sourceScaffoldResult struct {
-	SchemaVersion string                         `json:"schema_version"`
-	Source        sourceScaffoldResultSource     `json:"source"`
-	Directory     string                         `json:"directory"`
-	CreatedFiles  []string                       `json:"created_files"`
-	Contract      projectsource.ContractIdentity `json:"contract"`
-	Actions       []sourceScaffoldAction         `json:"actions"`
+	SchemaVersion string                     `json:"schema_version"`
+	Source        sourceScaffoldResultSource `json:"source"`
+	Directory     string                     `json:"directory"`
+	CreatedFiles  []string                   `json:"created_files"`
+	Contract      sourcepkg.ContractIdentity `json:"contract"`
+	Actions       []sourceScaffoldAction     `json:"actions"`
 }
 
 type sourceScaffoldResultSource struct {
@@ -71,7 +75,19 @@ type sourceScaffoldResultSource struct {
 	PackageName string `json:"package_name"`
 }
 
-func newSourceCommand(out io.Writer, commandContext structuredCommandContext) *cobra.Command {
+type sourceVerifyResult struct {
+	SchemaVersion    string `json:"schema_version"`
+	Source           string `json:"source"`
+	SourcePath       string `json:"source_path"`
+	Status           string `json:"source_verify"`
+	StartDate        string `json:"start_date"`
+	EndExclusiveDate string `json:"end_exclusive_date"`
+	EndInclusiveDate string `json:"-"`
+	MarkerPath       string `json:"marker_path"`
+	Fingerprint      string `json:"fingerprint"`
+}
+
+func newSourceCommand(out, errOut io.Writer, commandContext structuredCommandContext, runner commandRunner) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "source",
 		Short: "Manage SegmentStream sources",
@@ -85,6 +101,7 @@ func newSourceCommand(out io.Writer, commandContext structuredCommandContext) *c
 
 	cmd.AddCommand(newSourceContractsCommand(out, commandContext))
 	cmd.AddCommand(newSourceScaffoldCommand(out, commandContext))
+	cmd.AddCommand(newSourceVerifyCommand(out, errOut, commandContext, runner))
 
 	return cmd
 }
@@ -99,14 +116,14 @@ func newSourceContractsCommand(out io.Writer, commandContext structuredCommandCo
 	}, func(ctx context.Context, args []string) (cliresult.Response, error) {
 		_ = ctx
 		if options.Type != "" {
-			contract, err := projectsource.ContractByType(options.Type)
+			contract, err := sourcepkg.ContractByType(options.Type)
 			if err != nil {
 				return cliresult.Response{}, err
 			}
 			return cliresult.OK("source.contracts", sourceContractDetail(contract)), nil
 		}
 
-		contracts, err := projectsource.Contracts()
+		contracts, err := sourcepkg.Contracts()
 		if err != nil {
 			return cliresult.Response{}, err
 		}
@@ -137,7 +154,7 @@ func newSourceScaffoldCommand(out io.Writer, commandContext structuredCommandCon
 			return cliresult.Response{}, fmt.Errorf("find current directory: %w", err)
 		}
 
-		source, err := projectsource.Create(projectRoot, args[0], options.Type)
+		source, err := sourcepkg.Create(projectRoot, args[0], options.Type)
 		if err != nil {
 			return cliresult.Response{}, err
 		}
@@ -147,7 +164,61 @@ func newSourceScaffoldCommand(out io.Writer, commandContext structuredCommandCon
 	return cmd
 }
 
-func sourceContractsList(contracts []projectsource.Contract) sourceContractsListResult {
+func newSourceVerifyCommand(out, errOut io.Writer, commandContext structuredCommandContext, runner commandRunner) *cobra.Command {
+	options := sourceVerifyOptions{}
+	cmd := newStructuredCommand(out, errOut, commandContext, structuredCommandSpec{
+		Use:   "verify <name>",
+		Short: "Verify a source implementation with dbt tests in Docker",
+		Long: "Verify a declared source implementation with the dbt tests in its source package.\n\n" +
+			"The command prepares the local SegmentStream Docker runtime, then runs dbt\n" +
+			"inside Docker against the source package. No source verification SQL or\n" +
+			"scripts are generated by the CLI.",
+		Args:    cobra.ExactArgs(1),
+		Command: "source.verify",
+	}, func(ctx context.Context, args []string) (cliresult.Response, error) {
+		projectRoot, err := os.Getwd()
+		if err != nil {
+			return cliresult.Response{}, fmt.Errorf("find current directory: %w", err)
+		}
+		progressOut := out
+		if commandContext.Output != nil && commandContext.Output.JSON && errOut != nil {
+			progressOut = errOut
+		}
+		result, err := sourcepkg.Verify(ctx, sourcepkg.VerifyRequest{
+			ProjectRoot:        projectRoot,
+			SourceName:         args[0],
+			StartDate:          options.StartDate,
+			Runner:             sourceCommandRunner{runner: runner},
+			Progress:           newRunProgress(progressOut, 4),
+			WarehousePreflight: preflightWarehouseAuth,
+			Now:                currentTime,
+		})
+		if err != nil {
+			return cliresult.Response{}, err
+		}
+		return cliresult.OK("source.verify", sourceVerifyJSON(result)), nil
+	})
+	cmd.Flags().StringVar(&options.StartDate, "start-date", "", "Verify from this UTC date in YYYY-MM-DD format; defaults to the last 7 days")
+	return cmd
+}
+
+type sourceCommandRunner struct {
+	runner commandRunner
+}
+
+func (r sourceCommandRunner) LookPath(file string) (string, error) {
+	return r.runner.LookPath(file)
+}
+
+func (r sourceCommandRunner) Run(ctx context.Context, invocation sourcepkg.CommandInvocation) (string, error) {
+	return r.runner.Run(ctx, commandInvocation{
+		Name: invocation.Name,
+		Args: invocation.Args,
+		Dir:  invocation.Dir,
+	})
+}
+
+func sourceContractsList(contracts []sourcepkg.Contract) sourceContractsListResult {
 	summaries := make([]sourceContractSummary, 0, len(contracts))
 	for _, contract := range contracts {
 		summaries = append(summaries, sourceContractSummary{
@@ -165,7 +236,7 @@ func sourceContractsList(contracts []projectsource.Contract) sourceContractsList
 	}
 }
 
-func sourceContractDetail(contract projectsource.Contract) sourceContractDetailResult {
+func sourceContractDetail(contract sourcepkg.Contract) sourceContractDetailResult {
 	return sourceContractDetailResult{
 		SchemaVersion: cliresult.SchemaVersion,
 		Contract:      contract.Identity(),
@@ -178,7 +249,7 @@ func sourceContractDetail(contract projectsource.Contract) sourceContractDetailR
 	}
 }
 
-func sourceContractActions(contract projectsource.Contract) []sourceContractAction {
+func sourceContractActions(contract sourcepkg.Contract) []sourceContractAction {
 	return []sourceContractAction{
 		{
 			Type:    "inspect_schema",
@@ -191,7 +262,7 @@ func sourceContractActions(contract projectsource.Contract) []sourceContractActi
 	}
 }
 
-func sourceScaffoldJSON(source projectsource.Source) sourceScaffoldResult {
+func sourceScaffoldJSON(source sourcepkg.Source) sourceScaffoldResult {
 	relativePath := sourceRelativePath(source)
 	return sourceScaffoldResult{
 		SchemaVersion: cliresult.SchemaVersion,
@@ -209,6 +280,20 @@ func sourceScaffoldJSON(source projectsource.Source) sourceScaffoldResult {
 				Message: "Read this guide to implement the source package.",
 			},
 		},
+	}
+}
+
+func sourceVerifyJSON(result sourcepkg.VerifyResult) sourceVerifyResult {
+	return sourceVerifyResult{
+		SchemaVersion:    cliresult.SchemaVersion,
+		Source:           result.Source,
+		SourcePath:       result.SourcePath,
+		Status:           result.Status,
+		StartDate:        result.StartDate,
+		EndExclusiveDate: result.EndExclusiveDate,
+		EndInclusiveDate: result.EndInclusiveDate,
+		MarkerPath:       result.MarkerPath,
+		Fingerprint:      result.Fingerprint,
 	}
 }
 
@@ -272,10 +357,18 @@ func (result sourceScaffoldResult) HumanDocument() cliresult.Document {
 	})
 }
 
-func sourceRelativePath(source projectsource.Source) string {
-	return filepath.ToSlash(filepath.Join(projectsource.SourcesDirName, source.Name))
+func (result sourceVerifyResult) HumanDocument() cliresult.Document {
+	return textDocument(func(out io.Writer) {
+		fmt.Fprintf(out, "Source %q verification passed.\n", result.Source)
+		fmt.Fprintf(out, "Window: %s through %s\n", result.StartDate, result.EndInclusiveDate)
+		fmt.Fprintf(out, "Marker: %s\n", result.MarkerPath)
+	})
 }
 
-func sourceImplementationGuidePath(source projectsource.Source) string {
+func sourceRelativePath(source sourcepkg.Source) string {
+	return filepath.ToSlash(filepath.Join(sourcepkg.SourcesDirName, source.Name))
+}
+
+func sourceImplementationGuidePath(source sourcepkg.Source) string {
 	return filepath.ToSlash(filepath.Join(sourceRelativePath(source), "IMPLEMENTATION_GUIDE.md"))
 }

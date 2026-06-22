@@ -18,12 +18,11 @@ const (
 	initVerifyCommand              = "segmentstream init --json"
 	runCommand                     = "segmentstream run"
 
-	statusSatisfiedWithWarnings = "satisfied_with_warnings"
-	statusSatisfied             = "satisfied"
-	statusMissing               = "missing"
-	statusPending               = "pending"
-	statusInvalid               = "invalid"
-	statusUntested              = "untested"
+	statusSatisfied = "satisfied"
+	statusMissing   = "missing"
+	statusPending   = "pending"
+	statusInvalid   = "invalid"
+	statusUntested  = "untested"
 
 	actionHumanInput = "human_input"
 	actionRunCommand = "run_command"
@@ -50,10 +49,11 @@ type Result struct {
 }
 
 type Service struct {
-	ProjectRoot  string
-	ProjectStore ProjectStore
-	Credentials  CredentialStore
-	Scaffolder   ProjectScaffolder
+	ProjectRoot    string
+	ProjectStore   ProjectStore
+	Credentials    CredentialStore
+	Scaffolder     ProjectScaffolder
+	SourceVerifier SourceVerifier
 }
 
 type stageSpec struct {
@@ -88,6 +88,7 @@ func (service Service) Evaluate(ctx context.Context, options Options) (Result, e
 
 	store := service.projectStore()
 	credentialStore := service.credentialStore()
+	sourceVerifier := service.sourceVerifier()
 	if options.SelectWarehouse != "" {
 		if _, err := store.SelectWarehouse(options.SelectWarehouse); err != nil {
 			return Result{}, err
@@ -177,6 +178,32 @@ func (service Service) Evaluate(ctx context.Context, options Options) (Result, e
 		})), nil
 	}
 
+	for _, source := range config.Sources {
+		status, err := sourceVerifier.CheckSource(service.ProjectRoot, source)
+		if err != nil {
+			return Result{}, err
+		}
+		if !status.Valid {
+			sourceName := source.Name
+			reason := status.Reason
+			if reason == "" {
+				reason = "source has not passed verification"
+			}
+			return resultFor(envelope, eval.withBlocker(blocker{
+				StageID:    stageSources,
+				Status:     statusUntested,
+				NextAction: verifySourceAction(sourceName),
+				Diagnostics: []cliresult.Diagnostic{
+					{
+						ID:      "source_verification_required",
+						Field:   sourceDiagnosticField(sourceName),
+						Message: fmt.Sprintf("Source %q must pass verification: %s.", sourceName, reason),
+					},
+				},
+			})), nil
+		}
+	}
+
 	eval.complete(stageSources)
 
 	eval.ready = true
@@ -195,13 +222,6 @@ func baseEnvelope(config project.Config) cliresult.Envelope {
 		Warehouse:     warehouse,
 		Capabilities: cliresult.Capabilities{
 			AuthMethods: []string{"oauth", "service_account_key"},
-		},
-		Warnings: []cliresult.Warning{
-			{
-				ID:          "docker",
-				RequiredFor: "run",
-				Fix:         "Install Docker Desktop or Docker Engine with Docker Compose V2 before running segmentstream run.",
-			},
 		},
 	}
 }
@@ -263,9 +283,6 @@ func dependenciesCompleted(spec stageSpec, completed map[stageID]bool) bool {
 }
 
 func completedStageStatus(id stageID) string {
-	if id == stagePrerequisites {
-		return statusSatisfiedWithWarnings
-	}
 	return statusSatisfied
 }
 
@@ -406,6 +423,22 @@ func selectSourceAction() cliresult.NextAction {
 	}
 }
 
+func verifySourceAction(sourceName string) cliresult.NextAction {
+	command := sourceContractsCommand
+	reason := "A declared source has not passed verification."
+	if sourceName != "" {
+		command = fmt.Sprintf("segmentstream source verify %s", sourceName)
+		reason = fmt.Sprintf("Source %q has not passed verification.", sourceName)
+	}
+	return cliresult.NextAction{
+		Type:    actionRunCommand,
+		Stage:   string(stageSources),
+		Command: command,
+		Reason:  reason,
+		Verify:  initVerifyCommand,
+	}
+}
+
 func doneAction() cliresult.NextAction {
 	return cliresult.NextAction{
 		Type:    actionRunCommand,
@@ -413,6 +446,13 @@ func doneAction() cliresult.NextAction {
 		Command: runCommand,
 		Reason:  "SegmentStream project is ready.",
 	}
+}
+
+func sourceDiagnosticField(sourceName string) string {
+	if sourceName == "" {
+		return "sources"
+	}
+	return "sources." + sourceName
 }
 
 func unsupportedWarehouseDiagnostics(warehouseType string) []cliresult.Diagnostic {

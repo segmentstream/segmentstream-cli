@@ -90,12 +90,13 @@ Sources are project-owned dbt packages for source-specific transformations.
 segmentstream source contracts --json
 segmentstream source contracts --type events --json
 segmentstream source scaffold ga4 --type events
+segmentstream source verify ga4
 ` + "```" + `
 
 This scaffolds ` + "`sources/ga4/`" + ` as a source template with a pinned
-` + "`contract.yml`" + ` snapshot, ` + "`IMPLEMENTATION_GUIDE.md`" + `, and one
-author-editable model: ` + "`sources/ga4/models/events.sql`" + `. The scaffold is
-not implemented yet; read the guide before editing the source.
+` + "`contract.yml`" + ` snapshot, ` + "`IMPLEMENTATION_GUIDE.md`" + `, dbt verification
+tests, and one author-editable model: ` + "`sources/ga4/models/events.sql`" + `. The
+scaffold is not implemented yet; read the guide before editing the source.
 
 Declare the source in ` + "`segmentstream.yml`" + `:
 
@@ -103,6 +104,12 @@ Declare the source in ` + "`segmentstream.yml`" + `:
 sources:
   - name: ga4
     path: ./sources/ga4
+` + "```" + `
+
+Verify the implemented source before running the pipeline:
+
+` + "```sh" + `
+segmentstream source verify ga4
 ` + "```" + `
 
 On run, SegmentStream reads ` + "`segmentstream.yml`" + `, installs declared
@@ -153,6 +160,10 @@ source contracts and returns their schemas.
 
 ` + "`segmentstream source scaffold <name> --type events [--json]`" + ` scaffolds a local
 source template under ` + "`sources/<name>/`" + `. The template must be implemented next.
+
+` + "`segmentstream source verify <name> [--start-date YYYY-MM-DD] [--json]`" + ` runs the
+source package's dbt verification tests inside Docker. It defaults to the last 7
+UTC days.
 
 ## Files
 

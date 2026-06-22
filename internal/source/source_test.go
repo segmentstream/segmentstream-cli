@@ -1,4 +1,4 @@
-package projectsource
+package source
 
 import (
 	"os"
@@ -70,12 +70,15 @@ func TestCreateScaffoldsSourcePackageFromContract(t *testing.T) {
 	}
 
 	expectedFiles := []string{
+		".gitignore",
 		"IMPLEMENTATION_GUIDE.md",
 		"contract.yml",
 		"dbt_project.yml",
 		filepath.Join("models", "events.sql"),
 		filepath.Join("models", "schema.yml"),
 		"source.yml",
+		filepath.Join("tests", "verify_events_contract.sql"),
+		filepath.Join("tests", "verify_events_non_empty.sql"),
 	}
 	for _, relative := range expectedFiles {
 		assertGenerated(t, filepath.Join(source.Path, relative))
@@ -85,11 +88,9 @@ func TestCreateScaffoldsSourcePackageFromContract(t *testing.T) {
 	}
 	for _, relative := range []string{
 		"README.md",
-		".gitignore",
 		"macros",
 		"seeds",
 		"snapshots",
-		"tests",
 		filepath.Join("models", "staging"),
 		filepath.Join("models", "exports"),
 	} {
@@ -103,6 +104,7 @@ func TestCreateScaffoldsSourcePackageFromContract(t *testing.T) {
 	for _, want := range []string{
 		"# ga4 Source Implementation Guide",
 		"models/schema.yml",
+		"segmentstream source verify ga4",
 		"segmentstream warehouse browse",
 	} {
 		if !strings.Contains(string(guide), want) {
@@ -143,6 +145,43 @@ func TestCreateScaffoldsSourcePackageFromContract(t *testing.T) {
 		if !strings.Contains(string(model), want) {
 			t.Fatalf("model does not contain %q:\n%s", want, string(model))
 		}
+	}
+
+	dbtProject, err := os.ReadFile(filepath.Join(source.Path, "dbt_project.yml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		"profile: segmentstream",
+		"test-paths:",
+		"- tests",
+	} {
+		if !strings.Contains(string(dbtProject), want) {
+			t.Fatalf("dbt_project.yml does not contain %q:\n%s", want, string(dbtProject))
+		}
+	}
+
+	contractTest, err := os.ReadFile(filepath.Join(source.Path, "tests", "verify_events_contract.sql"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		"segmentstream_source_verify",
+		"cast(event_id as string)",
+		"event_id is null",
+		"event_date >= date('{{ segmentstream_end_date }}')",
+	} {
+		if !strings.Contains(string(contractTest), want) {
+			t.Fatalf("contract test does not contain %q:\n%s", want, string(contractTest))
+		}
+	}
+
+	nonEmptyTest, err := os.ReadFile(filepath.Join(source.Path, "tests", "verify_events_non_empty.sql"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(nonEmptyTest), "Source returned no rows") {
+		t.Fatalf("non-empty test is missing failure message:\n%s", string(nonEmptyTest))
 	}
 }
 
