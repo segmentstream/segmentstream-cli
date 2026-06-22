@@ -3,6 +3,7 @@ package initflow
 import (
 	"github.com/segmentstream/segmentstream-cli/internal/credentials"
 	"github.com/segmentstream/segmentstream-cli/internal/project"
+	sourcepkg "github.com/segmentstream/segmentstream-cli/internal/source"
 )
 
 type ProjectStore interface {
@@ -15,12 +16,34 @@ type CredentialStore interface {
 	HasMatchingAccessMarker(name, projectID, dataset, location string) (bool, error)
 }
 
+type SourceVerificationStatus struct {
+	Valid  bool
+	Reason string
+}
+
+type SourceVerifier interface {
+	CheckSource(projectRoot string, source project.Source) (SourceVerificationStatus, error)
+}
+
 type ProjectScaffolder interface {
 	EnsureInitFiles() error
 }
 
 type projectScaffolder struct {
 	Root string
+}
+
+type sourceVerifier struct{}
+
+func (verifier sourceVerifier) CheckSource(projectRoot string, source project.Source) (SourceVerificationStatus, error) {
+	status, err := sourcepkg.Check(projectRoot, source)
+	if err != nil {
+		return SourceVerificationStatus{}, err
+	}
+	return SourceVerificationStatus{
+		Valid:  status.Valid,
+		Reason: status.Reason,
+	}, nil
 }
 
 func (scaffolder projectScaffolder) EnsureInitFiles() error {
@@ -55,4 +78,11 @@ func (service Service) projectScaffolder() ProjectScaffolder {
 		return service.Scaffolder
 	}
 	return projectScaffolder{Root: service.ProjectRoot}
+}
+
+func (service Service) sourceVerifier() SourceVerifier {
+	if service.SourceVerifier != nil {
+		return service.SourceVerifier
+	}
+	return sourceVerifier{}
 }

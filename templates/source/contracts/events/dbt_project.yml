@@ -2,8 +2,12 @@ name: __PACKAGE_NAME__
 version: "0.1.0"
 config-version: 2
 
+profile: segmentstream
+
 model-paths:
   - models
+test-paths:
+  - tests
 
 target-path: target
 clean-targets:

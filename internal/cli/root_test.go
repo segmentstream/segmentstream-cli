@@ -7,10 +7,12 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/segmentstream/segmentstream-cli/internal/cliresult"
 	"github.com/segmentstream/segmentstream-cli/internal/credentials"
 	"github.com/segmentstream/segmentstream-cli/internal/project"
+	sourcepkg "github.com/segmentstream/segmentstream-cli/internal/source"
 )
 
 func TestVersionCommand(t *testing.T) {
@@ -397,6 +399,12 @@ sources:
   - name: ga4
     path: ./sources/ga4
 `)
+	if _, err := sourcepkg.Create(root, "ga4", "events"); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := sourcepkg.SavePassing(root, project.Source{Name: "ga4", Path: "./sources/ga4"}, "2026-06-16", "2026-06-23", time.Date(2026, 6, 22, 12, 0, 0, 0, time.UTC)); err != nil {
+		t.Fatal(err)
+	}
 	writeNamedCredential(t, home, "default-bigquery")
 	if err := (credentials.Store{HomeDir: home}).SaveAccessMarker("default-bigquery", "example-project", "segmentstream", "EU"); err != nil {
 		t.Fatal(err)

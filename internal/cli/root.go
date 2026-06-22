@@ -99,7 +99,7 @@ func newRootCommand(out, errOut io.Writer, options cliOptions) *cobra.Command {
 	root.AddCommand(newUpdateCommand(out, errOut, commandContext))
 	root.AddCommand(newInitCommand(out, commandContext, options))
 	root.AddCommand(newRunCommand(out, errOut, commandContext, runner))
-	root.AddCommand(newSourceCommand(out, commandContext))
+	root.AddCommand(newSourceCommand(out, errOut, commandContext, runner))
 	root.AddCommand(newWarehouseCommand(out, errOut, commandContext, options.Credentials, registry, options.WarehouseOAuth))
 
 	return root

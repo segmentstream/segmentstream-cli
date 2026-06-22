@@ -12,6 +12,10 @@ canonical SegmentStream events.
 - `models/schema.yml` declares the raw warehouse tables this source reads from
   and documents the output `events` model.
 - `models/events.sql` transforms those raw inputs into the events contract.
+- `tests/verify_events_contract.sql` checks that the implemented model satisfies
+  the events contract for the SegmentStream date window.
+- `tests/verify_events_non_empty.sql` checks that the implemented model returns
+  rows for the SegmentStream date window.
 - `contract.yml` is the pinned contract snapshot this source must satisfy.
 - `source.yml` mirrors the raw input example for humans and agents. The dbt
   declaration used by the package lives in `models/schema.yml`.
@@ -101,7 +105,19 @@ segmentstream source contracts --type events --json
        path: ./sources/__SOURCE_NAME__
    ```
 
-6. Run the project once the source is implemented:
+6. Verify the source implementation:
+
+   ```sh
+   segmentstream source verify __SOURCE_NAME__
+   ```
+
+   Verification runs the dbt tests in this package inside Docker. It fails when
+   the model does not compile, required columns are null, rows fall outside the
+   SegmentStream date window, or the selected date window returns no rows. The
+   default verification window is the last 7 UTC days; use `--start-date
+   YYYY-MM-DD` if the source only has older data.
+
+7. Run the project once verification passes:
 
    ```sh
    segmentstream run

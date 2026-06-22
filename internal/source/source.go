@@ -1,4 +1,4 @@
-package projectsource
+package source
 
 import (
 	"errors"
