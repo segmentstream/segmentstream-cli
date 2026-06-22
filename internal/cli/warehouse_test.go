@@ -3,12 +3,14 @@ package cli
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/segmentstream/segmentstream-cli/internal/cliresult"
 	"github.com/segmentstream/segmentstream-cli/internal/credentials"
@@ -517,6 +519,188 @@ func TestWarehouseBrowseSchemaTextOutput(t *testing.T) {
 	}
 }
 
+func TestWarehouseQueryHelpIncludesSafetyFlags(t *testing.T) {
+	var out bytes.Buffer
+	var errOut bytes.Buffer
+	cmd := newRootCommand(&out, &errOut, cliOptions{})
+	cmd.SetArgs([]string{"warehouse", "query", "--help"})
+
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("warehouse query --help failed: %v", err)
+	}
+	for _, want := range []string{"--sql", "--max-rows", "--timeout", "--maximum-bytes-billed"} {
+		if !strings.Contains(out.String(), want) {
+			t.Fatalf("help output = %s, want %s", out.String(), want)
+		}
+	}
+}
+
+func TestWarehouseQueryJSONReturnsRowsAndForwardsDefaults(t *testing.T) {
+	root := t.TempDir()
+	withWorkingDirectory(t, root)
+	home := filepath.Join(root, "home")
+	writeConfig(t, root, `version: 1
+warehouse:
+  type: bigquery
+  auth: production-bigquery
+  project: example-project
+  dataset: segmentstream
+  location: EU
+`)
+	writeNamedCredential(t, home, "production-bigquery")
+	fake := &fakeWarehouseConnector{
+		queryRows: []map[string]any{
+			{"payload": `{"event":"purchase"}`, "event_name": "purchase"},
+		},
+	}
+
+	var out bytes.Buffer
+	var errOut bytes.Buffer
+	cmd := newRootCommand(&out, &errOut, cliOptions{
+		Credentials:       credentials.Store{HomeDir: home},
+		WarehouseRegistry: warehouse.NewRegistry(fake),
+	})
+	cmd.SetArgs([]string{"warehouse", "query", "--sql", "SELECT payload FROM events", "--json"})
+
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("warehouse query failed: %v", err)
+	}
+	if !fake.queryCalled {
+		t.Fatal("query connector was not called")
+	}
+	if fake.queryOptions.SQL != "SELECT payload FROM events" ||
+		fake.queryOptions.MaxRows != defaultWarehouseQueryMaxRows ||
+		fake.queryOptions.Timeout != defaultWarehouseQueryTimeout ||
+		fake.queryOptions.MaximumBytesBilled != 0 {
+		t.Fatalf("query options = %+v, want defaults", fake.queryOptions)
+	}
+	if fake.config.Project != "example-project" || fake.config.Location != "EU" {
+		t.Fatalf("query config = %+v, want configured warehouse", fake.config)
+	}
+
+	var rows []map[string]any
+	response := decodeJSONResponseData(t, out.Bytes(), &rows)
+	if response.Command != "warehouse.query" || response.Status != string(cliresult.StatusOK) {
+		t.Fatalf("response = %+v, want warehouse.query ok", response)
+	}
+	if len(rows) != 1 || rows[0]["payload"] != `{"event":"purchase"}` || rows[0]["event_name"] != "purchase" {
+		t.Fatalf("rows = %+v, want query rows", rows)
+	}
+}
+
+func TestWarehouseQueryForwardsCustomLimits(t *testing.T) {
+	root := t.TempDir()
+	withWorkingDirectory(t, root)
+	home := filepath.Join(root, "home")
+	writeConfig(t, root, `version: 1
+warehouse:
+  type: bigquery
+  auth: production-bigquery
+  project: example-project
+  dataset: segmentstream
+  location: EU
+`)
+	writeNamedCredential(t, home, "production-bigquery")
+	fake := &fakeWarehouseConnector{}
+
+	var out bytes.Buffer
+	var errOut bytes.Buffer
+	cmd := newRootCommand(&out, &errOut, cliOptions{
+		Credentials:       credentials.Store{HomeDir: home},
+		WarehouseRegistry: warehouse.NewRegistry(fake),
+	})
+	cmd.SetArgs([]string{
+		"warehouse", "query",
+		"--sql", " SELECT 1 ",
+		"--max-rows", "7",
+		"--timeout", "45s",
+		"--maximum-bytes-billed", "12345",
+		"--json",
+	})
+
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("warehouse query failed: %v", err)
+	}
+	if fake.queryOptions.SQL != "SELECT 1" ||
+		fake.queryOptions.MaxRows != 7 ||
+		fake.queryOptions.Timeout != 45*time.Second ||
+		fake.queryOptions.MaximumBytesBilled != 12345 {
+		t.Fatalf("query options = %+v, want custom limits", fake.queryOptions)
+	}
+}
+
+func TestWarehouseQueryInvalidOptionsDoNotCallConnector(t *testing.T) {
+	root := t.TempDir()
+	withWorkingDirectory(t, root)
+	fake := &fakeWarehouseConnector{}
+
+	var out bytes.Buffer
+	var errOut bytes.Buffer
+	cmd := newRootCommand(&out, &errOut, cliOptions{
+		WarehouseRegistry: warehouse.NewRegistry(fake),
+	})
+	cmd.SetArgs([]string{
+		"warehouse", "query",
+		"--max-rows", "0",
+		"--timeout", "3m",
+		"--maximum-bytes-billed", "-1",
+		"--json",
+	})
+
+	err := cmd.Execute()
+	if cliresult.ExitCode(err) != cliresult.ExitMisconfigured {
+		t.Fatalf("exit code = %d, want %d; err = %v", cliresult.ExitCode(err), cliresult.ExitMisconfigured, err)
+	}
+	if fake.queryCalled {
+		t.Fatal("query connector was called for invalid options")
+	}
+	var response testJSONResponse
+	if err := json.Unmarshal(out.Bytes(), &response); err != nil {
+		t.Fatalf("json output is not JSON: %v\n%s", err, out.String())
+	}
+	if response.Status != string(cliresult.StatusInvalid) ||
+		!strings.Contains(out.String(), "missing_sql") ||
+		!strings.Contains(out.String(), "invalid_max_rows") ||
+		!strings.Contains(out.String(), "invalid_timeout") ||
+		!strings.Contains(out.String(), "invalid_maximum_bytes_billed") {
+		t.Fatalf("response = %+v output=%s, want option diagnostics", response, out.String())
+	}
+}
+
+func TestWarehouseQueryTextOutputPrintsRowsAsJSON(t *testing.T) {
+	root := t.TempDir()
+	withWorkingDirectory(t, root)
+	home := filepath.Join(root, "home")
+	writeConfig(t, root, `version: 1
+warehouse:
+  type: bigquery
+  auth: production-bigquery
+  project: example-project
+  dataset: segmentstream
+  location: EU
+`)
+	writeNamedCredential(t, home, "production-bigquery")
+	fake := &fakeWarehouseConnector{
+		queryRows: []map[string]any{{"ok": "1"}},
+	}
+
+	var out bytes.Buffer
+	var errOut bytes.Buffer
+	cmd := newRootCommand(&out, &errOut, cliOptions{
+		Credentials:       credentials.Store{HomeDir: home},
+		WarehouseRegistry: warehouse.NewRegistry(fake),
+	})
+	cmd.SetArgs([]string{"warehouse", "query", "--sql", "SELECT 1 AS ok"})
+
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("warehouse query failed: %v", err)
+	}
+	got := out.String()
+	if strings.Contains(got, "Data:") || !strings.Contains(got, `"ok": "1"`) || !strings.HasPrefix(strings.TrimSpace(got), "[") {
+		t.Fatalf("warehouse query output = %q, want row JSON without Data heading", got)
+	}
+}
+
 func TestWarehouseTestSavesAccessMarker(t *testing.T) {
 	root := t.TempDir()
 	withWorkingDirectory(t, root)
@@ -574,6 +758,9 @@ type fakeWarehouseConnector struct {
 	configureOptions warehouse.ConfigureOptions
 	testResult       warehouse.TestResult
 	config           project.Warehouse
+	queryRows        []map[string]any
+	queryOptions     warehouse.QueryOptions
+	queryCalled      bool
 }
 
 func (connector *fakeWarehouseConnector) Type() string {
@@ -597,6 +784,15 @@ func (connector *fakeWarehouseConnector) ValidateConfiguration(ctx context.Conte
 
 func (connector *fakeWarehouseConnector) Test(context.Context, string, project.Warehouse) (warehouse.TestResult, error) {
 	return connector.testResult, nil
+}
+
+func (connector *fakeWarehouseConnector) Query(ctx context.Context, credentialPath string, config project.Warehouse, options warehouse.QueryOptions) ([]map[string]any, error) {
+	_ = ctx
+	_ = credentialPath
+	connector.queryCalled = true
+	connector.config = config
+	connector.queryOptions = options
+	return connector.queryRows, nil
 }
 
 func writeServiceAccountKey(t *testing.T, root string) string {

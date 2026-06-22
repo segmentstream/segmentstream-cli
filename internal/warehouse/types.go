@@ -3,6 +3,8 @@ package warehouse
 import (
 	"context"
 	"fmt"
+	"strings"
+	"time"
 
 	"github.com/segmentstream/segmentstream-cli/internal/cliresult"
 	"github.com/segmentstream/segmentstream-cli/internal/project"
@@ -13,10 +15,18 @@ type Connector interface {
 	Browse(ctx context.Context, credentialPath string, path string) (BrowseResult, error)
 	ValidateConfiguration(ctx context.Context, credentialPath string, config project.Warehouse, options ConfigureOptions) (ConfigureResult, error)
 	Test(ctx context.Context, credentialPath string, config project.Warehouse) (TestResult, error)
+	Query(ctx context.Context, credentialPath string, config project.Warehouse, options QueryOptions) ([]map[string]any, error)
 }
 
 type ConfigureOptions struct {
 	CreateDataset bool
+}
+
+type QueryOptions struct {
+	SQL                string
+	MaxRows            int64
+	Timeout            time.Duration
+	MaximumBytesBilled int64
 }
 
 type Registry struct {
@@ -93,6 +103,34 @@ type AccessCheck struct {
 	ID      string `json:"id"`
 	OK      bool   `json:"ok"`
 	Message string `json:"message,omitempty"`
+}
+
+type QueryError struct {
+	Diagnostics []cliresult.Diagnostic
+}
+
+func NewQueryError(id, field, message, suggestion string) QueryError {
+	return QueryError{
+		Diagnostics: []cliresult.Diagnostic{{
+			ID:         id,
+			Field:      field,
+			Message:    message,
+			Suggestion: suggestion,
+		}},
+	}
+}
+
+func (err QueryError) Error() string {
+	messages := make([]string, 0, len(err.Diagnostics))
+	for _, diagnostic := range err.Diagnostics {
+		if diagnostic.Message != "" {
+			messages = append(messages, diagnostic.Message)
+		}
+	}
+	if len(messages) == 0 {
+		return "warehouse query failed"
+	}
+	return strings.Join(messages, "; ")
 }
 
 func NewBrowseResult(warehouseType, level, path string, children []BrowseChild) BrowseResult {

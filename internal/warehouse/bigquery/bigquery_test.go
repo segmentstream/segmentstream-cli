@@ -3,6 +3,7 @@ package bigquery
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -10,6 +11,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/segmentstream/segmentstream-cli/internal/project"
 	"github.com/segmentstream/segmentstream-cli/internal/warehouse"
@@ -420,6 +422,204 @@ func TestBrowseTableSchemaReturnsNestedFields(t *testing.T) {
 	}
 }
 
+func TestQueryDryRunsSelectThenExecutesAndMapsRows(t *testing.T) {
+	var dryRunRequest bq.Job
+	var queryRequest bq.QueryRequest
+	connector, cleanup := connectorWithBigQueryServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == http.MethodPost && r.URL.Path == "/bigquery/v2/projects/example-project/jobs":
+			if err := json.NewDecoder(r.Body).Decode(&dryRunRequest); err != nil {
+				t.Fatalf("decode dry run request: %v", err)
+			}
+			w.Header().Set("Content-Type", "application/json")
+			fmt.Fprint(w, `{"statistics":{"query":{"statementType":"SELECT","totalBytesProcessed":"12345"}}}`)
+		case r.Method == http.MethodPost && r.URL.Path == "/bigquery/v2/projects/example-project/queries":
+			if err := json.NewDecoder(r.Body).Decode(&queryRequest); err != nil {
+				t.Fatalf("decode query request: %v", err)
+			}
+			w.Header().Set("Content-Type", "application/json")
+			fmt.Fprint(w, `{
+				"jobComplete": true,
+				"schema": {"fields": [
+					{"name": "payload", "type": "STRING"},
+					{"name": "event_name", "type": "STRING"}
+				]},
+				"rows": [{"f": [
+					{"v": "{\"event\":\"purchase\"}"},
+					{"v": "purchase"}
+				]}],
+				"totalRows": "1"
+			}`)
+		default:
+			t.Fatalf("unexpected request %s %s", r.Method, r.URL.Path)
+		}
+	}))
+	defer cleanup()
+
+	rows, err := connector.Query(context.Background(), "unused.json", validWarehouseConfig(), warehouse.QueryOptions{
+		SQL:                "SELECT payload FROM events",
+		MaxRows:            7,
+		Timeout:            45 * time.Second,
+		MaximumBytesBilled: 12345,
+	})
+	if err != nil {
+		t.Fatalf("Query failed: %v", err)
+	}
+	if dryRunRequest.JobReference == nil ||
+		dryRunRequest.JobReference.ProjectId != "example-project" ||
+		dryRunRequest.JobReference.Location != "EU" ||
+		dryRunRequest.Configuration == nil ||
+		!dryRunRequest.Configuration.DryRun ||
+		dryRunRequest.Configuration.Query == nil ||
+		dryRunRequest.Configuration.Query.Query != "SELECT payload FROM events" ||
+		dryRunRequest.Configuration.Query.UseLegacySql == nil ||
+		*dryRunRequest.Configuration.Query.UseLegacySql ||
+		dryRunRequest.Configuration.Query.MaximumBytesBilled != 12345 {
+		t.Fatalf("dry run request = %+v, want guarded Standard SQL dry run", dryRunRequest)
+	}
+	if queryRequest.Query != "SELECT payload FROM events" ||
+		queryRequest.Location != "EU" ||
+		queryRequest.MaxResults != 7 ||
+		queryRequest.TimeoutMs != 45000 ||
+		queryRequest.MaximumBytesBilled != 12345 ||
+		queryRequest.UseLegacySql == nil ||
+		*queryRequest.UseLegacySql {
+		t.Fatalf("query request = %+v, want forwarded query options", queryRequest)
+	}
+	if len(rows) != 1 || rows[0]["payload"] != `{"event":"purchase"}` || rows[0]["event_name"] != "purchase" {
+		t.Fatalf("rows = %+v, want plain row objects", rows)
+	}
+}
+
+func TestQueryRejectsNonSelectDryRunStatement(t *testing.T) {
+	var queryRequests int
+	connector, cleanup := connectorWithBigQueryServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == http.MethodPost && r.URL.Path == "/bigquery/v2/projects/example-project/jobs":
+			w.Header().Set("Content-Type", "application/json")
+			fmt.Fprint(w, `{"statistics":{"query":{"statementType":"DELETE"}}}`)
+		case r.Method == http.MethodPost && r.URL.Path == "/bigquery/v2/projects/example-project/queries":
+			queryRequests++
+			w.WriteHeader(http.StatusOK)
+		default:
+			t.Fatalf("unexpected request %s %s", r.Method, r.URL.Path)
+		}
+	}))
+	defer cleanup()
+
+	_, err := connector.Query(context.Background(), "unused.json", validWarehouseConfig(), warehouse.QueryOptions{
+		SQL:     "DELETE FROM events WHERE true",
+		MaxRows: 100,
+		Timeout: 30 * time.Second,
+	})
+	if queryRequests != 0 {
+		t.Fatalf("query requests = %d, want none", queryRequests)
+	}
+	assertQueryError(t, err, "non_select_query")
+}
+
+func TestQueryReturnsDryRunDiagnostic(t *testing.T) {
+	connector, cleanup := connectorWithBigQueryServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost || r.URL.Path != "/bigquery/v2/projects/example-project/jobs" {
+			t.Fatalf("unexpected request %s %s", r.Method, r.URL.Path)
+		}
+		writeGoogleError(w, http.StatusBadRequest, "Syntax error: Unexpected keyword")
+	}))
+	defer cleanup()
+
+	_, err := connector.Query(context.Background(), "unused.json", validWarehouseConfig(), warehouse.QueryOptions{
+		SQL:     "not sql",
+		MaxRows: 100,
+		Timeout: 30 * time.Second,
+	})
+	assertQueryError(t, err, "query_dry_run_failed")
+}
+
+func TestQueryReturnsExecutionDiagnostic(t *testing.T) {
+	connector, cleanup := connectorWithBigQueryServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == http.MethodPost && r.URL.Path == "/bigquery/v2/projects/example-project/jobs":
+			w.Header().Set("Content-Type", "application/json")
+			fmt.Fprint(w, `{"statistics":{"query":{"statementType":"SELECT"}}}`)
+		case r.Method == http.MethodPost && r.URL.Path == "/bigquery/v2/projects/example-project/queries":
+			writeGoogleError(w, http.StatusForbidden, "Access Denied")
+		default:
+			t.Fatalf("unexpected request %s %s", r.Method, r.URL.Path)
+		}
+	}))
+	defer cleanup()
+
+	_, err := connector.Query(context.Background(), "unused.json", validWarehouseConfig(), warehouse.QueryOptions{
+		SQL:     "SELECT * FROM forbidden_table",
+		MaxRows: 100,
+		Timeout: 30 * time.Second,
+	})
+	assertQueryError(t, err, "query_execution_failed")
+}
+
+func TestQueryCancelsIncompleteJob(t *testing.T) {
+	var cancelRequests int
+	var cancelLocation string
+	connector, cleanup := connectorWithBigQueryServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == http.MethodPost && r.URL.Path == "/bigquery/v2/projects/example-project/jobs":
+			w.Header().Set("Content-Type", "application/json")
+			fmt.Fprint(w, `{"statistics":{"query":{"statementType":"SELECT"}}}`)
+		case r.Method == http.MethodPost && r.URL.Path == "/bigquery/v2/projects/example-project/queries":
+			w.Header().Set("Content-Type", "application/json")
+			fmt.Fprint(w, `{"jobComplete":false,"jobReference":{"projectId":"example-project","jobId":"job_123","location":"EU"}}`)
+		case r.Method == http.MethodPost && r.URL.Path == "/bigquery/v2/projects/example-project/jobs/job_123/cancel":
+			cancelRequests++
+			cancelLocation = r.URL.Query().Get("location")
+			w.Header().Set("Content-Type", "application/json")
+			fmt.Fprint(w, `{}`)
+		default:
+			t.Fatalf("unexpected request %s %s", r.Method, r.URL.Path)
+		}
+	}))
+	defer cleanup()
+
+	_, err := connector.Query(context.Background(), "unused.json", validWarehouseConfig(), warehouse.QueryOptions{
+		SQL:     "SELECT * FROM slow_table",
+		MaxRows: 100,
+		Timeout: time.Second,
+	})
+	assertQueryError(t, err, "query_timeout")
+	if cancelRequests != 1 || cancelLocation != "EU" {
+		t.Fatalf("cancel requests = %d location=%q, want one EU cancel", cancelRequests, cancelLocation)
+	}
+}
+
+func TestQueryRejectsDuplicateColumnNames(t *testing.T) {
+	connector, cleanup := connectorWithBigQueryServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == http.MethodPost && r.URL.Path == "/bigquery/v2/projects/example-project/jobs":
+			w.Header().Set("Content-Type", "application/json")
+			fmt.Fprint(w, `{"statistics":{"query":{"statementType":"SELECT"}}}`)
+		case r.Method == http.MethodPost && r.URL.Path == "/bigquery/v2/projects/example-project/queries":
+			w.Header().Set("Content-Type", "application/json")
+			fmt.Fprint(w, `{
+				"jobComplete": true,
+				"schema": {"fields": [
+					{"name": "same", "type": "STRING"},
+					{"name": "same", "type": "STRING"}
+				]},
+				"rows": [{"f": [{"v": "one"}, {"v": "two"}]}]
+			}`)
+		default:
+			t.Fatalf("unexpected request %s %s", r.Method, r.URL.Path)
+		}
+	}))
+	defer cleanup()
+
+	_, err := connector.Query(context.Background(), "unused.json", validWarehouseConfig(), warehouse.QueryOptions{
+		SQL:     "SELECT 1 AS same, 2 AS same",
+		MaxRows: 100,
+		Timeout: 30 * time.Second,
+	})
+	assertQueryError(t, err, "duplicate_column_names")
+}
+
 func TestBrowseRejectsInvalidPathsBeforeCreatingClient(t *testing.T) {
 	for _, path := range []string{
 		"example-project//dataset_one",
@@ -432,6 +632,17 @@ func TestBrowseRejectsInvalidPathsBeforeCreatingClient(t *testing.T) {
 		if !strings.Contains(err.Error(), "invalid BigQuery browse path") {
 			t.Fatalf("Browse(%q) error = %v, want invalid path error", path, err)
 		}
+	}
+}
+
+func assertQueryError(t *testing.T, err error, id string) {
+	t.Helper()
+	var queryErr warehouse.QueryError
+	if !errors.As(err, &queryErr) {
+		t.Fatalf("error = %v, want warehouse.QueryError", err)
+	}
+	if len(queryErr.Diagnostics) != 1 || queryErr.Diagnostics[0].ID != id {
+		t.Fatalf("diagnostics = %+v, want %s", queryErr.Diagnostics, id)
 	}
 }
 

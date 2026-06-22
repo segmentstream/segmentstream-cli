@@ -2,10 +2,13 @@ package cli
 
 import (
 	"context"
+	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/segmentstream/segmentstream-cli/internal/cliresult"
 	"github.com/segmentstream/segmentstream-cli/internal/credentials"
@@ -25,6 +28,13 @@ type warehouseBrowseOptions struct {
 	Path string
 }
 
+type warehouseQueryOptions struct {
+	SQL                string
+	MaxRows            int64
+	Timeout            time.Duration
+	MaximumBytesBilled int64
+}
+
 type warehouseConfigureOptions struct {
 	Project       string
 	Dataset       string
@@ -41,8 +51,16 @@ type warehouseAuthResult struct {
 }
 
 type warehouseBrowseData warehouse.BrowseResult
+type warehouseQueryData []map[string]any
 type warehouseConfigureData warehouse.ConfigureResult
 type warehouseTestData warehouse.TestResult
+
+const (
+	defaultWarehouseQueryMaxRows = int64(100)
+	maxWarehouseQueryMaxRows     = int64(1000)
+	defaultWarehouseQueryTimeout = 30 * time.Second
+	maxWarehouseQueryTimeout     = 2 * time.Minute
+)
 
 func newWarehouseCommand(out, errOut io.Writer, commandContext structuredCommandContext, credentialStore credentials.Store, registry warehouse.Registry, oauthLogin warehouseOAuthLogin) *cobra.Command {
 	cmd := &cobra.Command{
@@ -55,6 +73,7 @@ func newWarehouseCommand(out, errOut io.Writer, commandContext structuredCommand
 	}
 	cmd.AddCommand(newWarehouseAuthCommand(out, errOut, commandContext, credentialStore, oauthLogin))
 	cmd.AddCommand(newWarehouseBrowseCommand(out, commandContext, credentialStore, registry))
+	cmd.AddCommand(newWarehouseQueryCommand(out, commandContext, credentialStore, registry))
 	cmd.AddCommand(newWarehouseConfigureCommand(out, commandContext, credentialStore, registry))
 	cmd.AddCommand(newWarehouseTestCommand(out, commandContext, credentialStore, registry))
 	return cmd
@@ -194,6 +213,86 @@ func newWarehouseBrowseCommand(out io.Writer, commandContext structuredCommandCo
 	})
 	cmd.Flags().StringVar(&options.Path, "path", "", "Browse below this path; for BigQuery, use <project>, <project>/<dataset>, or <project>/<dataset>/<table>")
 	return cmd
+}
+
+func newWarehouseQueryCommand(out io.Writer, commandContext structuredCommandContext, credentialStore credentials.Store, registry warehouse.Registry) *cobra.Command {
+	options := warehouseQueryOptions{
+		MaxRows: defaultWarehouseQueryMaxRows,
+		Timeout: defaultWarehouseQueryTimeout,
+	}
+	cmd := newStructuredCommand(out, nil, commandContext, structuredCommandSpec{
+		Use:   "query --sql <select statement>",
+		Short: "Run a read-only warehouse SELECT query",
+		Long: "Run a read-only warehouse SELECT query using the credential and location\n" +
+			"from segmentstream.yml.\n\n" +
+			"For BigQuery, the CLI first runs a dry-run job and executes the query only\n" +
+			"when BigQuery reports the statement type as SELECT.",
+		Args:    cobra.NoArgs,
+		Command: "warehouse.query",
+	}, func(ctx context.Context, args []string) (cliresult.Response, error) {
+		diagnostics := validateWarehouseQueryOptions(options)
+		if len(diagnostics) > 0 {
+			return cliresult.Invalid("warehouse.query", nil, diagnostics), nil
+		}
+		config, connector, credentialPath, err := loadWarehouseCommandState(credentialStore, registry)
+		if err != nil {
+			return cliresult.Response{}, err
+		}
+		rows, err := connector.Query(ctx, credentialPath, config.Warehouse, warehouse.QueryOptions{
+			SQL:                strings.TrimSpace(options.SQL),
+			MaxRows:            options.MaxRows,
+			Timeout:            options.Timeout,
+			MaximumBytesBilled: options.MaximumBytesBilled,
+		})
+		if err != nil {
+			var queryErr warehouse.QueryError
+			if errors.As(err, &queryErr) {
+				return cliresult.Invalid("warehouse.query", nil, queryErr.Diagnostics), nil
+			}
+			return cliresult.Response{}, err
+		}
+		return cliresult.OK("warehouse.query", warehouseQueryData(rows)), nil
+	})
+	cmd.Flags().StringVar(&options.SQL, "sql", "", "Read-only SELECT statement to run")
+	cmd.Flags().Int64Var(&options.MaxRows, "max-rows", defaultWarehouseQueryMaxRows, "Maximum rows to return, from 1 to 1000")
+	cmd.Flags().DurationVar(&options.Timeout, "timeout", defaultWarehouseQueryTimeout, "Maximum time to wait for query completion, up to 2m")
+	cmd.Flags().Int64Var(&options.MaximumBytesBilled, "maximum-bytes-billed", 0, "Optional BigQuery maximum bytes billed limit")
+	return cmd
+}
+
+func validateWarehouseQueryOptions(options warehouseQueryOptions) []cliresult.Diagnostic {
+	var diagnostics []cliresult.Diagnostic
+	if strings.TrimSpace(options.SQL) == "" {
+		diagnostics = append(diagnostics, cliresult.Diagnostic{
+			ID:      "missing_sql",
+			Field:   "--sql",
+			Message: "--sql is required.",
+		})
+	}
+	if options.MaxRows < 1 || options.MaxRows > maxWarehouseQueryMaxRows {
+		diagnostics = append(diagnostics, cliresult.Diagnostic{
+			ID:         "invalid_max_rows",
+			Field:      "--max-rows",
+			Message:    fmt.Sprintf("--max-rows must be between 1 and %d.", maxWarehouseQueryMaxRows),
+			Suggestion: fmt.Sprintf("%d", defaultWarehouseQueryMaxRows),
+		})
+	}
+	if options.Timeout <= 0 || options.Timeout > maxWarehouseQueryTimeout {
+		diagnostics = append(diagnostics, cliresult.Diagnostic{
+			ID:         "invalid_timeout",
+			Field:      "--timeout",
+			Message:    fmt.Sprintf("--timeout must be greater than 0 and no more than %s.", maxWarehouseQueryTimeout),
+			Suggestion: defaultWarehouseQueryTimeout.String(),
+		})
+	}
+	if options.MaximumBytesBilled < 0 {
+		diagnostics = append(diagnostics, cliresult.Diagnostic{
+			ID:      "invalid_maximum_bytes_billed",
+			Field:   "--maximum-bytes-billed",
+			Message: "--maximum-bytes-billed must be zero or greater.",
+		})
+	}
+	return diagnostics
 }
 
 func newWarehouseConfigureCommand(out io.Writer, commandContext structuredCommandContext, credentialStore credentials.Store, registry warehouse.Registry) *cobra.Command {
@@ -381,6 +480,17 @@ func (result warehouseAuthResult) HumanDocument() cliresult.Document {
 func (data warehouseBrowseData) HumanDocument() cliresult.Document {
 	return textDocument(func(out io.Writer) {
 		writeBrowseResult(out, warehouse.BrowseResult(data))
+	})
+}
+
+func (data warehouseQueryData) HumanDocument() cliresult.Document {
+	return textDocument(func(out io.Writer) {
+		payload, err := json.MarshalIndent([]map[string]any(data), "", "  ")
+		if err != nil {
+			fmt.Fprintln(out, "[]")
+			return
+		}
+		fmt.Fprintln(out, string(payload))
 	})
 }
 
