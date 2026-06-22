@@ -145,6 +145,11 @@ Use ` + "`segmentstream warehouse browse --path <project> --json`" + ` to list d
 Use ` + "`segmentstream warehouse browse --path <project>/<dataset> --json`" + ` to list tables.
 Use ` + "`segmentstream warehouse browse --path <project>/<dataset>/<table> --json`" + ` to fetch a table schema.
 
+` + "`segmentstream warehouse query --sql \"<select statement>\" --json`" + ` runs a
+dry-run-verified read-only SELECT query and returns row objects under ` + "`data`" + `.
+Use it to inspect payload samples, null rates, distinct values, date ranges,
+and JSON fields after browsing table schemas.
+
 ` + "`segmentstream warehouse configure --project --dataset --location`" + ` validates
 and writes warehouse settings.
 
@@ -199,6 +204,7 @@ Before editing SegmentStream project files, read ` + "`README.md`" + ` in this d
 - Use ` + "`segmentstream run`" + ` to run the pipeline and produce tables in the configured warehouse.
 - Use ` + "`segmentstream source contracts`" + ` to inspect supported source contracts.
 - Use ` + "`segmentstream source scaffold <name> --type events`" + ` to scaffold local source templates outside the generated environment.
+- Use ` + "`segmentstream warehouse browse`" + ` and ` + "`segmentstream warehouse query`" + ` to inspect warehouse tables before implementing sources.
 - Do not put secrets, credentials, private keys, tokens, or SQL in ` + "`segmentstream.yml`" + `.
 - For BigQuery warehouse configuration, use the guidance in ` + "`README.md`" + `.
 `

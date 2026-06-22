@@ -236,6 +236,218 @@ func (connector Connector) Test(ctx context.Context, credentialPath string, conf
 	return warehouse.NewTestResult(connector.Type(), checks), nil
 }
 
+func (connector Connector) Query(ctx context.Context, credentialPath string, config project.Warehouse, options warehouse.QueryOptions) ([]map[string]any, error) {
+	service, err := connector.service(ctx, credentialPath)
+	if err != nil {
+		return nil, err
+	}
+
+	queryLocation := strings.TrimSpace(config.Location)
+	if queryLocation == "" {
+		queryLocation = project.DefaultLocation
+	}
+	dryRunQuery := &bq.JobConfigurationQuery{
+		Query:        options.SQL,
+		UseLegacySql: boolPointer(false),
+	}
+	if options.MaximumBytesBilled > 0 {
+		dryRunQuery.MaximumBytesBilled = options.MaximumBytesBilled
+	}
+	dryRunJob, err := service.Jobs.Insert(config.Project, &bq.Job{
+		JobReference: &bq.JobReference{
+			ProjectId: config.Project,
+			Location:  queryLocation,
+		},
+		Configuration: &bq.JobConfiguration{
+			DryRun: true,
+			Query:  dryRunQuery,
+		},
+	}).Context(ctx).Do()
+	if err != nil {
+		return nil, warehouse.NewQueryError(
+			"query_dry_run_failed",
+			"--sql",
+			fmt.Sprintf("BigQuery dry run failed: %s", explainGoogleAPIError(err).Error()),
+			"",
+		)
+	}
+	statementType := bigQueryStatementType(dryRunJob)
+	if statementType != "SELECT" {
+		message := "Only read-only SELECT queries are supported."
+		if statementType != "" {
+			message = fmt.Sprintf("Only read-only SELECT queries are supported; BigQuery reported statement type %s.", statementType)
+		}
+		return nil, warehouse.NewQueryError(
+			"non_select_query",
+			"--sql",
+			message,
+			"Use a SELECT statement without DDL, DML, scripts, calls, exports, or assertions.",
+		)
+	}
+
+	queryRequest := &bq.QueryRequest{
+		Query:        options.SQL,
+		UseLegacySql: boolPointer(false),
+		Location:     queryLocation,
+		MaxResults:   options.MaxRows,
+		TimeoutMs:    int64(options.Timeout / time.Millisecond),
+	}
+	if options.MaximumBytesBilled > 0 {
+		queryRequest.MaximumBytesBilled = options.MaximumBytesBilled
+	}
+	response, err := service.Jobs.Query(config.Project, queryRequest).Context(ctx).Do()
+	if err != nil {
+		return nil, warehouse.NewQueryError(
+			"query_execution_failed",
+			"--sql",
+			fmt.Sprintf("BigQuery query failed: %s", explainGoogleAPIError(err).Error()),
+			"",
+		)
+	}
+	if response != nil && !response.JobComplete {
+		cancelBigQueryQuery(ctx, service, config.Project, queryLocation, response.JobReference)
+		return nil, warehouse.NewQueryError(
+			"query_timeout",
+			"--timeout",
+			"BigQuery query did not complete before the timeout.",
+			"Increase --timeout or add a more selective WHERE/LIMIT clause.",
+		)
+	}
+	rows, err := bigQueryRows(response)
+	if err != nil {
+		return nil, err
+	}
+	return rows, nil
+}
+
+func bigQueryStatementType(job *bq.Job) string {
+	if job == nil || job.Statistics == nil || job.Statistics.Query == nil {
+		return ""
+	}
+	return strings.ToUpper(strings.TrimSpace(job.Statistics.Query.StatementType))
+}
+
+func cancelBigQueryQuery(ctx context.Context, service *bq.Service, projectID, location string, reference *bq.JobReference) {
+	if reference == nil || reference.JobId == "" {
+		return
+	}
+	cancelProject := projectID
+	if reference.ProjectId != "" {
+		cancelProject = reference.ProjectId
+	}
+	call := service.Jobs.Cancel(cancelProject, reference.JobId).Context(ctx)
+	cancelLocation := location
+	if reference.Location != "" {
+		cancelLocation = reference.Location
+	}
+	if cancelLocation != "" {
+		call = call.Location(cancelLocation)
+	}
+	_, _ = call.Do()
+}
+
+func bigQueryRows(response *bq.QueryResponse) ([]map[string]any, error) {
+	if response == nil || response.Schema == nil || len(response.Schema.Fields) == 0 {
+		return []map[string]any{}, nil
+	}
+	fields := response.Schema.Fields
+	names := make([]string, 0, len(fields))
+	seen := make(map[string]struct{}, len(fields))
+	for index, field := range fields {
+		if field == nil || strings.TrimSpace(field.Name) == "" {
+			return nil, warehouse.NewQueryError(
+				"missing_column_name",
+				"--sql",
+				fmt.Sprintf("Query result column %d does not have a name.", index+1),
+				"Alias every selected expression with a unique name.",
+			)
+		}
+		if _, ok := seen[field.Name]; ok {
+			return nil, warehouse.NewQueryError(
+				"duplicate_column_names",
+				"--sql",
+				fmt.Sprintf("Query returned duplicate column name %q.", field.Name),
+				"Alias selected columns with unique names.",
+			)
+		}
+		seen[field.Name] = struct{}{}
+		names = append(names, field.Name)
+	}
+
+	rows := make([]map[string]any, 0, len(response.Rows))
+	for _, row := range response.Rows {
+		item := make(map[string]any, len(fields))
+		for index, field := range fields {
+			var value any
+			if row != nil && index < len(row.F) && row.F[index] != nil {
+				value = convertBigQueryValue(field, row.F[index].V)
+			}
+			item[names[index]] = value
+		}
+		rows = append(rows, item)
+	}
+	return rows, nil
+}
+
+func convertBigQueryValue(field *bq.TableFieldSchema, value any) any {
+	if value == nil || field == nil {
+		return value
+	}
+	if strings.EqualFold(field.Mode, "REPEATED") {
+		values, ok := value.([]any)
+		if !ok {
+			return value
+		}
+		elementField := *field
+		elementField.Mode = ""
+		converted := make([]any, 0, len(values))
+		for _, item := range values {
+			converted = append(converted, convertBigQueryValue(&elementField, unwrapBigQueryCellValue(item)))
+		}
+		return converted
+	}
+	if strings.EqualFold(field.Type, "RECORD") || strings.EqualFold(field.Type, "STRUCT") {
+		if record, ok := convertBigQueryRecord(field.Fields, value); ok {
+			return record
+		}
+	}
+	return value
+}
+
+func convertBigQueryRecord(fields []*bq.TableFieldSchema, value any) (map[string]any, bool) {
+	record, ok := value.(map[string]any)
+	if !ok {
+		return nil, false
+	}
+	cells, ok := record["f"].([]any)
+	if !ok {
+		return nil, false
+	}
+	item := make(map[string]any, len(fields))
+	for index, field := range fields {
+		if field == nil || field.Name == "" {
+			continue
+		}
+		var value any
+		if index < len(cells) {
+			value = convertBigQueryValue(field, unwrapBigQueryCellValue(cells[index]))
+		}
+		item[field.Name] = value
+	}
+	return item, true
+}
+
+func unwrapBigQueryCellValue(value any) any {
+	cell, ok := value.(map[string]any)
+	if !ok {
+		return value
+	}
+	if unwrapped, ok := cell["v"]; ok {
+		return unwrapped
+	}
+	return value
+}
+
 func (connector Connector) service(ctx context.Context, credentialPath string) (*bq.Service, error) {
 	if connector.newService != nil {
 		return connector.newService(ctx, credentialPath)

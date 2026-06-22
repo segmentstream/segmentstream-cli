@@ -133,6 +133,30 @@ segmentstream warehouse browse --path my-gcp-project/my_dataset --json
 segmentstream warehouse browse --path my-gcp-project/my_dataset/my_table --json
 ```
 
+Inspect raw rows with read-only SELECT queries:
+
+```sh
+segmentstream warehouse query \
+  --sql "SELECT payload FROM \`my-gcp-project.my_dataset.my_table\` WHERE payload IS NOT NULL LIMIT 5" \
+  --json
+
+segmentstream warehouse query \
+  --sql "SELECT JSON_VALUE(payload, '$.event') AS event_name, COUNT(*) AS events FROM \`my-gcp-project.my_dataset.my_table\` GROUP BY 1 ORDER BY events DESC LIMIT 50" \
+  --json
+
+segmentstream warehouse query \
+  --sql "SELECT COUNTIF(payload IS NULL) AS null_payloads, COUNT(*) AS rows FROM \`my-gcp-project.my_dataset.my_table\`" \
+  --json
+
+segmentstream warehouse query \
+  --sql "SELECT MIN(event_date) AS min_event_date, MAX(event_date) AS max_event_date FROM \`my-gcp-project.my_dataset.my_table\`" \
+  --json
+```
+
+`warehouse query --json` returns only row objects under `data`. For BigQuery,
+the CLI validates the SQL with a dry run and executes it only when BigQuery
+reports the statement type as `SELECT`.
+
 Configure the BigQuery project, dataset, and location:
 
 ```sh
@@ -224,6 +248,9 @@ other non-interactive environments.
 
 `segmentstream warehouse browse [--path <project>[/<dataset>[/<table>]]] [--json]`
 lists BigQuery projects, datasets, tables, or a table schema.
+
+`segmentstream warehouse query --sql "<select statement>" [--max-rows 100] [--timeout 30s] [--maximum-bytes-billed <bytes>] [--json]`
+runs a dry-run-verified read-only SELECT query and returns rows.
 
 `segmentstream warehouse configure --project --dataset --location [--create-dataset]`
 validates and writes warehouse settings. Use `--create-dataset` to create a

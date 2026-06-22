@@ -84,12 +84,28 @@ segmentstream source contracts --type events --json
    segmentstream warehouse browse --path <project>/<dataset>/<table> --json
    ```
 
-2. Replace placeholders in `models/schema.yml` with the raw input tables.
+2. Inspect sample values and key distributions with read-only queries:
 
-3. Replace the template query in `models/events.sql` with SQL that maps the raw
+   ```sh
+   segmentstream warehouse query \
+     --sql "SELECT * FROM `<project>.<dataset>.<table>` LIMIT 5" \
+     --json
+
+   segmentstream warehouse query \
+     --sql "SELECT JSON_VALUE(payload, '$.event') AS event_name, COUNT(*) AS events FROM `<project>.<dataset>.<table>` GROUP BY 1 ORDER BY events DESC LIMIT 50" \
+     --json
+   ```
+
+   `warehouse query --json` returns only row objects under `data`. For BigQuery,
+   the CLI validates the SQL with a dry run and executes it only when BigQuery
+   reports the statement type as `SELECT`.
+
+3. Replace placeholders in `models/schema.yml` with the raw input tables.
+
+4. Replace the template query in `models/events.sql` with SQL that maps the raw
    inputs to the events contract.
 
-4. Keep the SegmentStream date window in the model when the raw data has a date
+5. Keep the SegmentStream date window in the model when the raw data has a date
    or timestamp field:
 
    ```sql
@@ -97,7 +113,7 @@ segmentstream source contracts --type events --json
      and <event_date_expression> < date('{{ segmentstream_end_date }}')
    ```
 
-5. Add this source package to the project `segmentstream.yml`:
+6. Add this source package to the project `segmentstream.yml`:
 
    ```yaml
    sources:
@@ -105,7 +121,7 @@ segmentstream source contracts --type events --json
        path: ./sources/__SOURCE_NAME__
    ```
 
-6. Verify the source implementation:
+7. Verify the source implementation:
 
    ```sh
    segmentstream source verify __SOURCE_NAME__
