@@ -6,7 +6,7 @@ results to your own data warehouse.
 ## Install
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/segmentstream/segmentstream-cli/main/cli/install.sh | sh
+curl -fsSL https://raw.githubusercontent.com/segmentstream/segmentstream/main/cli/install.sh | sh
 ```
 
 The installer places the binary in `$HOME/.segmentstream/bin` by default and
@@ -291,7 +291,7 @@ without installing it.
 
 Publish a GitHub Release with a semver tag to build and attach release assets:
 
-1. Open https://github.com/segmentstream/segmentstream-cli/cli/releases/new
+1. Open https://github.com/segmentstream/segmentstream/releases/new
 2. Create or choose a tag like `v0.1.0`.
 3. Publish the release.
 

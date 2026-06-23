@@ -206,7 +206,7 @@ func newTestReleaseClientWithChecksum(t *testing.T, tag string, binary []byte, c
 
 	client := &http.Client{Transport: roundTripFunc(func(request *http.Request) (*http.Response, error) {
 		switch request.URL.Path {
-		case "/repos/segmentstream/segmentstream-cli/releases/latest":
+		case "/repos/segmentstream/segmentstream/releases/latest":
 			return testResponse(http.StatusOK, fmt.Sprintf(`{
 			"tag_name": %q,
 			"prerelease": false,

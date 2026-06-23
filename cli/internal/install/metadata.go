@@ -10,7 +10,7 @@ import (
 
 const (
 	MethodScript = "script"
-	DefaultRepo  = "segmentstream/segmentstream-cli"
+	DefaultRepo  = "segmentstream/segmentstream"
 )
 
 type Metadata struct {

@@ -1,7 +1,7 @@
 #!/bin/sh
 set -eu
 
-REPO="segmentstream/segmentstream-cli"
+REPO="segmentstream/segmentstream"
 INSTALL_DIR="${HOME}/.segmentstream/bin"
 METADATA_DIR="${HOME}/.segmentstream"
 GITHUB_API_BASE_URL="${SEGMENTSTREAM_GITHUB_API_BASE_URL:-https://api.github.com}"
