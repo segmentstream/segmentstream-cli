@@ -9,15 +9,177 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/segmentstream/segmentstream-cli/internal/credentials"
 	"github.com/segmentstream/segmentstream-cli/internal/project"
 	"github.com/segmentstream/segmentstream-cli/internal/warehouse"
+	"github.com/segmentstream/segmentstream-cli/internal/warehouse/bigquery/googleoauth"
 	bq "google.golang.org/api/bigquery/v2"
 	"google.golang.org/api/option"
 )
+
+func TestCredentialPath(t *testing.T) {
+	home := t.TempDir()
+	path, err := NewConnector().CredentialPath(credentials.Store{HomeDir: home}, "default-bigquery")
+	if err != nil {
+		t.Fatalf("CredentialPath failed: %v", err)
+	}
+	want := filepath.Join(home, ".segmentstream", "bigquery", "default-bigquery.json")
+	if path != want {
+		t.Fatalf("path = %q, want %q", path, want)
+	}
+}
+
+func TestSaveServiceAccountKey(t *testing.T) {
+	root := t.TempDir()
+	keyPath := filepath.Join(root, "key.json")
+	data := []byte(`{"type":"service_account","client_email":"test@example.iam.gserviceaccount.com","private_key":"secret"}`)
+	if err := os.WriteFile(keyPath, data, 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	path, err := NewConnector().SaveServiceAccountKey(credentials.Store{HomeDir: filepath.Join(root, "home")}, "default-bigquery", keyPath)
+	if err != nil {
+		t.Fatalf("SaveServiceAccountKey failed: %v", err)
+	}
+	got, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(got) != string(data) {
+		t.Fatalf("stored key = %s, want source key", string(got))
+	}
+	if runtime.GOOS != "windows" {
+		info, err := os.Stat(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if info.Mode().Perm() != 0o600 {
+			t.Fatalf("mode = %v, want 0600", info.Mode().Perm())
+		}
+	}
+}
+
+func TestSaveServiceAccountKeyClearsAccessMarker(t *testing.T) {
+	root := t.TempDir()
+	store := credentials.Store{HomeDir: filepath.Join(root, "home")}
+	connector := NewConnector()
+	config := validWarehouseConfig()
+	if err := connector.SaveAccessMarker(store, "default-bigquery", config); err != nil {
+		t.Fatalf("SaveAccessMarker failed: %v", err)
+	}
+	matches, err := connector.HasMatchingAccessMarker(store, "default-bigquery", config)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !matches {
+		t.Fatal("expected marker before replacing credential")
+	}
+
+	keyPath := filepath.Join(root, "key.json")
+	data := []byte(`{"type":"service_account","client_email":"test@example.iam.gserviceaccount.com","private_key":"secret"}`)
+	if err := os.WriteFile(keyPath, data, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := connector.SaveServiceAccountKey(store, "default-bigquery", keyPath); err != nil {
+		t.Fatalf("SaveServiceAccountKey failed: %v", err)
+	}
+
+	matches, err = connector.HasMatchingAccessMarker(store, "default-bigquery", config)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if matches {
+		t.Fatal("expected marker to be cleared after replacing credential")
+	}
+}
+
+func TestSaveOAuthCredential(t *testing.T) {
+	root := t.TempDir()
+	store := credentials.Store{HomeDir: filepath.Join(root, "home")}
+	data, err := googleAuthorizedUserCredentialJSON(googleoauth.Credential{
+		ClientID:     "client-id.apps.googleusercontent.com",
+		ClientSecret: "client-secret",
+		RefreshToken: "refresh-token",
+		TokenURI:     "https://oauth2.googleapis.com/token",
+		Scopes:       []string{"https://www.googleapis.com/auth/bigquery"},
+	})
+	if err != nil {
+		t.Fatalf("googleAuthorizedUserCredentialJSON failed: %v", err)
+	}
+
+	path, err := NewConnector().SaveOAuthCredential(store, "default-bigquery", data)
+	if err != nil {
+		t.Fatalf("SaveOAuthCredential failed: %v", err)
+	}
+	stored, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		`"type": "authorized_user"`,
+		`"client_id": "client-id.apps.googleusercontent.com"`,
+		`"client_secret": "client-secret"`,
+		`"refresh_token": "refresh-token"`,
+		`"token_uri": "https://oauth2.googleapis.com/token"`,
+		`"https://www.googleapis.com/auth/bigquery"`,
+	} {
+		if !strings.Contains(string(stored), want) {
+			t.Fatalf("stored OAuth credential = %s, want %q", string(stored), want)
+		}
+	}
+	if runtime.GOOS != "windows" {
+		info, err := os.Stat(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if info.Mode().Perm() != 0o600 {
+			t.Fatalf("mode = %v, want 0600", info.Mode().Perm())
+		}
+	}
+}
+
+func TestSaveServiceAccountKeyRejectsWrongType(t *testing.T) {
+	root := t.TempDir()
+	keyPath := filepath.Join(root, "key.json")
+	if err := os.WriteFile(keyPath, []byte(`{"type":"authorized_user"}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	_, err := NewConnector().SaveServiceAccountKey(credentials.Store{HomeDir: filepath.Join(root, "home")}, "default-bigquery", keyPath)
+	if err == nil {
+		t.Fatal("expected wrong credential type error")
+	}
+}
+
+func TestAccessMarkerMatchesWarehouseConfig(t *testing.T) {
+	home := t.TempDir()
+	store := credentials.Store{HomeDir: home}
+	connector := NewConnector()
+	config := validWarehouseConfig()
+	if err := connector.SaveAccessMarker(store, "default-bigquery", config); err != nil {
+		t.Fatalf("SaveAccessMarker failed: %v", err)
+	}
+	matches, err := connector.HasMatchingAccessMarker(store, "default-bigquery", config)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !matches {
+		t.Fatal("expected marker to match")
+	}
+	config.Dataset = "other"
+	matches, err = connector.HasMatchingAccessMarker(store, "default-bigquery", config)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if matches {
+		t.Fatal("expected marker mismatch for different dataset")
+	}
+}
 
 func TestValidateConfigurationRejectsInvalidDatasetWithoutNetwork(t *testing.T) {
 	result, err := NewConnector().ValidateConfiguration(context.Background(), "unused.json", project.Warehouse{

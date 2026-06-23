@@ -40,8 +40,9 @@ func newInitCommand(out io.Writer, commandContext structuredCommandContext, cliO
 		}
 
 		result, err := (initflow.Service{
-			ProjectRoot: projectRoot,
-			Credentials: cliOptions.Credentials,
+			ProjectRoot:       projectRoot,
+			Credentials:       cliOptions.Credentials,
+			WarehouseRegistry: cliOptions.WarehouseRegistry,
 		}).Evaluate(cmdContext, initflow.Options{SelectWarehouse: options.Warehouse})
 		if err != nil {
 			return cliresult.Response{}, err

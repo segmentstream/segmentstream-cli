@@ -10,7 +10,6 @@ import (
 	"os"
 	"strings"
 
-	"github.com/segmentstream/segmentstream-cli/internal/credentials"
 	"golang.org/x/oauth2"
 	"golang.org/x/oauth2/google"
 	bq "google.golang.org/api/bigquery/v2"
@@ -38,14 +37,22 @@ type LoginOptions struct {
 	Port int
 }
 
-func Login(ctx context.Context, out io.Writer) (credentials.GoogleOAuthCredential, error) {
+type Credential struct {
+	ClientID     string
+	ClientSecret string
+	RefreshToken string
+	TokenURI     string
+	Scopes       []string
+}
+
+func Login(ctx context.Context, out io.Writer) (Credential, error) {
 	return LoginWithOptions(ctx, out, LoginOptions{})
 }
 
-func LoginWithOptions(ctx context.Context, out io.Writer, options LoginOptions) (credentials.GoogleOAuthCredential, error) {
+func LoginWithOptions(ctx context.Context, out io.Writer, options LoginOptions) (Credential, error) {
 	config, err := DefaultConfig()
 	if err != nil {
-		return credentials.GoogleOAuthCredential{}, err
+		return Credential{}, err
 	}
 	return LoginWithConfigOptions(ctx, out, config, options)
 }
@@ -67,15 +74,15 @@ func DefaultScopes() []string {
 	return []string{bq.BigqueryScope}
 }
 
-func LoginWithConfig(ctx context.Context, out io.Writer, config Config) (credentials.GoogleOAuthCredential, error) {
+func LoginWithConfig(ctx context.Context, out io.Writer, config Config) (Credential, error) {
 	return LoginWithConfigOptions(ctx, out, config, LoginOptions{})
 }
 
-func LoginWithConfigOptions(ctx context.Context, out io.Writer, config Config, options LoginOptions) (credentials.GoogleOAuthCredential, error) {
+func LoginWithConfigOptions(ctx context.Context, out io.Writer, config Config, options LoginOptions) (Credential, error) {
 	config.ClientID = strings.TrimSpace(config.ClientID)
 	config.ClientSecret = strings.TrimSpace(config.ClientSecret)
 	if config.ClientID == "" || config.ClientSecret == "" {
-		return credentials.GoogleOAuthCredential{}, errors.New("Google OAuth client ID and client secret are required")
+		return Credential{}, errors.New("Google OAuth client ID and client secret are required")
 	}
 	if len(config.Scopes) == 0 {
 		config.Scopes = DefaultScopes()
@@ -83,11 +90,11 @@ func LoginWithConfigOptions(ctx context.Context, out io.Writer, config Config, o
 
 	state, err := randomState()
 	if err != nil {
-		return credentials.GoogleOAuthCredential{}, err
+		return Credential{}, err
 	}
 	callbackServer, err := startLoopbackServer(state, options.Port)
 	if err != nil {
-		return credentials.GoogleOAuthCredential{}, fmt.Errorf("start OAuth callback listener: %w", err)
+		return Credential{}, fmt.Errorf("start OAuth callback listener: %w", err)
 	}
 	defer callbackServer.Shutdown()
 
@@ -114,16 +121,16 @@ func LoginWithConfigOptions(ctx context.Context, out io.Writer, config Config, o
 
 	code, err := callbackServer.Wait(ctx)
 	if err != nil {
-		return credentials.GoogleOAuthCredential{}, err
+		return Credential{}, err
 	}
 	token, err := oauthConfig.Exchange(ctx, code)
 	if err != nil {
-		return credentials.GoogleOAuthCredential{}, fmt.Errorf("exchange OAuth authorization code: %w", err)
+		return Credential{}, fmt.Errorf("exchange OAuth authorization code: %w", err)
 	}
 	if strings.TrimSpace(token.RefreshToken) == "" {
-		return credentials.GoogleOAuthCredential{}, errors.New("Google did not return a refresh token; revoke prior SegmentStream CLI access in your Google account and retry")
+		return Credential{}, errors.New("Google did not return a refresh token; revoke prior SegmentStream CLI access in your Google account and retry")
 	}
-	return credentials.GoogleOAuthCredential{
+	return Credential{
 		ClientID:     config.ClientID,
 		ClientSecret: config.ClientSecret,
 		RefreshToken: token.RefreshToken,

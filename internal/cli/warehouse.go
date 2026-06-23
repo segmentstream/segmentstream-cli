@@ -12,7 +12,6 @@ import (
 
 	"github.com/segmentstream/segmentstream-cli/internal/cliresult"
 	"github.com/segmentstream/segmentstream-cli/internal/credentials"
-	"github.com/segmentstream/segmentstream-cli/internal/googleoauth"
 	"github.com/segmentstream/segmentstream-cli/internal/project"
 	"github.com/segmentstream/segmentstream-cli/internal/warehouse"
 	"github.com/spf13/cobra"
@@ -62,6 +61,15 @@ const (
 	maxWarehouseQueryTimeout     = 2 * time.Minute
 )
 
+func defaultCredentialName(registry warehouse.Registry) string {
+	for _, provider := range registry.Providers() {
+		if provider.DefaultAuthName() != "" {
+			return provider.DefaultAuthName()
+		}
+	}
+	return "default"
+}
+
 func newWarehouseCommand(out, errOut io.Writer, commandContext structuredCommandContext, credentialStore credentials.Store, registry warehouse.Registry, oauthLogin warehouseOAuthLogin) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "warehouse",
@@ -71,7 +79,7 @@ func newWarehouseCommand(out, errOut io.Writer, commandContext structuredCommand
 			"are stored outside the project under ~/.segmentstream and segmentstream.yml\n" +
 			"contains only the credential name.",
 	}
-	cmd.AddCommand(newWarehouseAuthCommand(out, errOut, commandContext, credentialStore, oauthLogin))
+	cmd.AddCommand(newWarehouseAuthCommand(out, errOut, commandContext, credentialStore, registry, oauthLogin))
 	cmd.AddCommand(newWarehouseBrowseCommand(out, commandContext, credentialStore, registry))
 	cmd.AddCommand(newWarehouseQueryCommand(out, commandContext, credentialStore, registry))
 	cmd.AddCommand(newWarehouseConfigureCommand(out, commandContext, credentialStore, registry))
@@ -79,8 +87,8 @@ func newWarehouseCommand(out, errOut io.Writer, commandContext structuredCommand
 	return cmd
 }
 
-func newWarehouseAuthCommand(out, errOut io.Writer, commandContext structuredCommandContext, credentialStore credentials.Store, oauthLogin warehouseOAuthLogin) *cobra.Command {
-	options := warehouseAuthOptions{Name: "default-bigquery"}
+func newWarehouseAuthCommand(out, errOut io.Writer, commandContext structuredCommandContext, credentialStore credentials.Store, registry warehouse.Registry, oauthLogin warehouseOAuthLogin) *cobra.Command {
+	options := warehouseAuthOptions{Name: defaultCredentialName(registry)}
 	cmd := newStructuredCommand(out, errOut, commandContext, structuredCommandSpec{
 		Use:   "auth [--service-account-key <path>]",
 		Short: "Store or create warehouse authentication",
@@ -101,11 +109,11 @@ func newWarehouseAuthCommand(out, errOut io.Writer, commandContext structuredCom
 		if err != nil {
 			return cliresult.Response{}, fmt.Errorf("find current directory: %w", err)
 		}
-		store, config, err := loadWarehouseAuthConfig(projectRoot)
+		store, config, provider, err := loadWarehouseAuthState(projectRoot, registry)
 		if err != nil {
 			return cliresult.Response{}, err
 		}
-		path, err := credentialStore.SaveServiceAccountKey(options.Name, options.ServiceAccountKey)
+		path, err := provider.SaveServiceAccountKey(credentialStore, options.Name, options.ServiceAccountKey)
 		if err != nil {
 			return cliresult.Response{}, err
 		}
@@ -116,23 +124,20 @@ func newWarehouseAuthCommand(out, errOut io.Writer, commandContext structuredCom
 
 		result := warehouseAuthResult{
 			SchemaVersion: cliresult.SchemaVersion,
-			Warehouse:     "bigquery",
+			Warehouse:     provider.Type(),
 			Credential:    options.Name,
 			Path:          path,
 		}
 		return cliresult.OK("warehouse.auth", result), nil
 	})
 	cmd.Flags().StringVar(&options.ServiceAccountKey, "service-account-key", "", "Path to a BigQuery service-account JSON key")
-	cmd.Flags().StringVar(&options.Name, "name", "default-bigquery", "Credential name stored in segmentstream.yml as warehouse.auth")
-	cmd.AddCommand(newWarehouseAuthLoginCommand(out, errOut, commandContext, credentialStore, oauthLogin))
+	cmd.Flags().StringVar(&options.Name, "name", defaultCredentialName(registry), "Credential name stored in segmentstream.yml as warehouse.auth")
+	cmd.AddCommand(newWarehouseAuthLoginCommand(out, errOut, commandContext, credentialStore, registry, oauthLogin))
 	return cmd
 }
 
-func newWarehouseAuthLoginCommand(out, errOut io.Writer, commandContext structuredCommandContext, credentialStore credentials.Store, oauthLogin warehouseOAuthLogin) *cobra.Command {
-	options := warehouseAuthOptions{Name: "default-bigquery"}
-	if oauthLogin == nil {
-		oauthLogin = googleoauth.LoginWithOptions
-	}
+func newWarehouseAuthLoginCommand(out, errOut io.Writer, commandContext structuredCommandContext, credentialStore credentials.Store, registry warehouse.Registry, oauthLogin warehouseOAuthLogin) *cobra.Command {
+	options := warehouseAuthOptions{Name: defaultCredentialName(registry)}
 	cmd := newStructuredCommand(out, errOut, commandContext, structuredCommandSpec{
 		Use:   "login",
 		Short: "Authenticate BigQuery with Google OAuth",
@@ -152,7 +157,7 @@ func newWarehouseAuthLoginCommand(out, errOut io.Writer, commandContext structur
 		if err != nil {
 			return cliresult.Response{}, fmt.Errorf("find current directory: %w", err)
 		}
-		store, config, err := loadWarehouseAuthConfig(projectRoot)
+		store, config, provider, err := loadWarehouseAuthState(projectRoot, registry)
 		if err != nil {
 			return cliresult.Response{}, err
 		}
@@ -160,13 +165,17 @@ func newWarehouseAuthLoginCommand(out, errOut io.Writer, commandContext structur
 		if commandContext.Output != nil && commandContext.Output.JSON && errOut != nil {
 			loginOut = errOut
 		}
-		credential, err := oauthLogin(ctx, loginOut, googleoauth.LoginOptions{
+		login := provider.LoginOAuth
+		if oauthLogin != nil {
+			login = oauthLogin
+		}
+		credential, err := login(ctx, loginOut, warehouse.LoginOptions{
 			Port: options.Port,
 		})
 		if err != nil {
 			return cliresult.Response{}, err
 		}
-		path, err := credentialStore.SaveGoogleOAuthCredential(options.Name, credential)
+		path, err := provider.SaveOAuthCredential(credentialStore, options.Name, credential)
 		if err != nil {
 			return cliresult.Response{}, err
 		}
@@ -177,14 +186,14 @@ func newWarehouseAuthLoginCommand(out, errOut io.Writer, commandContext structur
 
 		result := warehouseAuthResult{
 			SchemaVersion: cliresult.SchemaVersion,
-			Warehouse:     "bigquery",
+			Warehouse:     provider.Type(),
 			Credential:    options.Name,
 			Method:        "oauth",
 			Path:          path,
 		}
 		return cliresult.OK("warehouse.auth.login", result), nil
 	})
-	cmd.Flags().StringVar(&options.Name, "name", "default-bigquery", "Credential name stored in segmentstream.yml as warehouse.auth")
+	cmd.Flags().StringVar(&options.Name, "name", defaultCredentialName(registry), "Credential name stored in segmentstream.yml as warehouse.auth")
 	cmd.Flags().IntVar(&options.Port, "port", 0, "Loopback callback port for Google OAuth; 0 chooses a random available port")
 	return cmd
 }
@@ -201,11 +210,11 @@ func newWarehouseBrowseCommand(out io.Writer, commandContext structuredCommandCo
 		Args:    cobra.NoArgs,
 		Command: "warehouse.browse",
 	}, func(ctx context.Context, args []string) (cliresult.Response, error) {
-		connector, credentialPath, err := loadWarehouseBrowseState(credentialStore, registry)
+		provider, credentialPath, err := loadWarehouseBrowseState(credentialStore, registry)
 		if err != nil {
 			return cliresult.Response{}, err
 		}
-		result, err := connector.Browse(ctx, credentialPath, options.Path)
+		result, err := provider.Browse(ctx, credentialPath, options.Path)
 		if err != nil {
 			return cliresult.Response{}, err
 		}
@@ -234,11 +243,11 @@ func newWarehouseQueryCommand(out io.Writer, commandContext structuredCommandCon
 		if len(diagnostics) > 0 {
 			return cliresult.Invalid("warehouse.query", nil, diagnostics), nil
 		}
-		config, connector, credentialPath, err := loadWarehouseCommandState(credentialStore, registry)
+		config, provider, credentialPath, err := loadWarehouseCommandState(credentialStore, registry)
 		if err != nil {
 			return cliresult.Response{}, err
 		}
-		rows, err := connector.Query(ctx, credentialPath, config.Warehouse, warehouse.QueryOptions{
+		rows, err := provider.Query(ctx, credentialPath, config.Warehouse, warehouse.QueryOptions{
 			SQL:                strings.TrimSpace(options.SQL),
 			MaxRows:            options.MaxRows,
 			Timeout:            options.Timeout,
@@ -318,21 +327,21 @@ func newWarehouseConfigureCommand(out io.Writer, commandContext structuredComman
 		if !exists || config.Warehouse.Type == "" {
 			return cliresult.Response{}, fmt.Errorf("%s does not select a warehouse; run segmentstream init --warehouse bigquery first", project.ConfigFileName)
 		}
-		connector, err := registry.Connector(config.Warehouse.Type)
+		provider, err := registry.Provider(config.Warehouse.Type)
 		if err != nil {
 			return cliresult.Response{}, err
 		}
 		if config.Warehouse.Auth == "" {
-			config.Warehouse.Auth = "default-bigquery"
+			config.Warehouse.Auth = provider.DefaultAuthName()
 		}
-		credentialPath, err := credentialStore.BigQueryCredentialPath(config.Warehouse.Auth)
+		credentialPath, err := provider.CredentialPath(credentialStore, config.Warehouse.Auth)
 		if err != nil {
 			return cliresult.Response{}, err
 		}
 		config.Warehouse.Project = options.Project
 		config.Warehouse.Dataset = options.Dataset
 		config.Warehouse.Location = options.Location
-		result, err := connector.ValidateConfiguration(ctx, credentialPath, config.Warehouse, warehouse.ConfigureOptions{
+		result, err := provider.ValidateConfiguration(ctx, credentialPath, config.Warehouse, warehouse.ConfigureOptions{
 			CreateDataset: options.CreateDataset,
 		})
 		if err != nil {
@@ -375,20 +384,20 @@ func newWarehouseTestCommand(out io.Writer, commandContext structuredCommandCont
 		if err != nil {
 			return cliresult.Response{}, err
 		}
-		connector, err := registry.Connector(config.Warehouse.Type)
+		provider, err := registry.Provider(config.Warehouse.Type)
 		if err != nil {
 			return cliresult.Response{}, err
 		}
-		credentialPath, err := credentialStore.BigQueryCredentialPath(config.Warehouse.Auth)
+		credentialPath, err := provider.CredentialPath(credentialStore, config.Warehouse.Auth)
 		if err != nil {
 			return cliresult.Response{}, err
 		}
-		result, err := connector.Test(ctx, credentialPath, config.Warehouse)
+		result, err := provider.Test(ctx, credentialPath, config.Warehouse)
 		if err != nil {
 			return cliresult.Response{}, err
 		}
 		if warehouse.AllChecksOK(result.Checks) {
-			if err := credentialStore.SaveAccessMarker(config.Warehouse.Auth, config.Warehouse.Project, config.Warehouse.Dataset, config.Warehouse.Location); err != nil {
+			if err := provider.SaveAccessMarker(credentialStore, config.Warehouse.Auth, config.Warehouse); err != nil {
 				return cliresult.Response{}, err
 			}
 		}
@@ -404,7 +413,7 @@ func newWarehouseTestCommand(out io.Writer, commandContext structuredCommandCont
 	return cmd
 }
 
-func loadWarehouseBrowseState(credentialStore credentials.Store, registry warehouse.Registry) (warehouse.Connector, string, error) {
+func loadWarehouseBrowseState(credentialStore credentials.Store, registry warehouse.Registry) (warehouse.Provider, string, error) {
 	projectRoot, err := os.Getwd()
 	if err != nil {
 		return nil, "", fmt.Errorf("find current directory: %w", err)
@@ -416,37 +425,38 @@ func loadWarehouseBrowseState(credentialStore credentials.Store, registry wareho
 	if !exists || config.Warehouse.Type == "" {
 		return nil, "", fmt.Errorf("%s does not select a warehouse; run segmentstream init --warehouse bigquery first", project.ConfigFileName)
 	}
-	connector, err := registry.Connector(config.Warehouse.Type)
+	provider, err := registry.Provider(config.Warehouse.Type)
 	if err != nil {
 		return nil, "", err
 	}
 	authName := config.Warehouse.Auth
 	if authName == "" {
-		authName = "default-bigquery"
+		authName = provider.DefaultAuthName()
 	}
-	credentialPath, err := credentialStore.BigQueryCredentialPath(authName)
+	credentialPath, err := provider.CredentialPath(credentialStore, authName)
 	if err != nil {
 		return nil, "", err
 	}
-	return connector, credentialPath, nil
+	return provider, credentialPath, nil
 }
 
-func loadWarehouseAuthConfig(projectRoot string) (project.Store, project.Config, error) {
+func loadWarehouseAuthState(projectRoot string, registry warehouse.Registry) (project.Store, project.Config, warehouse.Provider, error) {
 	store := project.Store{Root: projectRoot}
 	config, exists, err := store.LoadPartial()
 	if err != nil {
-		return store, project.Config{}, err
+		return store, project.Config{}, nil, err
 	}
 	if !exists || config.Warehouse.Type == "" {
-		return store, project.Config{}, fmt.Errorf("%s does not select a warehouse; run segmentstream init --warehouse bigquery first", project.ConfigFileName)
+		return store, project.Config{}, nil, fmt.Errorf("%s does not select a warehouse; run segmentstream init --warehouse bigquery first", project.ConfigFileName)
 	}
-	if config.Warehouse.Type != "bigquery" {
-		return store, project.Config{}, fmt.Errorf("unsupported warehouse.type %q", config.Warehouse.Type)
+	provider, err := registry.Provider(config.Warehouse.Type)
+	if err != nil {
+		return store, project.Config{}, nil, err
 	}
-	return store, config, nil
+	return store, config, provider, nil
 }
 
-func loadWarehouseCommandState(credentialStore credentials.Store, registry warehouse.Registry) (project.Config, warehouse.Connector, string, error) {
+func loadWarehouseCommandState(credentialStore credentials.Store, registry warehouse.Registry) (project.Config, warehouse.Provider, string, error) {
 	projectRoot, err := os.Getwd()
 	if err != nil {
 		return project.Config{}, nil, "", fmt.Errorf("find current directory: %w", err)
@@ -455,15 +465,15 @@ func loadWarehouseCommandState(credentialStore credentials.Store, registry wareh
 	if err != nil {
 		return project.Config{}, nil, "", err
 	}
-	connector, err := registry.Connector(config.Warehouse.Type)
+	provider, err := registry.Provider(config.Warehouse.Type)
 	if err != nil {
 		return project.Config{}, nil, "", err
 	}
-	credentialPath, err := credentialStore.BigQueryCredentialPath(config.Warehouse.Auth)
+	credentialPath, err := provider.CredentialPath(credentialStore, config.Warehouse.Auth)
 	if err != nil {
 		return project.Config{}, nil, "", err
 	}
-	return config, connector, credentialPath, nil
+	return config, provider, credentialPath, nil
 }
 
 func (result warehouseAuthResult) HumanDocument() cliresult.Document {

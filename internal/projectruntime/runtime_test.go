@@ -8,13 +8,19 @@ import (
 	"testing"
 
 	"github.com/segmentstream/segmentstream-cli/internal/project"
+	"github.com/segmentstream/segmentstream-cli/internal/warehouse"
+	"github.com/segmentstream/segmentstream-cli/internal/warehouse/bigquery"
 	"gopkg.in/yaml.v3"
 )
+
+func testProvider() warehouse.Provider {
+	return bigquery.NewConnector()
+}
 
 func TestPrepareCreatesExpectedRuntimeFiles(t *testing.T) {
 	root := t.TempDir()
 
-	if err := Prepare(root, testConfig()); err != nil {
+	if err := Prepare(root, testConfig(), testProvider()); err != nil {
 		t.Fatalf("Prepare failed: %v", err)
 	}
 
@@ -166,7 +172,7 @@ func TestPrepareCreatesExpectedRuntimeFiles(t *testing.T) {
 func TestDagsterResolverEmptyProjectModelUsesValidBigQueryZeroRowQuery(t *testing.T) {
 	root := t.TempDir()
 
-	if err := Prepare(root, testConfig()); err != nil {
+	if err := Prepare(root, testConfig(), testProvider()); err != nil {
 		t.Fatalf("Prepare failed: %v", err)
 	}
 
@@ -194,7 +200,7 @@ func TestPrepareRemovesStaleRuntimeFiles(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if err := Prepare(root, testConfig()); err != nil {
+	if err := Prepare(root, testConfig(), testProvider()); err != nil {
 		t.Fatalf("Prepare failed: %v", err)
 	}
 
@@ -206,7 +212,7 @@ func TestPrepareRemovesStaleRuntimeFiles(t *testing.T) {
 func TestPrepareWritesRuntimeEnvAndStaticComposeFile(t *testing.T) {
 	root := t.TempDir()
 
-	if err := Prepare(root, testConfig()); err != nil {
+	if err := Prepare(root, testConfig(), testProvider()); err != nil {
 		t.Fatalf("Prepare failed: %v", err)
 	}
 
@@ -225,9 +231,10 @@ func TestPrepareWritesRuntimeEnvAndStaticComposeFile(t *testing.T) {
 		"postgres:",
 		"image: postgres:16-alpine",
 		"condition: service_healthy",
+		"env_file:",
+		"- .env",
 		"DAGSTER_HOME: /workspace/.segmentstream",
 		"DAGSTER_PG_HOST: postgres",
-		`GOOGLE_APPLICATION_CREDENTIALS: "${SEGMENTSTREAM_BQ_CREDENTIALS}"`,
 		"segmentstream-postgres-data:",
 	} {
 		if !strings.Contains(string(compose), want) {
@@ -249,7 +256,7 @@ func TestPrepareWritesRuntimeEnvAndStaticComposeFile(t *testing.T) {
 	}
 	for _, want := range []string{
 		`SEGMENTSTREAM_HOST_HOME=` + strconv.Quote(filepath.ToSlash(hostHome)),
-		`SEGMENTSTREAM_BQ_CREDENTIALS="/home/segmentstream/.segmentstream/bigquery/production-bigquery.json"`,
+		`GOOGLE_APPLICATION_CREDENTIALS="/home/segmentstream/.segmentstream/bigquery/production-bigquery.json"`,
 		`SEGMENTSTREAM_BQ_PROJECT="example-project"`,
 		`SEGMENTSTREAM_BQ_DATASET="segmentstream"`,
 		`SEGMENTSTREAM_BQ_LOCATION="US"`,

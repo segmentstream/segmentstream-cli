@@ -3,19 +3,48 @@ package warehouse
 import (
 	"context"
 	"fmt"
+	"io"
 	"strings"
 	"time"
 
 	"github.com/segmentstream/segmentstream-cli/internal/cliresult"
+	"github.com/segmentstream/segmentstream-cli/internal/credentials"
 	"github.com/segmentstream/segmentstream-cli/internal/project"
 )
 
-type Connector interface {
+type Provider interface {
 	Type() string
+	DisplayName() string
+	DefaultAuthName() string
+	AuthMethods() []string
+	SelectWarehouseAccept() cliresult.NextActionAccept
+	AuthenticateAccepts() []cliresult.NextActionAccept
+	ConfigureAccept() cliresult.NextActionAccept
+	CredentialPath(credentials.Store, string) (string, error)
+	HasCredential(credentials.Store, string) (bool, error)
+	SaveServiceAccountKey(credentials.Store, string, string) (string, error)
+	LoginOAuth(context.Context, io.Writer, LoginOptions) ([]byte, error)
+	SaveOAuthCredential(credentials.Store, string, []byte) (string, error)
+	HasMatchingAccessMarker(credentials.Store, string, project.Warehouse) (bool, error)
+	SaveAccessMarker(credentials.Store, string, project.Warehouse) error
+	ConfigDiagnostics(project.Warehouse) []cliresult.Diagnostic
+	RuntimeEnvironment(project.Warehouse) []EnvVar
+	DBTProfileYAML(project.Warehouse) string
 	Browse(ctx context.Context, credentialPath string, path string) (BrowseResult, error)
 	ValidateConfiguration(ctx context.Context, credentialPath string, config project.Warehouse, options ConfigureOptions) (ConfigureResult, error)
 	Test(ctx context.Context, credentialPath string, config project.Warehouse) (TestResult, error)
 	Query(ctx context.Context, credentialPath string, config project.Warehouse, options QueryOptions) ([]map[string]any, error)
+}
+
+type LoginOptions struct {
+	Port int
+}
+
+type OAuthLogin func(context.Context, io.Writer, LoginOptions) ([]byte, error)
+
+type EnvVar struct {
+	Name  string
+	Value string
 }
 
 type ConfigureOptions struct {
@@ -30,27 +59,35 @@ type QueryOptions struct {
 }
 
 type Registry struct {
-	connectors map[string]Connector
+	providers map[string]Provider
 }
 
-func NewRegistry(connectors ...Connector) Registry {
-	registry := Registry{connectors: make(map[string]Connector, len(connectors))}
-	for _, connector := range connectors {
-		registry.connectors[connector.Type()] = connector
+func NewRegistry(providers ...Provider) Registry {
+	registry := Registry{providers: make(map[string]Provider, len(providers))}
+	for _, provider := range providers {
+		registry.providers[provider.Type()] = provider
 	}
 	return registry
 }
 
 func (registry Registry) IsZero() bool {
-	return registry.connectors == nil
+	return registry.providers == nil
 }
 
-func (registry Registry) Connector(warehouseType string) (Connector, error) {
-	connector, ok := registry.connectors[warehouseType]
+func (registry Registry) Provider(warehouseType string) (Provider, error) {
+	provider, ok := registry.providers[warehouseType]
 	if !ok {
 		return nil, fmt.Errorf("unsupported warehouse.type %q", warehouseType)
 	}
-	return connector, nil
+	return provider, nil
+}
+
+func (registry Registry) Providers() []Provider {
+	providers := make([]Provider, 0, len(registry.providers))
+	for _, provider := range registry.providers {
+		providers = append(providers, provider)
+	}
+	return providers
 }
 
 type BrowseResult struct {

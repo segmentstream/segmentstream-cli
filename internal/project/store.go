@@ -80,9 +80,9 @@ func (store Store) SavePartial(config Config) error {
 	return nil
 }
 
-func (store Store) SelectWarehouse(warehouseType string) (Config, error) {
-	if warehouseType != "bigquery" {
-		return Config{}, fmt.Errorf("unsupported warehouse %q; only bigquery is available", warehouseType)
+func (store Store) SelectWarehouse(warehouseType, defaultAuthName string) (Config, error) {
+	if warehouseType == "" {
+		return Config{}, errors.New("warehouse type is required")
 	}
 
 	config, exists, err := store.LoadPartial()
@@ -108,7 +108,7 @@ func (store Store) SelectWarehouse(warehouseType string) (Config, error) {
 		dirty = true
 	}
 	if config.Warehouse.Auth == "" {
-		config.Warehouse.Auth = "default-bigquery"
+		config.Warehouse.Auth = defaultAuthName
 		dirty = true
 	}
 	if dirty {

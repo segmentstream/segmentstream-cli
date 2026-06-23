@@ -16,10 +16,10 @@ INSTALL_DIR ?= $(HOME_DIR)/.segmentstream/bin
 BINARY := segmentstream$(EXE_EXT)
 LDFLAGS :=
 ifneq ($(SEGMENTSTREAM_GOOGLE_OAUTH_CLIENT_ID),)
-LDFLAGS += -X github.com/segmentstream/segmentstream-cli/internal/googleoauth.desktopClientID=$(SEGMENTSTREAM_GOOGLE_OAUTH_CLIENT_ID)
+LDFLAGS += -X github.com/segmentstream/segmentstream-cli/internal/warehouse/bigquery/googleoauth.desktopClientID=$(SEGMENTSTREAM_GOOGLE_OAUTH_CLIENT_ID)
 endif
 ifneq ($(SEGMENTSTREAM_GOOGLE_OAUTH_CLIENT_SECRET),)
-LDFLAGS += -X github.com/segmentstream/segmentstream-cli/internal/googleoauth.desktopClientSecret=$(SEGMENTSTREAM_GOOGLE_OAUTH_CLIENT_SECRET)
+LDFLAGS += -X github.com/segmentstream/segmentstream-cli/internal/warehouse/bigquery/googleoauth.desktopClientSecret=$(SEGMENTSTREAM_GOOGLE_OAUTH_CLIENT_SECRET)
 endif
 
 .PHONY: install

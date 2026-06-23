@@ -9,7 +9,11 @@ import (
 	"strings"
 
 	"github.com/segmentstream/segmentstream-cli/internal/cliresult"
+	"github.com/segmentstream/segmentstream-cli/internal/credentials"
+	"github.com/segmentstream/segmentstream-cli/internal/project"
+	"github.com/segmentstream/segmentstream-cli/internal/projectruntime"
 	sourcepkg "github.com/segmentstream/segmentstream-cli/internal/source"
+	"github.com/segmentstream/segmentstream-cli/internal/warehouse"
 	"github.com/spf13/cobra"
 )
 
@@ -87,7 +91,7 @@ type sourceVerifyResult struct {
 	Fingerprint      string `json:"fingerprint"`
 }
 
-func newSourceCommand(out, errOut io.Writer, commandContext structuredCommandContext, runner commandRunner) *cobra.Command {
+func newSourceCommand(out, errOut io.Writer, commandContext structuredCommandContext, runner commandRunner, registry warehouse.Registry, credentialStore credentials.Store) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "source",
 		Short: "Manage SegmentStream sources",
@@ -101,7 +105,7 @@ func newSourceCommand(out, errOut io.Writer, commandContext structuredCommandCon
 
 	cmd.AddCommand(newSourceContractsCommand(out, commandContext))
 	cmd.AddCommand(newSourceScaffoldCommand(out, commandContext))
-	cmd.AddCommand(newSourceVerifyCommand(out, errOut, commandContext, runner))
+	cmd.AddCommand(newSourceVerifyCommand(out, errOut, commandContext, runner, registry, credentialStore))
 
 	return cmd
 }
@@ -164,7 +168,7 @@ func newSourceScaffoldCommand(out io.Writer, commandContext structuredCommandCon
 	return cmd
 }
 
-func newSourceVerifyCommand(out, errOut io.Writer, commandContext structuredCommandContext, runner commandRunner) *cobra.Command {
+func newSourceVerifyCommand(out, errOut io.Writer, commandContext structuredCommandContext, runner commandRunner, registry warehouse.Registry, credentialStore credentials.Store) *cobra.Command {
 	options := sourceVerifyOptions{}
 	cmd := newStructuredCommand(out, errOut, commandContext, structuredCommandSpec{
 		Use:   "verify <name>",
@@ -185,13 +189,26 @@ func newSourceVerifyCommand(out, errOut io.Writer, commandContext structuredComm
 			progressOut = errOut
 		}
 		result, err := sourcepkg.Verify(ctx, sourcepkg.VerifyRequest{
-			ProjectRoot:        projectRoot,
-			SourceName:         args[0],
-			StartDate:          options.StartDate,
-			Runner:             sourceCommandRunner{runner: runner},
-			Progress:           newRunProgress(progressOut, 4),
-			WarehousePreflight: preflightWarehouseAuth,
-			Now:                currentTime,
+			ProjectRoot: projectRoot,
+			SourceName:  args[0],
+			StartDate:   options.StartDate,
+			Runner:      sourceCommandRunner{runner: runner},
+			Progress:    newRunProgress(progressOut, 4),
+			WarehousePreflight: func(config project.Config) error {
+				provider, err := registry.Provider(config.Warehouse.Type)
+				if err != nil {
+					return err
+				}
+				return preflightWarehouseAuth(config, provider, credentialStore)
+			},
+			PrepareRuntime: func(projectRoot string, config project.Config) error {
+				provider, err := registry.Provider(config.Warehouse.Type)
+				if err != nil {
+					return err
+				}
+				return projectruntime.Prepare(projectRoot, config, provider)
+			},
+			Now: currentTime,
 		})
 		if err != nil {
 			return cliresult.Response{}, err

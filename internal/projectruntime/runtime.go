@@ -10,12 +10,16 @@ import (
 	"strings"
 
 	"github.com/segmentstream/segmentstream-cli/internal/project"
+	"github.com/segmentstream/segmentstream-cli/internal/warehouse"
 	"github.com/segmentstream/segmentstream-cli/templates"
 )
 
 const RuntimeDirName = ".segmentstream"
 
-func Prepare(projectRoot string, config project.Config) error {
+func Prepare(projectRoot string, config project.Config, provider warehouse.Provider) error {
+	if provider == nil {
+		return errors.New("prepare runtime: warehouse provider is required")
+	}
 	root, err := filepath.Abs(projectRoot)
 	if err != nil {
 		return fmt.Errorf("resolve project root: %w", err)
@@ -39,7 +43,10 @@ func Prepare(projectRoot string, config project.Config) error {
 	if err := copyProjectTemplate(runtimeDir); err != nil {
 		return err
 	}
-	if err := writeRuntimeEnv(runtimeDir, config, hostHome); err != nil {
+	if err := writeRuntimeEnv(runtimeDir, config, hostHome, provider); err != nil {
+		return err
+	}
+	if err := writeDBTProfile(runtimeDir, config, provider); err != nil {
 		return err
 	}
 	if err := ensureRuntimeDirs(runtimeDir); err != nil {
@@ -113,33 +120,44 @@ func copyProjectTemplate(runtimeDir string) error {
 	})
 }
 
-func writeRuntimeEnv(runtimeDir string, config project.Config, hostHome string) error {
-	env := map[string]string{
-		"SEGMENTSTREAM_HOST_HOME":      hostHome,
-		"SEGMENTSTREAM_BQ_CREDENTIALS": "/home/segmentstream/.segmentstream/bigquery/" + config.Warehouse.Auth + ".json",
-		"SEGMENTSTREAM_BQ_PROJECT":     config.Warehouse.Project,
-		"SEGMENTSTREAM_BQ_DATASET":     config.Warehouse.Dataset,
-		"SEGMENTSTREAM_BQ_LOCATION":    config.Warehouse.Location,
+func writeRuntimeEnv(runtimeDir string, config project.Config, hostHome string, provider warehouse.Provider) error {
+	env := []warehouse.EnvVar{
+		{Name: "SEGMENTSTREAM_HOST_HOME", Value: hostHome},
 	}
+	env = append(env, provider.RuntimeEnvironment(config.Warehouse)...)
 
 	var output strings.Builder
-	for _, key := range []string{
-		"SEGMENTSTREAM_HOST_HOME",
-		"SEGMENTSTREAM_BQ_CREDENTIALS",
-		"SEGMENTSTREAM_BQ_PROJECT",
-		"SEGMENTSTREAM_BQ_DATASET",
-		"SEGMENTSTREAM_BQ_LOCATION",
-	} {
-		value := env[key]
-		if strings.ContainsAny(value, "\r\n") {
-			return fmt.Errorf("write runtime environment: %s contains a newline", key)
+	for _, item := range env {
+		if item.Name == "" {
+			return errors.New("write runtime environment: provider returned an empty environment variable name")
 		}
-		fmt.Fprintf(&output, "%s=%s\n", key, strconv.Quote(value))
+		if strings.ContainsAny(item.Name, "\r\n=") {
+			return fmt.Errorf("write runtime environment: invalid environment variable name %q", item.Name)
+		}
+		if strings.ContainsAny(item.Value, "\r\n") {
+			return fmt.Errorf("write runtime environment: %s contains a newline", item.Name)
+		}
+		fmt.Fprintf(&output, "%s=%s\n", item.Name, strconv.Quote(item.Value))
 	}
 
 	path := filepath.Join(runtimeDir, ".env")
 	if err := os.WriteFile(path, []byte(output.String()), 0o600); err != nil {
 		return fmt.Errorf("write runtime environment: %w", err)
+	}
+	return nil
+}
+
+func writeDBTProfile(runtimeDir string, config project.Config, provider warehouse.Provider) error {
+	profile := provider.DBTProfileYAML(config.Warehouse)
+	if strings.TrimSpace(profile) == "" {
+		return errors.New("write dbt profile: provider returned an empty profile")
+	}
+	if !strings.HasSuffix(profile, "\n") {
+		profile += "\n"
+	}
+	path := filepath.Join(runtimeDir, "profiles.yml")
+	if err := os.WriteFile(path, []byte(profile), 0o644); err != nil {
+		return fmt.Errorf("write dbt profile: %w", err)
 	}
 	return nil
 }

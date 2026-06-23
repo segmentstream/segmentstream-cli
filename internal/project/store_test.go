@@ -42,7 +42,7 @@ func TestStoreSelectWarehouseWritesPartialConfig(t *testing.T) {
 	root := t.TempDir()
 	store := Store{Root: root}
 
-	config, err := store.SelectWarehouse("bigquery")
+	config, err := store.SelectWarehouse("bigquery", "default-bigquery")
 	if err != nil {
 		t.Fatalf("SelectWarehouse failed: %v", err)
 	}

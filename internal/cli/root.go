@@ -1,14 +1,12 @@
 package cli
 
 import (
-	"context"
 	"fmt"
 	"io"
 	"os"
 
 	"github.com/segmentstream/segmentstream-cli/internal/cliresult"
 	"github.com/segmentstream/segmentstream-cli/internal/credentials"
-	"github.com/segmentstream/segmentstream-cli/internal/googleoauth"
 	"github.com/segmentstream/segmentstream-cli/internal/warehouse"
 	"github.com/segmentstream/segmentstream-cli/internal/warehouse/bigquery"
 	"github.com/spf13/cobra"
@@ -64,7 +62,7 @@ type cliOptions struct {
 	Output            *outputOptions
 }
 
-type warehouseOAuthLogin func(context.Context, io.Writer, googleoauth.LoginOptions) (credentials.GoogleOAuthCredential, error)
+type warehouseOAuthLogin = warehouse.OAuthLogin
 
 func newRootCommand(out, errOut io.Writer, options cliOptions) *cobra.Command {
 	runner := options.CommandRunner
@@ -73,7 +71,15 @@ func newRootCommand(out, errOut io.Writer, options cliOptions) *cobra.Command {
 	}
 	registry := options.WarehouseRegistry
 	if registry.IsZero() {
-		registry = warehouse.NewRegistry(bigquery.NewConnector())
+		bigQueryOptions := bigquery.Options{}
+		if options.WarehouseOAuth != nil {
+			bigQueryOptions.OAuthLogin = options.WarehouseOAuth
+		}
+		registry = warehouse.NewRegistry(bigquery.NewConnector(bigQueryOptions))
+	}
+	options.WarehouseRegistry = registry
+	if options.Credentials.HomeDir == "" {
+		options.Credentials = newRunCredentialStore()
 	}
 	output := options.Output
 	if output == nil {
@@ -98,8 +104,8 @@ func newRootCommand(out, errOut io.Writer, options cliOptions) *cobra.Command {
 	root.AddCommand(newVersionCommand(out, commandContext))
 	root.AddCommand(newUpdateCommand(out, errOut, commandContext))
 	root.AddCommand(newInitCommand(out, commandContext, options))
-	root.AddCommand(newRunCommand(out, errOut, commandContext, runner))
-	root.AddCommand(newSourceCommand(out, errOut, commandContext, runner))
+	root.AddCommand(newRunCommand(out, errOut, commandContext, runner, registry, options.Credentials))
+	root.AddCommand(newSourceCommand(out, errOut, commandContext, runner, registry, options.Credentials))
 	root.AddCommand(newWarehouseCommand(out, errOut, commandContext, options.Credentials, registry, options.WarehouseOAuth))
 
 	return root
