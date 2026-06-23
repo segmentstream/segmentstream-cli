@@ -2,29 +2,281 @@ package bigquery
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
+	"os"
 	"strings"
 	"time"
 
 	"github.com/segmentstream/segmentstream-cli/internal/cliresult"
+	"github.com/segmentstream/segmentstream-cli/internal/credentials"
 	"github.com/segmentstream/segmentstream-cli/internal/project"
 	"github.com/segmentstream/segmentstream-cli/internal/warehouse"
+	"github.com/segmentstream/segmentstream-cli/internal/warehouse/bigquery/googleoauth"
 	bq "google.golang.org/api/bigquery/v2"
 	"google.golang.org/api/googleapi"
 	"google.golang.org/api/option"
 )
 
-type Connector struct {
-	newService func(context.Context, string) (*bq.Service, error)
+const (
+	warehouseType   = "bigquery"
+	displayName     = "BigQuery"
+	defaultAuthName = "default-bigquery"
+	defaultLocation = "US"
+)
+
+type Options struct {
+	OAuthLogin warehouse.OAuthLogin
 }
 
-func NewConnector() Connector {
-	return Connector{newService: newService}
+type Connector struct {
+	newService func(context.Context, string) (*bq.Service, error)
+	oauthLogin warehouse.OAuthLogin
+}
+
+type accessMarker struct {
+	Project   string `json:"project"`
+	Dataset   string `json:"dataset"`
+	Location  string `json:"location"`
+	CheckedAt string `json:"checked_at"`
+}
+
+func NewConnector(options ...Options) Connector {
+	opts := Options{}
+	if len(options) > 0 {
+		opts = options[0]
+	}
+	return Connector{
+		newService: newService,
+		oauthLogin: opts.OAuthLogin,
+	}
 }
 
 func (connector Connector) Type() string {
-	return "bigquery"
+	return warehouseType
+}
+
+func (connector Connector) DisplayName() string {
+	return displayName
+}
+
+func (connector Connector) DefaultAuthName() string {
+	return defaultAuthName
+}
+
+func (connector Connector) AuthMethods() []string {
+	return []string{"oauth", "service_account_key"}
+}
+
+func (connector Connector) SelectWarehouseAccept() cliresult.NextActionAccept {
+	return cliresult.NextActionAccept{
+		Method:  warehouseType,
+		Label:   "Use BigQuery",
+		Command: "segmentstream init --warehouse bigquery",
+		Value:   warehouseType,
+	}
+}
+
+func (connector Connector) AuthenticateAccepts() []cliresult.NextActionAccept {
+	return []cliresult.NextActionAccept{
+		{
+			Method:  "oauth",
+			Label:   "Google OAuth",
+			Command: "segmentstream warehouse auth login",
+			Inputs: []cliresult.NextActionInput{
+				{
+					Name:     "port",
+					Type:     "integer",
+					Flag:     "--port",
+					Label:    "OAuth loopback callback port",
+					Required: false,
+				},
+			},
+		},
+		{
+			Method:  "service_account_key",
+			Label:   "Service-account key file",
+			Command: "segmentstream warehouse auth",
+			Inputs: []cliresult.NextActionInput{
+				{
+					Name:     "path",
+					Type:     "filepath",
+					Flag:     "--service-account-key",
+					Label:    "Service-account JSON key path",
+					Required: true,
+				},
+			},
+		},
+	}
+}
+
+func (connector Connector) ConfigureAccept() cliresult.NextActionAccept {
+	return cliresult.NextActionAccept{
+		Method:  "warehouse_config",
+		Label:   "Configure BigQuery warehouse",
+		Command: "segmentstream warehouse configure",
+		Inputs: []cliresult.NextActionInput{
+			{
+				Name:     "project",
+				Type:     "string",
+				Flag:     "--project",
+				Label:    "Google Cloud project ID",
+				Required: true,
+			},
+			{
+				Name:     "dataset",
+				Type:     "string",
+				Flag:     "--dataset",
+				Label:    "BigQuery dataset ID",
+				Required: true,
+			},
+			{
+				Name:     "location",
+				Type:     "string",
+				Flag:     "--location",
+				Label:    "BigQuery dataset location",
+				Required: true,
+			},
+			{
+				Name:     "create_dataset",
+				Type:     "boolean",
+				Flag:     "--create-dataset",
+				Label:    "Create the BigQuery dataset if missing",
+				Required: false,
+			},
+		},
+	}
+}
+
+func (connector Connector) CredentialPath(store credentials.Store, name string) (string, error) {
+	return store.CredentialPath(warehouseType, name)
+}
+
+func (connector Connector) HasCredential(store credentials.Store, name string) (bool, error) {
+	return store.HasCredential(warehouseType, name)
+}
+
+func (connector Connector) SaveServiceAccountKey(store credentials.Store, name, sourcePath string) (string, error) {
+	if strings.TrimSpace(sourcePath) == "" {
+		return "", errors.New("--service-account-key is required")
+	}
+	data, err := os.ReadFile(sourcePath)
+	if err != nil {
+		return "", fmt.Errorf("read service account key: %w", err)
+	}
+	if err := validateServiceAccountJSON(data); err != nil {
+		return "", err
+	}
+	return store.SaveCredentialData(warehouseType, name, data)
+}
+
+func (connector Connector) LoginOAuth(ctx context.Context, out io.Writer, options warehouse.LoginOptions) ([]byte, error) {
+	if connector.oauthLogin != nil {
+		return connector.oauthLogin(ctx, out, options)
+	}
+	credential, err := googleoauth.LoginWithOptions(ctx, out, googleoauth.LoginOptions{
+		Port: options.Port,
+	})
+	if err != nil {
+		return nil, err
+	}
+	return googleAuthorizedUserCredentialJSON(credential)
+}
+
+func (connector Connector) SaveOAuthCredential(store credentials.Store, name string, credential []byte) (string, error) {
+	return store.SaveCredentialData(warehouseType, name, credential)
+}
+
+func (connector Connector) HasMatchingAccessMarker(store credentials.Store, name string, config project.Warehouse) (bool, error) {
+	var marker accessMarker
+	found, err := store.ReadAccessMarker(warehouseType, name, &marker)
+	if err != nil || !found {
+		return found, err
+	}
+	return marker.Project == config.Project &&
+		marker.Dataset == config.Dataset &&
+		strings.EqualFold(marker.Location, config.Location), nil
+}
+
+func (connector Connector) SaveAccessMarker(store credentials.Store, name string, config project.Warehouse) error {
+	return store.SaveAccessMarker(warehouseType, name, accessMarker{
+		Project:   config.Project,
+		Dataset:   config.Dataset,
+		Location:  config.Location,
+		CheckedAt: time.Now().UTC().Format(time.RFC3339),
+	})
+}
+
+func (connector Connector) ConfigDiagnostics(config project.Warehouse) []cliresult.Diagnostic {
+	var diagnostics []cliresult.Diagnostic
+	if config.Auth == "" {
+		diagnostics = append(diagnostics, cliresult.Diagnostic{
+			ID:         "missing_auth",
+			Field:      "warehouse.auth",
+			Message:    "warehouse.auth is required.",
+			Suggestion: defaultAuthName,
+		})
+	}
+	if config.Project == "" || config.Project == "your-gcp-project" {
+		diagnostics = append(diagnostics, cliresult.Diagnostic{
+			ID:      "missing_project",
+			Field:   "warehouse.project",
+			Message: "warehouse.project must be set to a real Google Cloud project ID.",
+		})
+	}
+	if config.Dataset == "" {
+		diagnostics = append(diagnostics, cliresult.Diagnostic{
+			ID:      "missing_dataset",
+			Field:   "warehouse.dataset",
+			Message: "warehouse.dataset must be set to a BigQuery dataset ID.",
+		})
+	} else if err := validateDatasetID(config.Dataset); err != nil {
+		diagnostics = append(diagnostics, cliresult.Diagnostic{
+			ID:         "invalid_dataset",
+			Field:      "warehouse.dataset",
+			Message:    err.Error(),
+			Suggestion: suggestDataset(config.Dataset),
+		})
+	}
+	if config.Location == "" {
+		diagnostics = append(diagnostics, cliresult.Diagnostic{
+			ID:         "missing_location",
+			Field:      "warehouse.location",
+			Message:    "warehouse.location must be set to the BigQuery dataset location.",
+			Suggestion: defaultLocation,
+		})
+	}
+	return diagnostics
+}
+
+func (connector Connector) RuntimeEnvironment(config project.Warehouse) []warehouse.EnvVar {
+	return []warehouse.EnvVar{
+		{Name: "GOOGLE_APPLICATION_CREDENTIALS", Value: "/home/segmentstream/.segmentstream/bigquery/" + config.Auth + ".json"},
+		{Name: "SEGMENTSTREAM_BQ_PROJECT", Value: config.Project},
+		{Name: "SEGMENTSTREAM_BQ_DATASET", Value: config.Dataset},
+		{Name: "SEGMENTSTREAM_BQ_LOCATION", Value: config.Location},
+	}
+}
+
+func (connector Connector) DBTProfileYAML(config project.Warehouse) string {
+	_ = config
+	return `segmentstream:
+  target: default
+  outputs:
+    default:
+      type: bigquery
+      method: oauth
+      project: "{{ env_var('SEGMENTSTREAM_BQ_PROJECT') }}"
+      dataset: "{{ env_var('SEGMENTSTREAM_BQ_DATASET') }}"
+      location: "{{ env_var('SEGMENTSTREAM_BQ_LOCATION', 'US') }}"
+      threads: 4
+      priority: interactive
+      retries: 1
+      scopes:
+        - https://www.googleapis.com/auth/bigquery
+`
 }
 
 func (connector Connector) Browse(ctx context.Context, credentialPath string, path string) (warehouse.BrowseResult, error) {
@@ -64,7 +316,7 @@ func (connector Connector) ValidateConfiguration(ctx context.Context, credential
 		validations = append(validations, warehouse.Validation{ID: "project", Field: "warehouse.project", Status: "ok"})
 	}
 
-	if err := project.ValidateBigQueryDatasetID(config.Dataset); err != nil {
+	if err := validateDatasetID(config.Dataset); err != nil {
 		diagnostics = append(diagnostics, cliresult.Diagnostic{
 			ID:         "invalid_dataset",
 			Field:      "warehouse.dataset",
@@ -244,7 +496,7 @@ func (connector Connector) Query(ctx context.Context, credentialPath string, con
 
 	queryLocation := strings.TrimSpace(config.Location)
 	if queryLocation == "" {
-		queryLocation = project.DefaultLocation
+		queryLocation = defaultLocation
 	}
 	dryRunQuery := &bq.JobConfigurationQuery{
 		Query:        options.SQL,
@@ -565,6 +817,60 @@ func browseSchemaFields(fields []*bq.TableFieldSchema) []warehouse.BrowseField {
 	return result
 }
 
+func googleAuthorizedUserCredentialJSON(credential googleoauth.Credential) ([]byte, error) {
+	if strings.TrimSpace(credential.ClientID) == "" {
+		return nil, errors.New("Google OAuth client_id is required")
+	}
+	if strings.TrimSpace(credential.ClientSecret) == "" {
+		return nil, errors.New("Google OAuth client_secret is required")
+	}
+	if strings.TrimSpace(credential.RefreshToken) == "" {
+		return nil, errors.New("Google OAuth refresh_token is required")
+	}
+	if strings.TrimSpace(credential.TokenURI) == "" {
+		return nil, errors.New("Google OAuth token_uri is required")
+	}
+
+	payload := struct {
+		Type         string   `json:"type"`
+		ClientID     string   `json:"client_id"`
+		ClientSecret string   `json:"client_secret"`
+		RefreshToken string   `json:"refresh_token"`
+		TokenURI     string   `json:"token_uri"`
+		Scopes       []string `json:"scopes,omitempty"`
+	}{
+		Type:         "authorized_user",
+		ClientID:     strings.TrimSpace(credential.ClientID),
+		ClientSecret: strings.TrimSpace(credential.ClientSecret),
+		RefreshToken: strings.TrimSpace(credential.RefreshToken),
+		TokenURI:     strings.TrimSpace(credential.TokenURI),
+		Scopes:       credential.Scopes,
+	}
+	data, err := json.MarshalIndent(payload, "", "  ")
+	if err != nil {
+		return nil, fmt.Errorf("marshal Google OAuth credential: %w", err)
+	}
+	return append(data, '\n'), nil
+}
+
+func validateServiceAccountJSON(data []byte) error {
+	var payload struct {
+		Type        string `json:"type"`
+		ClientEmail string `json:"client_email"`
+		PrivateKey  string `json:"private_key"`
+	}
+	if err := json.Unmarshal(data, &payload); err != nil {
+		return fmt.Errorf("service account key is not valid JSON: %w", err)
+	}
+	if payload.Type != "service_account" {
+		return fmt.Errorf("service account key has type %q, want service_account", payload.Type)
+	}
+	if strings.TrimSpace(payload.ClientEmail) == "" || strings.TrimSpace(payload.PrivateKey) == "" {
+		return errors.New("service account key is missing client_email or private_key")
+	}
+	return nil
+}
+
 func newService(ctx context.Context, credentialPath string) (*bq.Service, error) {
 	if strings.TrimSpace(credentialPath) == "" {
 		return nil, errors.New("BigQuery credential path is required")
@@ -598,6 +904,25 @@ func suggestDataset(dataset string) string {
 	}
 	replacer := strings.NewReplacer("-", "_", " ", "_", ".", "_")
 	return replacer.Replace(dataset)
+}
+
+func validateDatasetID(dataset string) error {
+	if dataset == "" {
+		return errors.New("missing required field warehouse.dataset")
+	}
+	if len(dataset) > 1024 {
+		return errors.New("warehouse.dataset must be 1024 characters or fewer")
+	}
+	for _, char := range dataset {
+		if (char >= 'a' && char <= 'z') ||
+			(char >= 'A' && char <= 'Z') ||
+			(char >= '0' && char <= '9') ||
+			char == '_' {
+			continue
+		}
+		return fmt.Errorf("invalid warehouse.dataset %q; BigQuery dataset IDs may contain only letters, numbers, and underscores", dataset)
+	}
+	return nil
 }
 
 func boolPointer(value bool) *bool {

@@ -17,6 +17,7 @@ import (
 	"github.com/segmentstream/segmentstream-cli/internal/dagster"
 	"github.com/segmentstream/segmentstream-cli/internal/project"
 	"github.com/segmentstream/segmentstream-cli/internal/projectruntime"
+	"github.com/segmentstream/segmentstream-cli/internal/warehouse"
 	"github.com/spf13/cobra"
 )
 
@@ -40,7 +41,7 @@ type runResult struct {
 	Assets           int    `json:"assets"`
 }
 
-func newRunCommand(out, errOut io.Writer, commandContext structuredCommandContext, runner commandRunner) *cobra.Command {
+func newRunCommand(out, errOut io.Writer, commandContext structuredCommandContext, runner commandRunner, registry warehouse.Registry, credentialStore credentials.Store) *cobra.Command {
 	options := runOptions{}
 	cmd := newStructuredCommand(out, errOut, commandContext, structuredCommandSpec{
 		Use:     "run",
@@ -56,7 +57,7 @@ func newRunCommand(out, errOut io.Writer, commandContext structuredCommandContex
 		if commandContext.Output != nil && commandContext.Output.JSON && errOut != nil {
 			progressOut = errOut
 		}
-		result, err := runAnalytics(ctx, projectRoot, progressOut, runner, options)
+		result, err := runAnalytics(ctx, projectRoot, progressOut, runner, registry, credentialStore, options)
 		if err != nil {
 			return cliresult.Response{}, err
 		}
@@ -66,8 +67,12 @@ func newRunCommand(out, errOut io.Writer, commandContext structuredCommandContex
 	return cmd
 }
 
-func runAnalytics(ctx context.Context, projectRoot string, progressOut io.Writer, runner commandRunner, options runOptions) (runResult, error) {
+func runAnalytics(ctx context.Context, projectRoot string, progressOut io.Writer, runner commandRunner, registry warehouse.Registry, credentialStore credentials.Store, options runOptions) (runResult, error) {
 	config, err := project.LoadConfig(projectRoot)
+	if err != nil {
+		return runResult{}, err
+	}
+	provider, err := registry.Provider(config.Warehouse.Type)
 	if err != nil {
 		return runResult{}, err
 	}
@@ -75,7 +80,7 @@ func runAnalytics(ctx context.Context, projectRoot string, progressOut io.Writer
 	if err != nil {
 		return runResult{}, err
 	}
-	if err := preflightProjectSanity(config); err != nil {
+	if err := preflightProjectSanity(config, provider, credentialStore); err != nil {
 		return runResult{}, err
 	}
 
@@ -88,7 +93,7 @@ func runAnalytics(ctx context.Context, projectRoot string, progressOut io.Writer
 	progress.OK("")
 
 	progress.Start("Preparing project files")
-	if err := projectruntime.Prepare(projectRoot, config); err != nil {
+	if err := projectruntime.Prepare(projectRoot, config, provider); err != nil {
 		return runResult{}, err
 	}
 	progress.OK("")
@@ -165,10 +170,10 @@ func (result runResult) HumanDocument() cliresult.Document {
 	}
 }
 
-func preflightProjectSanity(config project.Config) error {
+func preflightProjectSanity(config project.Config, provider warehouse.Provider, credentialStore credentials.Store) error {
 	var failures []string
 
-	if err := preflightWarehouseAuth(config); err != nil {
+	if err := preflightWarehouseAuth(config, provider, credentialStore); err != nil {
 		failures = append(failures, err.Error())
 	}
 	if len(config.Sources) == 0 {
@@ -180,25 +185,27 @@ func preflightProjectSanity(config project.Config) error {
 	return nil
 }
 
-func preflightWarehouseAuth(config project.Config) error {
-	if config.Warehouse.Type != "bigquery" {
-		return nil
+func preflightWarehouseAuth(config project.Config, provider warehouse.Provider, credentialStore credentials.Store) error {
+	for _, diagnostic := range provider.ConfigDiagnostics(config.Warehouse) {
+		if diagnostic.Message != "" {
+			return errors.New(diagnostic.Message)
+		}
 	}
 
-	credentialsPath, err := newRunCredentialStore().BigQueryCredentialPath(config.Warehouse.Auth)
+	credentialsPath, err := provider.CredentialPath(credentialStore, config.Warehouse.Auth)
 	if err != nil {
-		return fmt.Errorf("check BigQuery authentication: %w", err)
+		return fmt.Errorf("check warehouse authentication: %w", err)
 	}
 
 	info, err := os.Stat(credentialsPath)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
-			return fmt.Errorf("BigQuery authentication for warehouse.auth %q was not found at %s; run segmentstream warehouse auth login or segmentstream warehouse auth --service-account-key=<path>", config.Warehouse.Auth, credentialsPath)
+			return fmt.Errorf("%s authentication for warehouse.auth %q was not found at %s; run segmentstream warehouse auth login or segmentstream warehouse auth --service-account-key=<path>", provider.DisplayName(), config.Warehouse.Auth, credentialsPath)
 		}
-		return fmt.Errorf("check BigQuery authentication at %s: %w", credentialsPath, err)
+		return fmt.Errorf("check warehouse authentication at %s: %w", credentialsPath, err)
 	}
 	if info.IsDir() {
-		return fmt.Errorf("BigQuery authentication path %s is a directory; run segmentstream warehouse auth login or segmentstream warehouse auth --service-account-key=<path>", credentialsPath)
+		return fmt.Errorf("%s authentication path %s is a directory; run segmentstream warehouse auth login or segmentstream warehouse auth --service-account-key=<path>", provider.DisplayName(), credentialsPath)
 	}
 
 	return nil

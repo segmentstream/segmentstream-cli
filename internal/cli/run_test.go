@@ -853,7 +853,7 @@ func withRunAuthHome(t *testing.T, home string) {
 
 func writeBigQueryAuth(t *testing.T, home string) {
 	t.Helper()
-	credentialsPath, err := (credentials.Store{HomeDir: home}).BigQueryCredentialPath("production-bigquery")
+	credentialsPath, err := (credentials.Store{HomeDir: home}).CredentialPath("bigquery", "production-bigquery")
 	if err != nil {
 		t.Fatal(err)
 	}

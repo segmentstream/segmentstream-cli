@@ -60,19 +60,19 @@ warehouse:
 	}
 }
 
-func TestParseConfigRejectsNonBigQueryWarehouse(t *testing.T) {
-	_, err := ParseConfig([]byte(`version: 1
+func TestParseConfigLeavesWarehouseTypeSupportToRegistry(t *testing.T) {
+	config, err := ParseConfig([]byte(`version: 1
 warehouse:
   type: snowflake
   auth: production-snowflake
   project: example-project
   dataset: segmentstream
 `))
-	if err == nil {
-		t.Fatal("expected unsupported warehouse error")
+	if err != nil {
+		t.Fatalf("ParseConfig failed: %v", err)
 	}
-	if !strings.Contains(err.Error(), "only bigquery is supported") {
-		t.Fatalf("error = %v, want bigquery-only error", err)
+	if config.Warehouse.Type != "snowflake" {
+		t.Fatalf("Warehouse.Type = %q, want snowflake", config.Warehouse.Type)
 	}
 }
 
@@ -126,19 +126,19 @@ warehouse:
 	}
 }
 
-func TestParseConfigRejectsInvalidDatasetID(t *testing.T) {
-	_, err := ParseConfig([]byte(`version: 1
+func TestParseConfigLeavesDatasetRulesToWarehouseProvider(t *testing.T) {
+	config, err := ParseConfig([]byte(`version: 1
 warehouse:
   type: bigquery
   auth: production-bigquery
   project: example-project
   dataset: segmentstream-new
 `))
-	if err == nil {
-		t.Fatal("expected invalid dataset error")
+	if err != nil {
+		t.Fatalf("ParseConfig failed: %v", err)
 	}
-	if !strings.Contains(err.Error(), "letters, numbers, and underscores") {
-		t.Fatalf("error = %v, want BigQuery dataset guidance", err)
+	if config.Warehouse.Dataset != "segmentstream-new" {
+		t.Fatalf("Warehouse.Dataset = %q, want segmentstream-new", config.Warehouse.Dataset)
 	}
 }
 

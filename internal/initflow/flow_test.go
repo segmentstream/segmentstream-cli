@@ -8,16 +8,23 @@ import (
 
 	"github.com/segmentstream/segmentstream-cli/internal/cliresult"
 	"github.com/segmentstream/segmentstream-cli/internal/project"
+	"github.com/segmentstream/segmentstream-cli/internal/warehouse"
+	"github.com/segmentstream/segmentstream-cli/internal/warehouse/bigquery"
 )
+
+func testRegistry() warehouse.Registry {
+	return warehouse.NewRegistry(bigquery.NewConnector())
+}
 
 func TestEvaluateAsksForWarehouseWithoutMutating(t *testing.T) {
 	projectStore := &fakeProjectStore{}
 	scaffolder := &fakeScaffolder{}
 
 	result, err := (Service{
-		ProjectStore: projectStore,
-		Credentials:  &fakeCredentialStore{},
-		Scaffolder:   scaffolder,
+		WarehouseRegistry: testRegistry(),
+		ProjectStore:      projectStore,
+		CredentialStore:   &fakeCredentialStore{},
+		Scaffolder:        scaffolder,
 	}).Evaluate(context.Background(), Options{})
 	if err != nil {
 		t.Fatalf("Evaluate failed: %v", err)
@@ -41,9 +48,10 @@ func TestEvaluateSelectsWarehouseThenNeedsAuth(t *testing.T) {
 	scaffolder := &fakeScaffolder{}
 
 	result, err := (Service{
-		ProjectStore: projectStore,
-		Credentials:  &fakeCredentialStore{},
-		Scaffolder:   scaffolder,
+		WarehouseRegistry: testRegistry(),
+		ProjectStore:      projectStore,
+		CredentialStore:   &fakeCredentialStore{},
+		Scaffolder:        scaffolder,
 	}).Evaluate(context.Background(), Options{SelectWarehouse: "bigquery"})
 	if err != nil {
 		t.Fatalf("Evaluate failed: %v", err)
@@ -83,9 +91,10 @@ func TestEvaluateNeedsConfigurationAfterAuth(t *testing.T) {
 	credentialStore := &fakeCredentialStore{hasBigQueryCredential: true}
 
 	result, err := (Service{
-		ProjectStore: projectStore,
-		Credentials:  credentialStore,
-		Scaffolder:   &fakeScaffolder{},
+		WarehouseRegistry: testRegistry(),
+		ProjectStore:      projectStore,
+		CredentialStore:   credentialStore,
+		Scaffolder:        &fakeScaffolder{},
 	}).Evaluate(context.Background(), Options{})
 	if err != nil {
 		t.Fatalf("Evaluate failed: %v", err)
@@ -100,6 +109,7 @@ func TestEvaluateNeedsConfigurationAfterAuth(t *testing.T) {
 
 func TestEvaluateRejectsUnsupportedWarehouse(t *testing.T) {
 	result, err := (Service{
+		WarehouseRegistry: testRegistry(),
 		ProjectStore: &fakeProjectStore{
 			exists: true,
 			config: project.Config{
@@ -109,8 +119,8 @@ func TestEvaluateRejectsUnsupportedWarehouse(t *testing.T) {
 				},
 			},
 		},
-		Credentials: &fakeCredentialStore{},
-		Scaffolder:  &fakeScaffolder{},
+		CredentialStore: &fakeCredentialStore{},
+		Scaffolder:      &fakeScaffolder{},
 	}).Evaluate(context.Background(), Options{})
 	if err != nil {
 		t.Fatalf("Evaluate failed: %v", err)
@@ -129,6 +139,7 @@ func TestEvaluateRejectsUnsupportedWarehouse(t *testing.T) {
 
 func TestEvaluateReportsMissingAuthEvenWhenDefaultCredentialExists(t *testing.T) {
 	result, err := (Service{
+		WarehouseRegistry: testRegistry(),
 		ProjectStore: &fakeProjectStore{
 			exists: true,
 			config: project.Config{
@@ -141,8 +152,8 @@ func TestEvaluateReportsMissingAuthEvenWhenDefaultCredentialExists(t *testing.T)
 				},
 			},
 		},
-		Credentials: &fakeCredentialStore{hasBigQueryCredential: true},
-		Scaffolder:  &fakeScaffolder{},
+		CredentialStore: &fakeCredentialStore{hasBigQueryCredential: true},
+		Scaffolder:      &fakeScaffolder{},
 	}).Evaluate(context.Background(), Options{})
 	if err != nil {
 		t.Fatalf("Evaluate failed: %v", err)
@@ -159,9 +170,10 @@ func TestEvaluateReportsMissingAuthEvenWhenDefaultCredentialExists(t *testing.T)
 
 func TestEvaluateNeedsAccessTestAfterConfiguration(t *testing.T) {
 	result, err := (Service{
-		ProjectStore: configuredProjectStore(),
-		Credentials:  &fakeCredentialStore{hasBigQueryCredential: true},
-		Scaffolder:   &fakeScaffolder{},
+		WarehouseRegistry: testRegistry(),
+		ProjectStore:      configuredProjectStore(),
+		CredentialStore:   &fakeCredentialStore{hasBigQueryCredential: true},
+		Scaffolder:        &fakeScaffolder{},
 	}).Evaluate(context.Background(), Options{})
 	if err != nil {
 		t.Fatalf("Evaluate failed: %v", err)
@@ -182,8 +194,9 @@ func TestEvaluateNeedsAccessTestAfterConfiguration(t *testing.T) {
 
 func TestEvaluateNeedsSourcesAfterAccessMarker(t *testing.T) {
 	result, err := (Service{
-		ProjectStore: configuredProjectStore(),
-		Credentials: &fakeCredentialStore{
+		WarehouseRegistry: testRegistry(),
+		ProjectStore:      configuredProjectStore(),
+		CredentialStore: &fakeCredentialStore{
 			hasBigQueryCredential: true,
 			hasAccessMarker:       true,
 		},
@@ -210,8 +223,9 @@ func TestEvaluateNeedsSourcesAfterAccessMarker(t *testing.T) {
 
 func TestEvaluateReadyAfterAccessMarkerAndSource(t *testing.T) {
 	result, err := (Service{
-		ProjectStore: configuredProjectStoreWithSource(),
-		Credentials: &fakeCredentialStore{
+		WarehouseRegistry: testRegistry(),
+		ProjectStore:      configuredProjectStoreWithSource(),
+		CredentialStore: &fakeCredentialStore{
 			hasBigQueryCredential: true,
 			hasAccessMarker:       true,
 		},
@@ -245,8 +259,9 @@ func TestEvaluateReadyAfterAccessMarkerAndSource(t *testing.T) {
 
 func TestEvaluateNeedsSourceVerificationAfterSourceIsDeclared(t *testing.T) {
 	result, err := (Service{
-		ProjectStore: configuredProjectStoreWithSource(),
-		Credentials: &fakeCredentialStore{
+		WarehouseRegistry: testRegistry(),
+		ProjectStore:      configuredProjectStoreWithSource(),
+		CredentialStore: &fakeCredentialStore{
 			hasBigQueryCredential: true,
 			hasAccessMarker:       true,
 		},
@@ -279,9 +294,10 @@ func TestEvaluatePropagatesProjectLoadError(t *testing.T) {
 	loadErr := errors.New("load failed")
 
 	_, err := (Service{
-		ProjectStore: &fakeProjectStore{loadErr: loadErr},
-		Credentials:  &fakeCredentialStore{},
-		Scaffolder:   &fakeScaffolder{},
+		WarehouseRegistry: testRegistry(),
+		ProjectStore:      &fakeProjectStore{loadErr: loadErr},
+		CredentialStore:   &fakeCredentialStore{},
+		Scaffolder:        &fakeScaffolder{},
 	}).Evaluate(context.Background(), Options{})
 
 	if !errors.Is(err, loadErr) {
@@ -293,9 +309,10 @@ func TestEvaluatePropagatesCredentialCheckErrors(t *testing.T) {
 	credentialErr := errors.New("credential check failed")
 
 	_, err := (Service{
-		ProjectStore: configuredProjectStore(),
-		Credentials:  &fakeCredentialStore{hasBigQueryCredentialErr: credentialErr},
-		Scaffolder:   &fakeScaffolder{},
+		WarehouseRegistry: testRegistry(),
+		ProjectStore:      configuredProjectStore(),
+		CredentialStore:   &fakeCredentialStore{hasBigQueryCredentialErr: credentialErr},
+		Scaffolder:        &fakeScaffolder{},
 	}).Evaluate(context.Background(), Options{})
 	if !errors.Is(err, credentialErr) {
 		t.Fatalf("error = %v, want credential check error", err)
@@ -303,8 +320,9 @@ func TestEvaluatePropagatesCredentialCheckErrors(t *testing.T) {
 
 	markerErr := errors.New("access marker check failed")
 	_, err = (Service{
-		ProjectStore: configuredProjectStore(),
-		Credentials: &fakeCredentialStore{
+		WarehouseRegistry: testRegistry(),
+		ProjectStore:      configuredProjectStore(),
+		CredentialStore: &fakeCredentialStore{
 			hasBigQueryCredential: true,
 			hasAccessMarkerErr:    markerErr,
 		},
@@ -320,9 +338,10 @@ func TestEvaluateDoesNotScaffoldWhenWarehouseSelectionFails(t *testing.T) {
 	scaffolder := &fakeScaffolder{}
 
 	_, err := (Service{
-		ProjectStore: &fakeProjectStore{selectErr: selectErr},
-		Credentials:  &fakeCredentialStore{},
-		Scaffolder:   scaffolder,
+		WarehouseRegistry: testRegistry(),
+		ProjectStore:      &fakeProjectStore{selectErr: selectErr},
+		CredentialStore:   &fakeCredentialStore{},
+		Scaffolder:        scaffolder,
 	}).Evaluate(context.Background(), Options{SelectWarehouse: "bigquery"})
 
 	if !errors.Is(err, selectErr) {
@@ -337,9 +356,10 @@ func TestEvaluatePropagatesScaffolderError(t *testing.T) {
 	scaffoldErr := errors.New("scaffold failed")
 
 	_, err := (Service{
-		ProjectStore: &fakeProjectStore{},
-		Credentials:  &fakeCredentialStore{},
-		Scaffolder:   &fakeScaffolder{err: scaffoldErr},
+		WarehouseRegistry: testRegistry(),
+		ProjectStore:      &fakeProjectStore{},
+		CredentialStore:   &fakeCredentialStore{},
+		Scaffolder:        &fakeScaffolder{err: scaffoldErr},
 	}).Evaluate(context.Background(), Options{SelectWarehouse: "bigquery"})
 
 	if !errors.Is(err, scaffoldErr) {
@@ -536,7 +556,7 @@ func (store *fakeProjectStore) LoadPartial() (project.Config, bool, error) {
 	return store.config, store.exists, nil
 }
 
-func (store *fakeProjectStore) SelectWarehouse(warehouseType string) (project.Config, error) {
+func (store *fakeProjectStore) SelectWarehouse(warehouseType, defaultAuthName string) (project.Config, error) {
 	if store.selectErr != nil {
 		return project.Config{}, store.selectErr
 	}
@@ -549,7 +569,7 @@ func (store *fakeProjectStore) SelectWarehouse(warehouseType string) (project.Co
 		store.config.Warehouse.Type = warehouseType
 	}
 	if store.config.Warehouse.Auth == "" {
-		store.config.Warehouse.Auth = defaultBigQueryAuth
+		store.config.Warehouse.Auth = defaultAuthName
 	}
 	return store.config, nil
 }
@@ -561,14 +581,19 @@ type fakeCredentialStore struct {
 	hasAccessMarkerErr       error
 }
 
-func (store *fakeCredentialStore) HasBigQueryCredential(name string) (bool, error) {
+func (store *fakeCredentialStore) HasCredential(warehouseType, name string) (bool, error) {
+	_ = warehouseType
+	_ = name
 	if store.hasBigQueryCredentialErr != nil {
 		return false, store.hasBigQueryCredentialErr
 	}
 	return store.hasBigQueryCredential, nil
 }
 
-func (store *fakeCredentialStore) HasMatchingAccessMarker(name, projectID, dataset, location string) (bool, error) {
+func (store *fakeCredentialStore) HasMatchingAccessMarker(warehouseType, name string, config project.Warehouse) (bool, error) {
+	_ = warehouseType
+	_ = name
+	_ = config
 	if store.hasAccessMarkerErr != nil {
 		return false, store.hasAccessMarkerErr
 	}

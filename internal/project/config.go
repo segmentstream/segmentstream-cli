@@ -124,9 +124,6 @@ func ValidateConfig(config Config) error {
 	if config.Warehouse.Type == "" {
 		return errors.New("missing required field warehouse.type")
 	}
-	if config.Warehouse.Type != "bigquery" {
-		return fmt.Errorf("unsupported warehouse.type %q; only bigquery is supported in config version 1", config.Warehouse.Type)
-	}
 
 	for _, required := range []struct {
 		name  string
@@ -144,29 +141,7 @@ func ValidateConfig(config Config) error {
 	if config.Warehouse.Project == "your-gcp-project" {
 		return errors.New("warehouse.project still contains placeholder value your-gcp-project")
 	}
-	if err := ValidateBigQueryDatasetID(config.Warehouse.Dataset); err != nil {
-		return err
-	}
 
-	return nil
-}
-
-func ValidateBigQueryDatasetID(dataset string) error {
-	if dataset == "" {
-		return errors.New("missing required field warehouse.dataset")
-	}
-	if len(dataset) > 1024 {
-		return errors.New("warehouse.dataset must be 1024 characters or fewer")
-	}
-	for _, char := range dataset {
-		if (char >= 'a' && char <= 'z') ||
-			(char >= 'A' && char <= 'Z') ||
-			(char >= '0' && char <= '9') ||
-			char == '_' {
-			continue
-		}
-		return fmt.Errorf("invalid warehouse.dataset %q; BigQuery dataset IDs may contain only letters, numbers, and underscores", dataset)
-	}
 	return nil
 }
 

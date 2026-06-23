@@ -16,7 +16,6 @@ import (
 	"time"
 
 	"github.com/segmentstream/segmentstream-cli/internal/project"
-	"github.com/segmentstream/segmentstream-cli/internal/projectruntime"
 	"gopkg.in/yaml.v3"
 )
 
@@ -55,6 +54,7 @@ type VerifyRequest struct {
 	Runner             CommandRunner
 	Progress           Progress
 	WarehousePreflight func(project.Config) error
+	PrepareRuntime     func(projectRoot string, config project.Config) error
 	Now                func() time.Time
 }
 
@@ -103,6 +103,9 @@ func Verify(ctx context.Context, request VerifyRequest) (VerifyResult, error) {
 	if request.Runner == nil {
 		return VerifyResult{}, errors.New("source verification runner is required")
 	}
+	if request.PrepareRuntime == nil {
+		return VerifyResult{}, errors.New("source verification runtime preparer is required")
+	}
 
 	now := request.Now
 	if now == nil {
@@ -149,12 +152,12 @@ func Verify(ctx context.Context, request VerifyRequest) (VerifyResult, error) {
 	progress.OK("")
 
 	progress.Start("Preparing project files")
-	if err := projectruntime.Prepare(request.ProjectRoot, config); err != nil {
+	if err := request.PrepareRuntime(request.ProjectRoot, config); err != nil {
 		return VerifyResult{}, err
 	}
 	progress.OK("")
 
-	runtimeDir := filepath.Join(request.ProjectRoot, projectruntime.RuntimeDirName)
+	runtimeDir := filepath.Join(request.ProjectRoot, MarkerDirName)
 	progress.Start("Building verification container")
 	output, err := runWithProgress(ctx, progress, request.Runner, CommandInvocation{
 		Name: "docker",

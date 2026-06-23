@@ -26,6 +26,8 @@ services:
         source: "${SEGMENTSTREAM_HOST_HOME}"
         target: /home/segmentstream/.segmentstream
         read_only: true
+    env_file:
+      - .env
     environment:
       DAGSTER_HOME: /workspace/.segmentstream
       DAGSTER_PG_USERNAME: segmentstream
@@ -33,10 +35,6 @@ services:
       DAGSTER_PG_HOST: postgres
       DAGSTER_PG_DB: segmentstream
       DBT_PROFILES_DIR: /workspace/.segmentstream
-      GOOGLE_APPLICATION_CREDENTIALS: "${SEGMENTSTREAM_BQ_CREDENTIALS}"
-      SEGMENTSTREAM_BQ_PROJECT: "${SEGMENTSTREAM_BQ_PROJECT}"
-      SEGMENTSTREAM_BQ_DATASET: "${SEGMENTSTREAM_BQ_DATASET}"
-      SEGMENTSTREAM_BQ_LOCATION: "${SEGMENTSTREAM_BQ_LOCATION}"
     ports:
       - "3000:3000"
     command:

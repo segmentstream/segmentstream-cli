@@ -14,7 +14,6 @@ import (
 
 	"github.com/segmentstream/segmentstream-cli/internal/cliresult"
 	"github.com/segmentstream/segmentstream-cli/internal/credentials"
-	"github.com/segmentstream/segmentstream-cli/internal/googleoauth"
 	"github.com/segmentstream/segmentstream-cli/internal/project"
 	"github.com/segmentstream/segmentstream-cli/internal/warehouse"
 )
@@ -22,7 +21,7 @@ import (
 func TestWarehouseAuthStoresServiceAccountAndUpdatesConfig(t *testing.T) {
 	root := t.TempDir()
 	withWorkingDirectory(t, root)
-	if _, err := (project.Store{Root: root}).SelectWarehouse("bigquery"); err != nil {
+	if _, err := (project.Store{Root: root}).SelectWarehouse("bigquery", "default-bigquery"); err != nil {
 		t.Fatal(err)
 	}
 	keyPath := writeServiceAccountKey(t, root)
@@ -39,7 +38,7 @@ func TestWarehouseAuthStoresServiceAccountAndUpdatesConfig(t *testing.T) {
 		t.Fatalf("warehouse auth failed: %v", err)
 	}
 
-	credentialPath, err := (credentials.Store{HomeDir: home}).BigQueryCredentialPath("production-bigquery")
+	credentialPath, err := (credentials.Store{HomeDir: home}).CredentialPath("bigquery", "production-bigquery")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -57,27 +56,28 @@ func TestWarehouseAuthStoresServiceAccountAndUpdatesConfig(t *testing.T) {
 func TestWarehouseAuthLoginStoresOAuthCredentialAndUpdatesConfig(t *testing.T) {
 	root := t.TempDir()
 	withWorkingDirectory(t, root)
-	if _, err := (project.Store{Root: root}).SelectWarehouse("bigquery"); err != nil {
+	if _, err := (project.Store{Root: root}).SelectWarehouse("bigquery", "default-bigquery"); err != nil {
 		t.Fatal(err)
 	}
 
 	var out bytes.Buffer
 	var errOut bytes.Buffer
 	home := filepath.Join(root, "home")
-	var oauthOptions googleoauth.LoginOptions
+	var oauthOptions warehouse.LoginOptions
 	cmd := newRootCommand(&out, &errOut, cliOptions{
 		Credentials: credentials.Store{HomeDir: home},
-		WarehouseOAuth: func(ctx context.Context, out io.Writer, options googleoauth.LoginOptions) (credentials.GoogleOAuthCredential, error) {
+		WarehouseOAuth: func(ctx context.Context, out io.Writer, options warehouse.LoginOptions) ([]byte, error) {
 			_ = ctx
 			oauthOptions = options
 			fmt.Fprintln(out, "fake oauth login")
-			return credentials.GoogleOAuthCredential{
-				ClientID:     "client-id.apps.googleusercontent.com",
-				ClientSecret: "client-secret",
-				RefreshToken: "refresh-token",
-				TokenURI:     "https://oauth2.googleapis.com/token",
-				Scopes:       []string{"https://www.googleapis.com/auth/bigquery"},
-			}, nil
+			return []byte(`{
+  "type": "authorized_user",
+  "client_id": "client-id.apps.googleusercontent.com",
+  "client_secret": "client-secret",
+  "refresh_token": "refresh-token",
+  "token_uri": "https://oauth2.googleapis.com/token",
+  "scopes": ["https://www.googleapis.com/auth/bigquery"]
+}`), nil
 		},
 	})
 	cmd.SetArgs([]string{"warehouse", "auth", "login", "--name", "production-bigquery", "--json"})
@@ -89,7 +89,7 @@ func TestWarehouseAuthLoginStoresOAuthCredentialAndUpdatesConfig(t *testing.T) {
 		t.Fatalf("OAuth port = %d, want default 0", oauthOptions.Port)
 	}
 
-	credentialPath, err := (credentials.Store{HomeDir: home}).BigQueryCredentialPath("production-bigquery")
+	credentialPath, err := (credentials.Store{HomeDir: home}).CredentialPath("bigquery", "production-bigquery")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -122,26 +122,20 @@ func TestWarehouseAuthLoginStoresOAuthCredentialAndUpdatesConfig(t *testing.T) {
 func TestWarehouseAuthLoginPassesPortToOAuth(t *testing.T) {
 	root := t.TempDir()
 	withWorkingDirectory(t, root)
-	if _, err := (project.Store{Root: root}).SelectWarehouse("bigquery"); err != nil {
+	if _, err := (project.Store{Root: root}).SelectWarehouse("bigquery", "default-bigquery"); err != nil {
 		t.Fatal(err)
 	}
 
 	var out bytes.Buffer
 	var errOut bytes.Buffer
-	var oauthOptions googleoauth.LoginOptions
+	var oauthOptions warehouse.LoginOptions
 	cmd := newRootCommand(&out, &errOut, cliOptions{
 		Credentials: credentials.Store{HomeDir: filepath.Join(root, "home")},
-		WarehouseOAuth: func(ctx context.Context, out io.Writer, options googleoauth.LoginOptions) (credentials.GoogleOAuthCredential, error) {
+		WarehouseOAuth: func(ctx context.Context, out io.Writer, options warehouse.LoginOptions) ([]byte, error) {
 			_ = ctx
 			_ = out
 			oauthOptions = options
-			return credentials.GoogleOAuthCredential{
-				ClientID:     "client-id.apps.googleusercontent.com",
-				ClientSecret: "client-secret",
-				RefreshToken: "refresh-token",
-				TokenURI:     "https://oauth2.googleapis.com/token",
-				Scopes:       []string{"https://www.googleapis.com/auth/bigquery"},
-			}, nil
+			return []byte(`{"type":"authorized_user","client_id":"client-id.apps.googleusercontent.com","client_secret":"client-secret","refresh_token":"refresh-token","token_uri":"https://oauth2.googleapis.com/token"}`), nil
 		},
 	})
 	cmd.SetArgs([]string{"warehouse", "auth", "login", "--port", "40473"})
@@ -161,9 +155,9 @@ func TestWarehouseAuthLoginRejectsInvalidPort(t *testing.T) {
 			var errOut bytes.Buffer
 			called := false
 			cmd := newRootCommand(&out, &errOut, cliOptions{
-				WarehouseOAuth: func(ctx context.Context, out io.Writer, options googleoauth.LoginOptions) (credentials.GoogleOAuthCredential, error) {
+				WarehouseOAuth: func(ctx context.Context, out io.Writer, options warehouse.LoginOptions) ([]byte, error) {
 					called = true
-					return credentials.GoogleOAuthCredential{}, nil
+					return nil, nil
 				},
 			})
 			cmd.SetArgs([]string{"warehouse", "auth", "login", "--port=" + port})
@@ -196,7 +190,7 @@ func TestWarehouseAuthLoginHelpIncludesPort(t *testing.T) {
 func TestWarehouseConfigureJSONWritesValidConfig(t *testing.T) {
 	root := t.TempDir()
 	withWorkingDirectory(t, root)
-	if _, err := (project.Store{Root: root}).SelectWarehouse("bigquery"); err != nil {
+	if _, err := (project.Store{Root: root}).SelectWarehouse("bigquery", "default-bigquery"); err != nil {
 		t.Fatal(err)
 	}
 	fake := &fakeWarehouseConnector{
@@ -233,7 +227,7 @@ func TestWarehouseConfigureJSONWritesValidConfig(t *testing.T) {
 func TestWarehouseConfigureCreateDatasetJSONForwardsOptionAndWritesCreatedResult(t *testing.T) {
 	root := t.TempDir()
 	withWorkingDirectory(t, root)
-	if _, err := (project.Store{Root: root}).SelectWarehouse("bigquery"); err != nil {
+	if _, err := (project.Store{Root: root}).SelectWarehouse("bigquery", "default-bigquery"); err != nil {
 		t.Fatal(err)
 	}
 	fake := &fakeWarehouseConnector{
@@ -273,7 +267,7 @@ func TestWarehouseConfigureCreateDatasetJSONForwardsOptionAndWritesCreatedResult
 func TestWarehouseConfigureCreatedTextOutput(t *testing.T) {
 	root := t.TempDir()
 	withWorkingDirectory(t, root)
-	if _, err := (project.Store{Root: root}).SelectWarehouse("bigquery"); err != nil {
+	if _, err := (project.Store{Root: root}).SelectWarehouse("bigquery", "default-bigquery"); err != nil {
 		t.Fatal(err)
 	}
 	fake := &fakeWarehouseConnector{
@@ -308,7 +302,7 @@ func TestWarehouseConfigureMissingDatasetDoesNotSaveConfig(t *testing.T) {
 	root := t.TempDir()
 	withWorkingDirectory(t, root)
 	store := project.Store{Root: root}
-	if _, err := store.SelectWarehouse("bigquery"); err != nil {
+	if _, err := store.SelectWarehouse("bigquery", "default-bigquery"); err != nil {
 		t.Fatal(err)
 	}
 	fake := &fakeWarehouseConnector{
@@ -375,7 +369,7 @@ func TestWarehouseBrowseDoesNotRequireConfiguredProject(t *testing.T) {
 	root := t.TempDir()
 	withWorkingDirectory(t, root)
 	home := filepath.Join(root, "home")
-	if _, err := (project.Store{Root: root}).SelectWarehouse("bigquery"); err != nil {
+	if _, err := (project.Store{Root: root}).SelectWarehouse("bigquery", "default-bigquery"); err != nil {
 		t.Fatal(err)
 	}
 	writeNamedCredential(t, home, "default-bigquery")
@@ -408,7 +402,7 @@ func TestWarehouseBrowseTableJSONForwardsPath(t *testing.T) {
 	root := t.TempDir()
 	withWorkingDirectory(t, root)
 	home := filepath.Join(root, "home")
-	if _, err := (project.Store{Root: root}).SelectWarehouse("bigquery"); err != nil {
+	if _, err := (project.Store{Root: root}).SelectWarehouse("bigquery", "default-bigquery"); err != nil {
 		t.Fatal(err)
 	}
 	writeNamedCredential(t, home, "default-bigquery")
@@ -447,7 +441,7 @@ func TestWarehouseBrowseTableTextOutput(t *testing.T) {
 	root := t.TempDir()
 	withWorkingDirectory(t, root)
 	home := filepath.Join(root, "home")
-	if _, err := (project.Store{Root: root}).SelectWarehouse("bigquery"); err != nil {
+	if _, err := (project.Store{Root: root}).SelectWarehouse("bigquery", "default-bigquery"); err != nil {
 		t.Fatal(err)
 	}
 	writeNamedCredential(t, home, "default-bigquery")
@@ -483,7 +477,7 @@ func TestWarehouseBrowseSchemaTextOutput(t *testing.T) {
 	root := t.TempDir()
 	withWorkingDirectory(t, root)
 	home := filepath.Join(root, "home")
-	if _, err := (project.Store{Root: root}).SelectWarehouse("bigquery"); err != nil {
+	if _, err := (project.Store{Root: root}).SelectWarehouse("bigquery", "default-bigquery"); err != nil {
 		t.Fatal(err)
 	}
 	writeNamedCredential(t, home, "default-bigquery")
@@ -733,7 +727,13 @@ warehouse:
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("warehouse test failed: %v", err)
 	}
-	verified, err := (credentials.Store{HomeDir: home}).HasMatchingAccessMarker("production-bigquery", "example-project", "segmentstream", "EU")
+	verified, err := fake.HasMatchingAccessMarker(credentials.Store{HomeDir: home}, "production-bigquery", project.Warehouse{
+		Type:     "bigquery",
+		Auth:     "production-bigquery",
+		Project:  "example-project",
+		Dataset:  "segmentstream",
+		Location: "EU",
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -763,8 +763,108 @@ type fakeWarehouseConnector struct {
 	queryCalled      bool
 }
 
+type fakeAccessMarker struct {
+	Project  string `json:"project"`
+	Dataset  string `json:"dataset"`
+	Location string `json:"location"`
+}
+
 func (connector *fakeWarehouseConnector) Type() string {
 	return "bigquery"
+}
+
+func (connector *fakeWarehouseConnector) DisplayName() string {
+	return "BigQuery"
+}
+
+func (connector *fakeWarehouseConnector) DefaultAuthName() string {
+	return "default-bigquery"
+}
+
+func (connector *fakeWarehouseConnector) AuthMethods() []string {
+	return []string{"oauth", "service_account_key"}
+}
+
+func (connector *fakeWarehouseConnector) SelectWarehouseAccept() cliresult.NextActionAccept {
+	return cliresult.NextActionAccept{
+		Method:  "bigquery",
+		Label:   "Use BigQuery",
+		Command: "segmentstream init --warehouse bigquery",
+		Value:   "bigquery",
+	}
+}
+
+func (connector *fakeWarehouseConnector) AuthenticateAccepts() []cliresult.NextActionAccept {
+	return nil
+}
+
+func (connector *fakeWarehouseConnector) ConfigureAccept() cliresult.NextActionAccept {
+	return cliresult.NextActionAccept{
+		Method:  "warehouse_config",
+		Label:   "Configure BigQuery warehouse",
+		Command: "segmentstream warehouse configure",
+	}
+}
+
+func (connector *fakeWarehouseConnector) CredentialPath(store credentials.Store, name string) (string, error) {
+	return store.CredentialPath(connector.Type(), name)
+}
+
+func (connector *fakeWarehouseConnector) HasCredential(store credentials.Store, name string) (bool, error) {
+	return store.HasCredential(connector.Type(), name)
+}
+
+func (connector *fakeWarehouseConnector) SaveServiceAccountKey(store credentials.Store, name, sourcePath string) (string, error) {
+	data, err := os.ReadFile(sourcePath)
+	if err != nil {
+		return "", err
+	}
+	return store.SaveCredentialData(connector.Type(), name, data)
+}
+
+func (connector *fakeWarehouseConnector) LoginOAuth(ctx context.Context, out io.Writer, options warehouse.LoginOptions) ([]byte, error) {
+	_ = ctx
+	_ = out
+	_ = options
+	return nil, fmt.Errorf("fake oauth login is not configured")
+}
+
+func (connector *fakeWarehouseConnector) SaveOAuthCredential(store credentials.Store, name string, credential []byte) (string, error) {
+	return store.SaveCredentialData(connector.Type(), name, credential)
+}
+
+func (connector *fakeWarehouseConnector) HasMatchingAccessMarker(store credentials.Store, name string, config project.Warehouse) (bool, error) {
+	var marker fakeAccessMarker
+	found, err := store.ReadAccessMarker(connector.Type(), name, &marker)
+	if err != nil || !found {
+		return found, err
+	}
+	return marker.Project == config.Project &&
+		marker.Dataset == config.Dataset &&
+		strings.EqualFold(marker.Location, config.Location), nil
+}
+
+func (connector *fakeWarehouseConnector) SaveAccessMarker(store credentials.Store, name string, config project.Warehouse) error {
+	return store.SaveAccessMarker(connector.Type(), name, fakeAccessMarker{
+		Project:  config.Project,
+		Dataset:  config.Dataset,
+		Location: config.Location,
+	})
+}
+
+func (connector *fakeWarehouseConnector) ConfigDiagnostics(config project.Warehouse) []cliresult.Diagnostic {
+	_ = config
+	return nil
+}
+
+func (connector *fakeWarehouseConnector) RuntimeEnvironment(config project.Warehouse) []warehouse.EnvVar {
+	_ = config
+	return nil
+}
+
+func (connector *fakeWarehouseConnector) DBTProfileYAML(config project.Warehouse) string {
+	_ = config
+	return "segmentstream: {}\n"
 }
 
 func (connector *fakeWarehouseConnector) Browse(ctx context.Context, credentialPath string, path string) (warehouse.BrowseResult, error) {

@@ -13,6 +13,7 @@ import (
 	"github.com/segmentstream/segmentstream-cli/internal/credentials"
 	"github.com/segmentstream/segmentstream-cli/internal/project"
 	sourcepkg "github.com/segmentstream/segmentstream-cli/internal/source"
+	"github.com/segmentstream/segmentstream-cli/internal/warehouse/bigquery"
 )
 
 func TestVersionCommand(t *testing.T) {
@@ -243,7 +244,7 @@ func TestInitShowsBrowseHintWhenWarehouseConfigIsMissing(t *testing.T) {
 	root := t.TempDir()
 	withWorkingDirectory(t, root)
 	home := filepath.Join(root, "home")
-	if _, err := (project.Store{Root: root}).SelectWarehouse("bigquery"); err != nil {
+	if _, err := (project.Store{Root: root}).SelectWarehouse("bigquery", "default-bigquery"); err != nil {
 		t.Fatal(err)
 	}
 	writeNamedCredential(t, home, "default-bigquery")
@@ -279,7 +280,7 @@ func TestInitJSONIncludesBrowseHintWhenWarehouseConfigIsMissing(t *testing.T) {
 	root := t.TempDir()
 	withWorkingDirectory(t, root)
 	home := filepath.Join(root, "home")
-	if _, err := (project.Store{Root: root}).SelectWarehouse("bigquery"); err != nil {
+	if _, err := (project.Store{Root: root}).SelectWarehouse("bigquery", "default-bigquery"); err != nil {
 		t.Fatal(err)
 	}
 	writeNamedCredential(t, home, "default-bigquery")
@@ -406,7 +407,13 @@ sources:
 		t.Fatal(err)
 	}
 	writeNamedCredential(t, home, "default-bigquery")
-	if err := (credentials.Store{HomeDir: home}).SaveAccessMarker("default-bigquery", "example-project", "segmentstream", "EU"); err != nil {
+	if err := bigquery.NewConnector().SaveAccessMarker(credentials.Store{HomeDir: home}, "default-bigquery", project.Warehouse{
+		Type:     "bigquery",
+		Auth:     "default-bigquery",
+		Project:  "example-project",
+		Dataset:  "segmentstream",
+		Location: "EU",
+	}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -661,7 +668,7 @@ func assertWarehouseConfigNextAction(t *testing.T, action cliresult.NextAction) 
 
 func writeNamedCredential(t *testing.T, home, name string) {
 	t.Helper()
-	path, err := (credentials.Store{HomeDir: home}).BigQueryCredentialPath(name)
+	path, err := (credentials.Store{HomeDir: home}).CredentialPath("bigquery", name)
 	if err != nil {
 		t.Fatal(err)
 	}

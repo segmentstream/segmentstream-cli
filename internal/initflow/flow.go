@@ -5,18 +5,16 @@ import (
 	"fmt"
 
 	"github.com/segmentstream/segmentstream-cli/internal/cliresult"
+	"github.com/segmentstream/segmentstream-cli/internal/credentials"
 	"github.com/segmentstream/segmentstream-cli/internal/project"
+	"github.com/segmentstream/segmentstream-cli/internal/warehouse"
 )
 
 const (
-	defaultBigQueryAuth            = "default-bigquery"
-	oauthWarehouseCommand          = "segmentstream warehouse auth login"
-	serviceAccountWarehouseCommand = "segmentstream warehouse auth"
-	configureWarehouseCommand      = "segmentstream warehouse configure"
-	testWarehouseCommand           = "segmentstream warehouse test --json"
-	sourceContractsCommand         = "segmentstream source contracts"
-	initVerifyCommand              = "segmentstream init --json"
-	runCommand                     = "segmentstream run"
+	testWarehouseCommand   = "segmentstream warehouse test --json"
+	sourceContractsCommand = "segmentstream source contracts"
+	initVerifyCommand      = "segmentstream init --json"
+	runCommand             = "segmentstream run"
 
 	statusSatisfied = "satisfied"
 	statusMissing   = "missing"
@@ -49,11 +47,13 @@ type Result struct {
 }
 
 type Service struct {
-	ProjectRoot    string
-	ProjectStore   ProjectStore
-	Credentials    CredentialStore
-	Scaffolder     ProjectScaffolder
-	SourceVerifier SourceVerifier
+	ProjectRoot       string
+	ProjectStore      ProjectStore
+	Credentials       credentials.Store
+	CredentialStore   CredentialStore
+	WarehouseRegistry warehouse.Registry
+	Scaffolder        ProjectScaffolder
+	SourceVerifier    SourceVerifier
 }
 
 type stageSpec struct {
@@ -89,8 +89,13 @@ func (service Service) Evaluate(ctx context.Context, options Options) (Result, e
 	store := service.projectStore()
 	credentialStore := service.credentialStore()
 	sourceVerifier := service.sourceVerifier()
+	registry := service.WarehouseRegistry
 	if options.SelectWarehouse != "" {
-		if _, err := store.SelectWarehouse(options.SelectWarehouse); err != nil {
+		provider, err := registry.Provider(options.SelectWarehouse)
+		if err != nil {
+			return Result{}, err
+		}
+		if _, err := store.SelectWarehouse(options.SelectWarehouse, provider.DefaultAuthName()); err != nil {
 			return Result{}, err
 		}
 		if err := service.projectScaffolder().EnsureInitFiles(); err != nil {
@@ -103,7 +108,7 @@ func (service Service) Evaluate(ctx context.Context, options Options) (Result, e
 		return Result{}, err
 	}
 
-	envelope := baseEnvelope(config)
+	envelope := baseEnvelope(config, registry)
 	eval := newEvaluation()
 	eval.complete(stagePrerequisites)
 
@@ -111,22 +116,23 @@ func (service Service) Evaluate(ctx context.Context, options Options) (Result, e
 		return resultFor(envelope, eval.withBlocker(blocker{
 			StageID:    stageWarehouseType,
 			Status:     statusMissing,
-			NextAction: selectWarehouseAction(),
+			NextAction: selectWarehouseAction(registry),
 		})), nil
 	}
 
-	if config.Warehouse.Type != "bigquery" {
+	provider, err := registry.Provider(config.Warehouse.Type)
+	if err != nil {
 		return resultFor(envelope, eval.withBlocker(blocker{
 			StageID:     stageWarehouseType,
 			Status:      statusInvalid,
-			NextAction:  unsupportedWarehouseAction(),
+			NextAction:  unsupportedWarehouseAction(registry),
 			Diagnostics: unsupportedWarehouseDiagnostics(config.Warehouse.Type),
 		})), nil
 	}
 	eval.complete(stageWarehouseType)
 
-	authName := warehouseAuthName(config)
-	hasCredential, err := credentialStore.HasBigQueryCredential(authName)
+	authName := warehouseAuthName(config, provider)
+	hasCredential, err := credentialStore.HasCredential(config.Warehouse.Type, authName)
 	if err != nil {
 		return Result{}, err
 	}
@@ -134,23 +140,23 @@ func (service Service) Evaluate(ctx context.Context, options Options) (Result, e
 		return resultFor(envelope, eval.withBlocker(blocker{
 			StageID:    stageWarehouseAuth,
 			Status:     statusMissing,
-			NextAction: authenticateWarehouseAction(),
+			NextAction: authenticateWarehouseAction(provider),
 		})), nil
 	}
 	eval.complete(stageWarehouseAuth)
 
-	diagnostics := configDiagnostics(config)
+	diagnostics := provider.ConfigDiagnostics(config.Warehouse)
 	if len(diagnostics) > 0 {
 		return resultFor(envelope, eval.withBlocker(blocker{
 			StageID:     stageWarehouseConfig,
 			Status:      statusInvalid,
-			NextAction:  configureWarehouseAction(),
+			NextAction:  configureWarehouseAction(provider),
 			Diagnostics: diagnostics,
 		})), nil
 	}
 	eval.complete(stageWarehouseConfig)
 
-	verified, err := credentialStore.HasMatchingAccessMarker(authName, config.Warehouse.Project, config.Warehouse.Dataset, config.Warehouse.Location)
+	verified, err := credentialStore.HasMatchingAccessMarker(config.Warehouse.Type, authName, config.Warehouse)
 	if err != nil {
 		return Result{}, err
 	}
@@ -210,18 +216,31 @@ func (service Service) Evaluate(ctx context.Context, options Options) (Result, e
 	return resultFor(envelope, eval), nil
 }
 
-func baseEnvelope(config project.Config) cliresult.Envelope {
+func baseEnvelope(config project.Config, registry warehouse.Registry) cliresult.Envelope {
 	warehouseName := config.Warehouse.Type
 	var warehouse *string
 	if warehouseName != "" {
 		warehouse = &warehouseName
 	}
 
+	authMethods := []string{}
+	if warehouseName != "" {
+		if provider, err := registry.Provider(warehouseName); err == nil {
+			authMethods = provider.AuthMethods()
+		}
+	}
+	if len(authMethods) == 0 {
+		for _, provider := range registry.Providers() {
+			authMethods = provider.AuthMethods()
+			break
+		}
+	}
+
 	return cliresult.Envelope{
 		SchemaVersion: cliresult.SchemaVersion,
 		Warehouse:     warehouse,
 		Capabilities: cliresult.Capabilities{
-			AuthMethods: []string{"oauth", "service_account_key"},
+			AuthMethods: authMethods,
 		},
 	}
 }
@@ -286,122 +305,47 @@ func completedStageStatus(id stageID) string {
 	return statusSatisfied
 }
 
-func selectWarehouseAction() cliresult.NextAction {
+func selectWarehouseAction(registry warehouse.Registry) cliresult.NextAction {
+	var accepts []cliresult.NextActionAccept
+	for _, provider := range registry.Providers() {
+		accepts = append(accepts, provider.SelectWarehouseAccept())
+	}
 	return cliresult.NextAction{
-		Type:   actionHumanInput,
-		Stage:  string(stageWarehouseType),
-		Reason: "Select the warehouse SegmentStream should use.",
-		Accepts: []cliresult.NextActionAccept{
-			{
-				Method:  "bigquery",
-				Label:   "Use BigQuery",
-				Command: "segmentstream init --warehouse bigquery",
-				Value:   "bigquery",
-			},
-		},
-		Verify: initVerifyCommand,
+		Type:    actionHumanInput,
+		Stage:   string(stageWarehouseType),
+		Reason:  "Select the warehouse SegmentStream should use.",
+		Accepts: accepts,
+		Verify:  initVerifyCommand,
 	}
 }
 
-func unsupportedWarehouseAction() cliresult.NextAction {
+func unsupportedWarehouseAction(registry warehouse.Registry) cliresult.NextAction {
 	return cliresult.NextAction{
-		Type:   actionHumanInput,
-		Stage:  string(stageWarehouseType),
-		Reason: "Only BigQuery is available in this release.",
-		Accepts: []cliresult.NextActionAccept{
-			{
-				Method:  "bigquery",
-				Label:   "Use BigQuery",
-				Command: "segmentstream init --warehouse bigquery",
-				Value:   "bigquery",
-			},
-		},
-		Verify: initVerifyCommand,
+		Type:    actionHumanInput,
+		Stage:   string(stageWarehouseType),
+		Reason:  "The configured warehouse is not available in this release.",
+		Accepts: selectWarehouseAction(registry).Accepts,
+		Verify:  initVerifyCommand,
 	}
 }
 
-func authenticateWarehouseAction() cliresult.NextAction {
+func authenticateWarehouseAction(provider warehouse.Provider) cliresult.NextAction {
 	return cliresult.NextAction{
-		Type:   actionHumanInput,
-		Stage:  string(stageWarehouseAuth),
-		Reason: "No BigQuery credential is configured for the warehouse.",
-		Accepts: []cliresult.NextActionAccept{
-			{
-				Method:  "oauth",
-				Label:   "Google OAuth",
-				Command: oauthWarehouseCommand,
-				Inputs: []cliresult.NextActionInput{
-					{
-						Name:     "port",
-						Type:     "integer",
-						Flag:     "--port",
-						Label:    "OAuth loopback callback port",
-						Required: false,
-					},
-				},
-			},
-			{
-				Method:  "service_account_key",
-				Label:   "Service-account key file",
-				Command: serviceAccountWarehouseCommand,
-				Inputs: []cliresult.NextActionInput{
-					{
-						Name:     "path",
-						Type:     "filepath",
-						Flag:     "--service-account-key",
-						Label:    "Service-account JSON key path",
-						Required: true,
-					},
-				},
-			},
-		},
-		Verify: initVerifyCommand,
+		Type:    actionHumanInput,
+		Stage:   string(stageWarehouseAuth),
+		Reason:  fmt.Sprintf("No %s credential is configured for the warehouse.", provider.DisplayName()),
+		Accepts: provider.AuthenticateAccepts(),
+		Verify:  initVerifyCommand,
 	}
 }
 
-func configureWarehouseAction() cliresult.NextAction {
+func configureWarehouseAction(provider warehouse.Provider) cliresult.NextAction {
 	return cliresult.NextAction{
-		Type:   actionHumanInput,
-		Stage:  string(stageWarehouseConfig),
-		Reason: "Warehouse project, dataset, or location is not configured.",
-		Accepts: []cliresult.NextActionAccept{
-			{
-				Method:  "warehouse_config",
-				Label:   "Configure BigQuery warehouse",
-				Command: configureWarehouseCommand,
-				Inputs: []cliresult.NextActionInput{
-					{
-						Name:     "project",
-						Type:     "string",
-						Flag:     "--project",
-						Label:    "Google Cloud project ID",
-						Required: true,
-					},
-					{
-						Name:     "dataset",
-						Type:     "string",
-						Flag:     "--dataset",
-						Label:    "BigQuery dataset ID",
-						Required: true,
-					},
-					{
-						Name:     "location",
-						Type:     "string",
-						Flag:     "--location",
-						Label:    "BigQuery dataset location",
-						Required: true,
-					},
-					{
-						Name:     "create_dataset",
-						Type:     "boolean",
-						Flag:     "--create-dataset",
-						Label:    "Create the BigQuery dataset if missing",
-						Required: false,
-					},
-				},
-			},
-		},
-		Verify: initVerifyCommand,
+		Type:    actionHumanInput,
+		Stage:   string(stageWarehouseConfig),
+		Reason:  "Warehouse project, dataset, or location is not configured.",
+		Accepts: []cliresult.NextActionAccept{provider.ConfigureAccept()},
+		Verify:  initVerifyCommand,
 	}
 }
 
@@ -463,68 +407,9 @@ func unsupportedWarehouseDiagnostics(warehouseType string) []cliresult.Diagnosti
 	}}
 }
 
-func warehouseAuthName(config project.Config) string {
+func warehouseAuthName(config project.Config, provider warehouse.Provider) string {
 	if config.Warehouse.Auth != "" {
 		return config.Warehouse.Auth
 	}
-	return defaultBigQueryAuth
-}
-
-func configDiagnostics(config project.Config) []cliresult.Diagnostic {
-	var diagnostics []cliresult.Diagnostic
-	if config.Warehouse.Auth == "" {
-		diagnostics = append(diagnostics, cliresult.Diagnostic{
-			ID:         "missing_auth",
-			Field:      "warehouse.auth",
-			Message:    "warehouse.auth is required.",
-			Suggestion: defaultBigQueryAuth,
-		})
-	}
-	if config.Warehouse.Project == "" || config.Warehouse.Project == "your-gcp-project" {
-		diagnostics = append(diagnostics, cliresult.Diagnostic{
-			ID:      "missing_project",
-			Field:   "warehouse.project",
-			Message: "warehouse.project must be set to a real Google Cloud project ID.",
-		})
-	}
-	if config.Warehouse.Dataset == "" {
-		diagnostics = append(diagnostics, cliresult.Diagnostic{
-			ID:      "missing_dataset",
-			Field:   "warehouse.dataset",
-			Message: "warehouse.dataset must be set to a BigQuery dataset ID.",
-		})
-	} else if err := project.ValidateBigQueryDatasetID(config.Warehouse.Dataset); err != nil {
-		diagnostics = append(diagnostics, cliresult.Diagnostic{
-			ID:         "invalid_dataset",
-			Field:      "warehouse.dataset",
-			Message:    err.Error(),
-			Suggestion: suggestedDataset(config.Warehouse.Dataset),
-		})
-	}
-	if config.Warehouse.Location == "" {
-		diagnostics = append(diagnostics, cliresult.Diagnostic{
-			ID:         "missing_location",
-			Field:      "warehouse.location",
-			Message:    "warehouse.location must be set to the BigQuery dataset location.",
-			Suggestion: project.DefaultLocation,
-		})
-	}
-	return diagnostics
-}
-
-func suggestedDataset(dataset string) string {
-	if dataset == "" {
-		return ""
-	}
-	out := []rune(dataset)
-	for i, char := range out {
-		if (char >= 'a' && char <= 'z') ||
-			(char >= 'A' && char <= 'Z') ||
-			(char >= '0' && char <= '9') ||
-			char == '_' {
-			continue
-		}
-		out[i] = '_'
-	}
-	return string(out)
+	return provider.DefaultAuthName()
 }
