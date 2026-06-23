@@ -75,9 +75,9 @@ segmentstream source scaffold ga4 --type events
 ```
 
 This scaffolds `sources/ga4/` as a source template with a pinned `contract.yml`,
-an `IMPLEMENTATION_GUIDE.md`, dbt verification tests, and one author-editable
-model: `sources/ga4/models/events.sql`. The scaffold is not implemented yet;
-read the guide before editing the source.
+a `README.md`, dbt verification tests, and one author-editable model:
+`sources/ga4/models/events.sql`. The scaffold is not implemented yet; read the
+README to understand the source package and output contract.
 
 Declare the source in `segmentstream.yml`:
 
@@ -171,6 +171,21 @@ If the dataset does not exist yet, create it explicitly:
 segmentstream warehouse configure --project my-gcp-project --dataset segmentstream --location US --create-dataset
 ```
 
+If source tables are in a different BigQuery location than the newly created
+SegmentStream dataset, recreate the configured dataset in the source location.
+This is intended for initial scaffolding when the SegmentStream dataset is still
+empty:
+
+```sh
+segmentstream warehouse destroy --json
+segmentstream warehouse configure --project my-gcp-project --dataset segmentstream --location EU --create-dataset --json
+segmentstream warehouse test --json
+```
+
+`warehouse destroy` only targets the project and dataset configured in the
+current `segmentstream.yml`. It refuses to delete datasets that contain tables
+or views unless you pass `--force`.
+
 The resulting `segmentstream.yml` should look like:
 
 ```yaml
@@ -256,6 +271,11 @@ runs a dry-run-verified read-only SELECT query and returns rows.
 `segmentstream warehouse configure --project --dataset --location [--create-dataset]`
 validates and writes warehouse settings. Use `--create-dataset` to create a
 missing BigQuery dataset explicitly.
+
+`segmentstream warehouse destroy [--force] [--json]` deletes the configured
+warehouse dataset and clears `warehouse.project`, `warehouse.dataset`, and
+`warehouse.location` from `segmentstream.yml`. Without `--force`, BigQuery
+datasets must have no tables or views.
 
 `segmentstream warehouse test [--json]` checks BigQuery connect, read, create
 table, and query permissions.

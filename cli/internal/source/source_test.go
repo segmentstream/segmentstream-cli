@@ -71,11 +71,11 @@ func TestCreateScaffoldsSourcePackageFromContract(t *testing.T) {
 
 	expectedFiles := []string{
 		".gitignore",
-		"IMPLEMENTATION_GUIDE.md",
 		"contract.yml",
 		"dbt_project.yml",
 		filepath.Join("models", "events.sql"),
 		filepath.Join("models", "schema.yml"),
+		"README.md",
 		"source.yml",
 		filepath.Join("tests", "verify_events_contract.sql"),
 		filepath.Join("tests", "verify_events_non_empty.sql"),
@@ -87,7 +87,7 @@ func TestCreateScaffoldsSourcePackageFromContract(t *testing.T) {
 		}
 	}
 	for _, relative := range []string{
-		"README.md",
+		"IMPLEMENTATION_GUIDE.md",
 		"macros",
 		"seeds",
 		"snapshots",
@@ -97,18 +97,19 @@ func TestCreateScaffoldsSourcePackageFromContract(t *testing.T) {
 		assertMissing(t, filepath.Join(source.Path, relative))
 	}
 
-	guide, err := os.ReadFile(filepath.Join(source.Path, "IMPLEMENTATION_GUIDE.md"))
+	readme, err := os.ReadFile(filepath.Join(source.Path, "README.md"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	for _, want := range []string{
-		"# ga4 Source Implementation Guide",
+		"# ga4 Events Source",
+		"generated SegmentStream source scaffold",
+		"contract.yml",
 		"models/schema.yml",
-		"segmentstream source verify ga4",
-		"segmentstream warehouse browse",
+		"Output Schema",
 	} {
-		if !strings.Contains(string(guide), want) {
-			t.Fatalf("IMPLEMENTATION_GUIDE.md does not contain %q:\n%s", want, string(guide))
+		if !strings.Contains(string(readme), want) {
+			t.Fatalf("README.md does not contain %q:\n%s", want, string(readme))
 		}
 	}
 

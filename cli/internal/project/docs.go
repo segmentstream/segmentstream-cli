@@ -94,9 +94,10 @@ segmentstream source verify ga4
 ` + "```" + `
 
 This scaffolds ` + "`sources/ga4/`" + ` as a source template with a pinned
-` + "`contract.yml`" + ` snapshot, ` + "`IMPLEMENTATION_GUIDE.md`" + `, dbt verification
-tests, and one author-editable model: ` + "`sources/ga4/models/events.sql`" + `. The
-scaffold is not implemented yet; read the guide before editing the source.
+` + "`contract.yml`" + ` snapshot, ` + "`README.md`" + `, dbt verification tests, and one
+author-editable model: ` + "`sources/ga4/models/events.sql`" + `. The scaffold is not
+implemented yet; read the README to understand the source package and output
+contract.
 
 Declare the source in ` + "`segmentstream.yml`" + `:
 

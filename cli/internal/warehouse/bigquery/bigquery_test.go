@@ -390,6 +390,133 @@ func TestValidateConfigurationCreateConflictRefetchesDataset(t *testing.T) {
 	}
 }
 
+func TestDestroyAbsentDatasetIsNoop(t *testing.T) {
+	var deleteRequests int
+	connector, cleanup := connectorWithBigQueryServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == http.MethodGet && r.URL.Path == "/bigquery/v2/projects/example-project/datasets/dataset_one":
+			writeGoogleError(w, http.StatusNotFound, "Not found: Dataset example-project:dataset_one")
+		case r.Method == http.MethodDelete:
+			deleteRequests++
+			w.WriteHeader(http.StatusNoContent)
+		default:
+			t.Fatalf("unexpected request %s %s", r.Method, r.URL.Path)
+		}
+	}))
+	defer cleanup()
+
+	result, err := connector.Destroy(context.Background(), "unused.json", validWarehouseConfig(), warehouse.DestroyOptions{})
+	if err != nil {
+		t.Fatalf("Destroy failed: %v", err)
+	}
+	if result.Status != "absent" || result.Project != "example-project" || result.Dataset != "dataset_one" {
+		t.Fatalf("result = %+v, want absent dataset result", result)
+	}
+	if deleteRequests != 0 {
+		t.Fatalf("delete requests = %d, want none", deleteRequests)
+	}
+}
+
+func TestDestroyEmptyDatasetDeletesWithoutDeleteContents(t *testing.T) {
+	var deleteRequests int
+	var deleteContents string
+	connector, cleanup := connectorWithBigQueryServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == http.MethodGet && r.URL.Path == "/bigquery/v2/projects/example-project/datasets/dataset_one":
+			w.Header().Set("Content-Type", "application/json")
+			fmt.Fprint(w, `{"datasetReference":{"projectId":"example-project","datasetId":"dataset_one"},"location":"EU"}`)
+		case r.Method == http.MethodGet && r.URL.Path == "/bigquery/v2/projects/example-project/datasets/dataset_one/tables":
+			if r.URL.Query().Get("maxResults") != "1" {
+				t.Fatalf("maxResults = %q, want 1", r.URL.Query().Get("maxResults"))
+			}
+			w.Header().Set("Content-Type", "application/json")
+			fmt.Fprint(w, `{}`)
+		case r.Method == http.MethodDelete && r.URL.Path == "/bigquery/v2/projects/example-project/datasets/dataset_one":
+			deleteRequests++
+			deleteContents = r.URL.Query().Get("deleteContents")
+			w.WriteHeader(http.StatusNoContent)
+		default:
+			t.Fatalf("unexpected request %s %s", r.Method, r.URL.Path)
+		}
+	}))
+	defer cleanup()
+
+	result, err := connector.Destroy(context.Background(), "unused.json", validWarehouseConfig(), warehouse.DestroyOptions{})
+	if err != nil {
+		t.Fatalf("Destroy failed: %v", err)
+	}
+	if result.Status != "destroyed" {
+		t.Fatalf("result = %+v, want destroyed", result)
+	}
+	if deleteRequests != 1 || deleteContents != "" {
+		t.Fatalf("delete requests = %d deleteContents=%q, want one delete without deleteContents", deleteRequests, deleteContents)
+	}
+}
+
+func TestDestroyNonEmptyDatasetRequiresForce(t *testing.T) {
+	var deleteRequests int
+	connector, cleanup := connectorWithBigQueryServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == http.MethodGet && r.URL.Path == "/bigquery/v2/projects/example-project/datasets/dataset_one":
+			w.Header().Set("Content-Type", "application/json")
+			fmt.Fprint(w, `{"datasetReference":{"projectId":"example-project","datasetId":"dataset_one"},"location":"EU"}`)
+		case r.Method == http.MethodGet && r.URL.Path == "/bigquery/v2/projects/example-project/datasets/dataset_one/tables":
+			w.Header().Set("Content-Type", "application/json")
+			fmt.Fprint(w, `{"tables":[{"tableReference":{"projectId":"example-project","datasetId":"dataset_one","tableId":"events"},"type":"TABLE"}]}`)
+		case r.Method == http.MethodDelete:
+			deleteRequests++
+			w.WriteHeader(http.StatusNoContent)
+		default:
+			t.Fatalf("unexpected request %s %s", r.Method, r.URL.Path)
+		}
+	}))
+	defer cleanup()
+
+	result, err := connector.Destroy(context.Background(), "unused.json", validWarehouseConfig(), warehouse.DestroyOptions{})
+	if err != nil {
+		t.Fatalf("Destroy failed: %v", err)
+	}
+	if result.Status != "not_empty" || !strings.Contains(result.Message, "--force") {
+		t.Fatalf("result = %+v, want not_empty with force guidance", result)
+	}
+	if deleteRequests != 0 {
+		t.Fatalf("delete requests = %d, want none", deleteRequests)
+	}
+}
+
+func TestDestroyNonEmptyDatasetWithForceDeletesContents(t *testing.T) {
+	var deleteRequests int
+	var deleteContents string
+	connector, cleanup := connectorWithBigQueryServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == http.MethodGet && r.URL.Path == "/bigquery/v2/projects/example-project/datasets/dataset_one":
+			w.Header().Set("Content-Type", "application/json")
+			fmt.Fprint(w, `{"datasetReference":{"projectId":"example-project","datasetId":"dataset_one"},"location":"EU"}`)
+		case r.Method == http.MethodGet && r.URL.Path == "/bigquery/v2/projects/example-project/datasets/dataset_one/tables":
+			w.Header().Set("Content-Type", "application/json")
+			fmt.Fprint(w, `{"tables":[{"tableReference":{"projectId":"example-project","datasetId":"dataset_one","tableId":"events"},"type":"TABLE"}]}`)
+		case r.Method == http.MethodDelete && r.URL.Path == "/bigquery/v2/projects/example-project/datasets/dataset_one":
+			deleteRequests++
+			deleteContents = r.URL.Query().Get("deleteContents")
+			w.WriteHeader(http.StatusNoContent)
+		default:
+			t.Fatalf("unexpected request %s %s", r.Method, r.URL.Path)
+		}
+	}))
+	defer cleanup()
+
+	result, err := connector.Destroy(context.Background(), "unused.json", validWarehouseConfig(), warehouse.DestroyOptions{Force: true})
+	if err != nil {
+		t.Fatalf("Destroy failed: %v", err)
+	}
+	if result.Status != "destroyed" {
+		t.Fatalf("result = %+v, want destroyed", result)
+	}
+	if deleteRequests != 1 || deleteContents != "true" {
+		t.Fatalf("delete requests = %d deleteContents=%q, want force delete", deleteRequests, deleteContents)
+	}
+}
+
 func TestNewServiceAcceptsAuthorizedUserCredentialFile(t *testing.T) {
 	root := t.TempDir()
 	path := filepath.Join(root, "credential.json")
@@ -717,6 +844,57 @@ func TestQueryReturnsExecutionDiagnostic(t *testing.T) {
 		Timeout: 30 * time.Second,
 	})
 	assertQueryError(t, err, "query_execution_failed")
+}
+
+func TestQueryLocationMismatchReturnsRecoveryActions(t *testing.T) {
+	connector, cleanup := connectorWithBigQueryServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == http.MethodPost && r.URL.Path == "/bigquery/v2/projects/example-project/jobs":
+			w.Header().Set("Content-Type", "application/json")
+			fmt.Fprint(w, `{"statistics":{"query":{"statementType":"SELECT"}}}`)
+		case r.Method == http.MethodPost && r.URL.Path == "/bigquery/v2/projects/example-project/queries":
+			writeGoogleError(w, http.StatusNotFound, "Not found: Dataset raw-project:raw_dataset was not found in location US")
+		case r.Method == http.MethodGet && r.URL.Path == "/bigquery/v2/projects/raw-project/datasets/raw_dataset":
+			w.Header().Set("Content-Type", "application/json")
+			fmt.Fprint(w, `{"datasetReference":{"projectId":"raw-project","datasetId":"raw_dataset"},"location":"EU"}`)
+		default:
+			t.Fatalf("unexpected request %s %s", r.Method, r.URL.Path)
+		}
+	}))
+	defer cleanup()
+
+	config := validWarehouseConfig()
+	config.Dataset = "segmentstream"
+	config.Location = "US"
+	_, err := connector.Query(context.Background(), "unused.json", config, warehouse.QueryOptions{
+		SQL:     "SELECT * FROM `raw-project.raw_dataset.events` LIMIT 5",
+		MaxRows: 100,
+		Timeout: 30 * time.Second,
+	})
+	var queryErr warehouse.QueryError
+	if !errors.As(err, &queryErr) {
+		t.Fatalf("error = %v, want warehouse.QueryError", err)
+	}
+	if len(queryErr.Diagnostics) != 1 || queryErr.Diagnostics[0].ID != "query_location_mismatch" {
+		t.Fatalf("diagnostics = %+v, want query_location_mismatch", queryErr.Diagnostics)
+	}
+	for _, want := range []string{
+		"BigQuery looked for source dataset raw-project.raw_dataset in warehouse.location US, but it is in EU.",
+		"Not found: Dataset raw-project:raw_dataset was not found in location US",
+	} {
+		if !strings.Contains(queryErr.Diagnostics[0].Message, want) {
+			t.Fatalf("diagnostic message = %q, want %q", queryErr.Diagnostics[0].Message, want)
+		}
+	}
+	if queryErr.Diagnostics[0].Suggestion != "Recreate the configured SegmentStream dataset example-project.segmentstream in EU, then rerun warehouse test." {
+		t.Fatalf("suggestion = %q, want clear recreate guidance", queryErr.Diagnostics[0].Suggestion)
+	}
+	if len(queryErr.Actions) != 2 ||
+		queryErr.Actions[0].Command != "segmentstream warehouse destroy --json" ||
+		!strings.Contains(queryErr.Actions[1].Command, "--location EU") ||
+		!strings.Contains(queryErr.Actions[1].Command, "--create-dataset") {
+		t.Fatalf("actions = %+v, want destroy and reconfigure commands", queryErr.Actions)
+	}
 }
 
 func TestQueryCancelsIncompleteJob(t *testing.T) {

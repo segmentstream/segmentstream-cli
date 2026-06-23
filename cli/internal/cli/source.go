@@ -143,9 +143,8 @@ func newSourceScaffoldCommand(out io.Writer, commandContext structuredCommandCon
 		Use:   "scaffold <name> --type <contract>",
 		Short: "Scaffold a source template from a contract",
 		Long: "Scaffold a local source template from a contract.\n\n" +
-			"The generated source is not implemented yet. Read IMPLEMENTATION_GUIDE.md\n" +
-			"inside the generated source directory, then declare raw inputs and write\n" +
-			"the source model SQL.",
+			"The generated source is not implemented yet. Read README.md inside the\n" +
+			"generated source directory to understand the scaffold and its contract.",
 		Args:    cobra.ExactArgs(1),
 		Command: "source.scaffold",
 	}, func(ctx context.Context, args []string) (cliresult.Response, error) {
@@ -292,9 +291,9 @@ func sourceScaffoldJSON(source sourcepkg.Source) sourceScaffoldResult {
 		Contract:     source.Contract,
 		Actions: []sourceScaffoldAction{
 			{
-				Type:    "read_implementation_guide",
-				Path:    sourceImplementationGuidePath(source),
-				Message: "Read this guide to implement the source package.",
+				Type:    "read_scaffold_readme",
+				Path:    sourceReadmePath(source),
+				Message: "Read this README to understand the source scaffold.",
 			},
 		},
 	}
@@ -367,8 +366,8 @@ func (result sourceScaffoldResult) HumanDocument() cliresult.Document {
 		fmt.Fprintln(out)
 		fmt.Fprintln(out, "Next action:")
 		for _, action := range result.Actions {
-			if action.Type == "read_implementation_guide" && action.Path != "" {
-				fmt.Fprintf(out, "- Read %s to implement this source.\n", action.Path)
+			if action.Type == "read_scaffold_readme" && action.Path != "" {
+				fmt.Fprintf(out, "- Read %s to understand this source scaffold.\n", action.Path)
 			}
 		}
 	})
@@ -386,6 +385,6 @@ func sourceRelativePath(source sourcepkg.Source) string {
 	return filepath.ToSlash(filepath.Join(sourcepkg.SourcesDirName, source.Name))
 }
 
-func sourceImplementationGuidePath(source sourcepkg.Source) string {
-	return filepath.ToSlash(filepath.Join(sourceRelativePath(source), "IMPLEMENTATION_GUIDE.md"))
+func sourceReadmePath(source sourcepkg.Source) string {
+	return filepath.ToSlash(filepath.Join(sourceRelativePath(source), "README.md"))
 }
