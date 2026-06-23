@@ -36,7 +36,7 @@ checksum:
 release:
   github:
     owner: segmentstream
-    name: segmentstream-cli
+    name: segmentstream
   mode: keep-existing
   replace_existing_artifacts: true
   extra_files:
