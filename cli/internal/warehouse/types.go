@@ -32,6 +32,7 @@ type Provider interface {
 	DBTProfileYAML(project.Warehouse) string
 	Browse(ctx context.Context, credentialPath string, path string) (BrowseResult, error)
 	ValidateConfiguration(ctx context.Context, credentialPath string, config project.Warehouse, options ConfigureOptions) (ConfigureResult, error)
+	Destroy(ctx context.Context, credentialPath string, config project.Warehouse, options DestroyOptions) (DestroyResult, error)
 	Test(ctx context.Context, credentialPath string, config project.Warehouse) (TestResult, error)
 	Query(ctx context.Context, credentialPath string, config project.Warehouse, options QueryOptions) ([]map[string]any, error)
 }
@@ -49,6 +50,10 @@ type EnvVar struct {
 
 type ConfigureOptions struct {
 	CreateDataset bool
+}
+
+type DestroyOptions struct {
+	Force bool
 }
 
 type QueryOptions struct {
@@ -122,6 +127,15 @@ type ConfigureResult struct {
 	Diagnostics   []cliresult.Diagnostic `json:"diagnostics,omitempty"`
 }
 
+type DestroyResult struct {
+	SchemaVersion string `json:"schema_version"`
+	Warehouse     string `json:"warehouse"`
+	Project       string `json:"project"`
+	Dataset       string `json:"dataset"`
+	Status        string `json:"status"`
+	Message       string `json:"message"`
+}
+
 type Validation struct {
 	ID      string `json:"id"`
 	Field   string `json:"field,omitempty"`
@@ -144,9 +158,14 @@ type AccessCheck struct {
 
 type QueryError struct {
 	Diagnostics []cliresult.Diagnostic
+	Actions     []cliresult.Action
 }
 
 func NewQueryError(id, field, message, suggestion string) QueryError {
+	return NewQueryErrorWithActions(id, field, message, suggestion, nil)
+}
+
+func NewQueryErrorWithActions(id, field, message, suggestion string, actions []cliresult.Action) QueryError {
 	return QueryError{
 		Diagnostics: []cliresult.Diagnostic{{
 			ID:         id,
@@ -154,6 +173,7 @@ func NewQueryError(id, field, message, suggestion string) QueryError {
 			Message:    message,
 			Suggestion: suggestion,
 		}},
+		Actions: actions,
 	}
 }
 
@@ -191,6 +211,17 @@ func NewConfigureResult(warehouseType string, validations []Validation, diagnost
 		Status:        status,
 		Validations:   validations,
 		Diagnostics:   diagnostics,
+	}
+}
+
+func NewDestroyResult(warehouseType, projectID, datasetID, status, message string) DestroyResult {
+	return DestroyResult{
+		SchemaVersion: cliresult.SchemaVersion,
+		Warehouse:     warehouseType,
+		Project:       projectID,
+		Dataset:       datasetID,
+		Status:        status,
+		Message:       message,
 	}
 }
 

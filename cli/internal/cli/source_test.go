@@ -32,7 +32,7 @@ func TestSourceContractsJSONOutput(t *testing.T) {
 	}
 }
 
-func TestSourceScaffoldPointsToImplementationGuide(t *testing.T) {
+func TestSourceScaffoldPointsToReadme(t *testing.T) {
 	root := t.TempDir()
 	withWorkingDirectory(t, root)
 	writeValidConfig(t, root)
@@ -46,7 +46,7 @@ func TestSourceScaffoldPointsToImplementationGuide(t *testing.T) {
 		t.Fatalf("source scaffold failed: %v", err)
 	}
 
-	assertFileExists(t, filepath.Join(root, "sources", "ga4", "IMPLEMENTATION_GUIDE.md"))
+	assertFileExists(t, filepath.Join(root, "sources", "ga4", "README.md"))
 
 	var result sourceScaffoldResult
 	response := decodeJSONResponseData(t, out.Bytes(), &result)
@@ -54,9 +54,9 @@ func TestSourceScaffoldPointsToImplementationGuide(t *testing.T) {
 		t.Fatalf("command = %q, want source.scaffold", response.Command)
 	}
 	if len(result.Actions) != 1 ||
-		result.Actions[0].Type != "read_implementation_guide" ||
+		result.Actions[0].Type != "read_scaffold_readme" ||
 		result.Actions[0].Path == "" {
-		t.Fatalf("actions = %+v, want a single implementation guide action", result.Actions)
+		t.Fatalf("actions = %+v, want a single README action", result.Actions)
 	}
 }
 

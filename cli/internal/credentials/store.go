@@ -64,7 +64,7 @@ func (store Store) SaveCredentialData(warehouseType, name string, data []byte) (
 	if err := os.WriteFile(path, data, 0o600); err != nil {
 		return "", fmt.Errorf("write %s credential: %w", warehouseType, err)
 	}
-	if err := store.deleteAccessMarker(warehouseType, name); err != nil {
+	if err := store.DeleteAccessMarker(warehouseType, name); err != nil {
 		return "", err
 	}
 	return path, nil
@@ -126,7 +126,7 @@ func (store Store) accessMarkerPath(warehouseType, name string) (string, error) 
 	return filepath.Join(root, name+accessMarkerSuffix), nil
 }
 
-func (store Store) deleteAccessMarker(warehouseType, name string) error {
+func (store Store) DeleteAccessMarker(warehouseType, name string) error {
 	path, err := store.accessMarkerPath(warehouseType, name)
 	if err != nil {
 		return err

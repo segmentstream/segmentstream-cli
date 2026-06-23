@@ -365,6 +365,176 @@ func TestWarehouseConfigureHelpIncludesCreateDataset(t *testing.T) {
 	}
 }
 
+func TestWarehouseDestroyJSONClearsConfiguredDatasetAndAccessMarker(t *testing.T) {
+	root := t.TempDir()
+	withWorkingDirectory(t, root)
+	home := filepath.Join(root, "home")
+	writeConfig(t, root, `version: 1
+warehouse:
+  type: bigquery
+  auth: production-bigquery
+  project: example-project
+  dataset: segmentstream
+  location: EU
+`)
+	fake := &fakeWarehouseConnector{
+		destroyResult: warehouse.NewDestroyResult("bigquery", "example-project", "segmentstream", "destroyed", "Destroyed dataset example-project:segmentstream."),
+	}
+	if err := fake.SaveAccessMarker(credentials.Store{HomeDir: home}, "production-bigquery", project.Warehouse{
+		Type:     "bigquery",
+		Auth:     "production-bigquery",
+		Project:  "example-project",
+		Dataset:  "segmentstream",
+		Location: "EU",
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	var out bytes.Buffer
+	var errOut bytes.Buffer
+	cmd := newRootCommand(&out, &errOut, cliOptions{
+		Credentials:       credentials.Store{HomeDir: home},
+		WarehouseRegistry: warehouse.NewRegistry(fake),
+	})
+	cmd.SetArgs([]string{"warehouse", "destroy", "--json"})
+
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("warehouse destroy failed: %v", err)
+	}
+	if !fake.destroyCalled {
+		t.Fatal("destroy connector was not called")
+	}
+	if fake.destroyOptions.Force {
+		t.Fatal("Force option = true, want false")
+	}
+	if fake.config.Project != "example-project" || fake.config.Dataset != "segmentstream" || fake.config.Location != "EU" {
+		t.Fatalf("destroy config = %+v, want configured dataset", fake.config)
+	}
+	config, exists, err := (project.Store{Root: root}).LoadPartial()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !exists {
+		t.Fatal("segmentstream.yml was removed")
+	}
+	if config.Warehouse.Type != "bigquery" || config.Warehouse.Auth != "production-bigquery" {
+		t.Fatalf("warehouse type/auth = %+v, want preserved", config.Warehouse)
+	}
+	if config.Warehouse.Project != "" || config.Warehouse.Dataset != "" || config.Warehouse.Location != "" {
+		t.Fatalf("warehouse project/dataset/location = %+v, want cleared", config.Warehouse)
+	}
+	matches, err := fake.HasMatchingAccessMarker(credentials.Store{HomeDir: home}, "production-bigquery", project.Warehouse{
+		Project:  "example-project",
+		Dataset:  "segmentstream",
+		Location: "EU",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if matches {
+		t.Fatal("access marker still matches after destroy")
+	}
+	var result warehouse.DestroyResult
+	decodeJSONResponseData(t, out.Bytes(), &result)
+	if result.Status != "destroyed" || result.Project != "example-project" || result.Dataset != "segmentstream" {
+		t.Fatalf("destroy result = %+v, want destroyed dataset", result)
+	}
+}
+
+func TestWarehouseDestroyForceForwardsOption(t *testing.T) {
+	root := t.TempDir()
+	withWorkingDirectory(t, root)
+	writeConfig(t, root, `version: 1
+warehouse:
+  type: bigquery
+  auth: production-bigquery
+  project: example-project
+  dataset: segmentstream
+  location: EU
+`)
+	fake := &fakeWarehouseConnector{
+		destroyResult: warehouse.NewDestroyResult("bigquery", "example-project", "segmentstream", "destroyed", "Destroyed dataset example-project:segmentstream."),
+	}
+
+	var out bytes.Buffer
+	var errOut bytes.Buffer
+	cmd := newRootCommand(&out, &errOut, cliOptions{
+		Credentials:       credentials.Store{HomeDir: filepath.Join(root, "home")},
+		WarehouseRegistry: warehouse.NewRegistry(fake),
+	})
+	cmd.SetArgs([]string{"warehouse", "destroy", "--force", "--json"})
+
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("warehouse destroy failed: %v", err)
+	}
+	if !fake.destroyOptions.Force {
+		t.Fatal("Force option = false, want true")
+	}
+}
+
+func TestWarehouseDestroyNonEmptyDatasetRequiresForce(t *testing.T) {
+	root := t.TempDir()
+	withWorkingDirectory(t, root)
+	writeConfig(t, root, `version: 1
+warehouse:
+  type: bigquery
+  auth: production-bigquery
+  project: example-project
+  dataset: segmentstream
+  location: EU
+`)
+	fake := &fakeWarehouseConnector{
+		destroyResult: warehouse.NewDestroyResult("bigquery", "example-project", "segmentstream", "not_empty", "Dataset example-project:segmentstream is not empty."),
+	}
+
+	var out bytes.Buffer
+	var errOut bytes.Buffer
+	cmd := newRootCommand(&out, &errOut, cliOptions{
+		Credentials:       credentials.Store{HomeDir: filepath.Join(root, "home")},
+		WarehouseRegistry: warehouse.NewRegistry(fake),
+	})
+	cmd.SetArgs([]string{"warehouse", "destroy", "--json"})
+
+	err := cmd.Execute()
+	if cliresult.ExitCode(err) != cliresult.ExitMisconfigured {
+		t.Fatalf("exit code = %d, want %d; err = %v", cliresult.ExitCode(err), cliresult.ExitMisconfigured, err)
+	}
+	if !strings.Contains(out.String(), "dataset_not_empty") || !strings.Contains(out.String(), "segmentstream warehouse destroy --force") {
+		t.Fatalf("warehouse destroy output = %s, want force diagnostic", out.String())
+	}
+	config, err := project.LoadConfig(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if config.Warehouse.Project != "example-project" || config.Warehouse.Dataset != "segmentstream" || config.Warehouse.Location != "EU" {
+		t.Fatalf("warehouse config = %+v, want unchanged", config.Warehouse)
+	}
+}
+
+func TestWarehouseDestroyHelpIncludesCommandAndForce(t *testing.T) {
+	var out bytes.Buffer
+	var errOut bytes.Buffer
+	cmd := newRootCommand(&out, &errOut, cliOptions{})
+	cmd.SetArgs([]string{"warehouse", "--help"})
+
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("warehouse --help failed: %v", err)
+	}
+	if !strings.Contains(out.String(), "destroy") {
+		t.Fatalf("help output = %s, want destroy command", out.String())
+	}
+
+	out.Reset()
+	cmd = newRootCommand(&out, &errOut, cliOptions{})
+	cmd.SetArgs([]string{"warehouse", "destroy", "--help"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("warehouse destroy --help failed: %v", err)
+	}
+	if !strings.Contains(out.String(), "--force") {
+		t.Fatalf("destroy help output = %s, want --force", out.String())
+	}
+}
+
 func TestWarehouseBrowseDoesNotRequireConfiguredProject(t *testing.T) {
 	root := t.TempDir()
 	withWorkingDirectory(t, root)
@@ -756,6 +926,9 @@ type fakeWarehouseConnector struct {
 	browsePath       string
 	configureResult  warehouse.ConfigureResult
 	configureOptions warehouse.ConfigureOptions
+	destroyResult    warehouse.DestroyResult
+	destroyOptions   warehouse.DestroyOptions
+	destroyCalled    bool
 	testResult       warehouse.TestResult
 	config           project.Warehouse
 	queryRows        []map[string]any
@@ -880,6 +1053,15 @@ func (connector *fakeWarehouseConnector) ValidateConfiguration(ctx context.Conte
 	connector.config = config
 	connector.configureOptions = options
 	return connector.configureResult, nil
+}
+
+func (connector *fakeWarehouseConnector) Destroy(ctx context.Context, credentialPath string, config project.Warehouse, options warehouse.DestroyOptions) (warehouse.DestroyResult, error) {
+	_ = ctx
+	_ = credentialPath
+	connector.destroyCalled = true
+	connector.config = config
+	connector.destroyOptions = options
+	return connector.destroyResult, nil
 }
 
 func (connector *fakeWarehouseConnector) Test(context.Context, string, project.Warehouse) (warehouse.TestResult, error) {

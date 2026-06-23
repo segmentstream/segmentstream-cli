@@ -41,6 +41,10 @@ type warehouseConfigureOptions struct {
 	CreateDataset bool
 }
 
+type warehouseDestroyOptions struct {
+	Force bool
+}
+
 type warehouseAuthResult struct {
 	SchemaVersion string `json:"schema_version"`
 	Warehouse     string `json:"warehouse"`
@@ -52,6 +56,7 @@ type warehouseAuthResult struct {
 type warehouseBrowseData warehouse.BrowseResult
 type warehouseQueryData []map[string]any
 type warehouseConfigureData warehouse.ConfigureResult
+type warehouseDestroyData warehouse.DestroyResult
 type warehouseTestData warehouse.TestResult
 
 const (
@@ -83,6 +88,7 @@ func newWarehouseCommand(out, errOut io.Writer, commandContext structuredCommand
 	cmd.AddCommand(newWarehouseBrowseCommand(out, commandContext, credentialStore, registry))
 	cmd.AddCommand(newWarehouseQueryCommand(out, commandContext, credentialStore, registry))
 	cmd.AddCommand(newWarehouseConfigureCommand(out, commandContext, credentialStore, registry))
+	cmd.AddCommand(newWarehouseDestroyCommand(out, commandContext, credentialStore, registry))
 	cmd.AddCommand(newWarehouseTestCommand(out, commandContext, credentialStore, registry))
 	return cmd
 }
@@ -256,7 +262,9 @@ func newWarehouseQueryCommand(out io.Writer, commandContext structuredCommandCon
 		if err != nil {
 			var queryErr warehouse.QueryError
 			if errors.As(err, &queryErr) {
-				return cliresult.Invalid("warehouse.query", nil, queryErr.Diagnostics), nil
+				response := cliresult.Invalid("warehouse.query", nil, queryErr.Diagnostics)
+				response.Actions = queryErr.Actions
+				return response, nil
 			}
 			return cliresult.Response{}, err
 		}
@@ -362,6 +370,91 @@ func newWarehouseConfigureCommand(out io.Writer, commandContext structuredComman
 	cmd.Flags().StringVar(&options.Dataset, "dataset", "", "BigQuery dataset ID")
 	cmd.Flags().StringVar(&options.Location, "location", "", "BigQuery dataset location, for example US or EU")
 	cmd.Flags().BoolVar(&options.CreateDataset, "create-dataset", false, "Create the BigQuery dataset if it is missing")
+	return cmd
+}
+
+func newWarehouseDestroyCommand(out io.Writer, commandContext structuredCommandContext, credentialStore credentials.Store, registry warehouse.Registry) *cobra.Command {
+	options := warehouseDestroyOptions{}
+	cmd := newStructuredCommand(out, nil, commandContext, structuredCommandSpec{
+		Use:   "destroy [--force]",
+		Short: "Destroy the configured warehouse dataset",
+		Long: "Destroy the warehouse dataset currently configured in segmentstream.yml.\n\n" +
+			"This command targets only warehouse.project and warehouse.dataset from the\n" +
+			"current project. For BigQuery, empty datasets are deleted normally; datasets\n" +
+			"with any tables or views require --force.",
+		Args:    cobra.NoArgs,
+		Command: "warehouse.destroy",
+	}, func(ctx context.Context, args []string) (cliresult.Response, error) {
+		projectRoot, err := os.Getwd()
+		if err != nil {
+			return cliresult.Response{}, fmt.Errorf("find current directory: %w", err)
+		}
+		store := project.Store{Root: projectRoot}
+		config, exists, err := store.LoadPartial()
+		if err != nil {
+			return cliresult.Response{}, err
+		}
+		if !exists || config.Warehouse.Type == "" {
+			return cliresult.Response{}, fmt.Errorf("%s does not select a warehouse; run segmentstream init --warehouse bigquery first", project.ConfigFileName)
+		}
+		provider, err := registry.Provider(config.Warehouse.Type)
+		if err != nil {
+			return cliresult.Response{}, err
+		}
+		if config.Warehouse.Auth == "" {
+			config.Warehouse.Auth = provider.DefaultAuthName()
+		}
+		var diagnostics []cliresult.Diagnostic
+		if strings.TrimSpace(config.Warehouse.Project) == "" {
+			diagnostics = append(diagnostics, cliresult.Diagnostic{
+				ID:      "missing_project",
+				Field:   "warehouse.project",
+				Message: "warehouse.project is required before destroying a warehouse dataset.",
+			})
+		}
+		if strings.TrimSpace(config.Warehouse.Dataset) == "" {
+			diagnostics = append(diagnostics, cliresult.Diagnostic{
+				ID:      "missing_dataset",
+				Field:   "warehouse.dataset",
+				Message: "warehouse.dataset is required before destroying a warehouse dataset.",
+			})
+		}
+		if len(diagnostics) > 0 {
+			return cliresult.Invalid("warehouse.destroy", nil, diagnostics), nil
+		}
+
+		credentialPath, err := provider.CredentialPath(credentialStore, config.Warehouse.Auth)
+		if err != nil {
+			return cliresult.Response{}, err
+		}
+		result, err := provider.Destroy(ctx, credentialPath, config.Warehouse, warehouse.DestroyOptions{
+			Force: options.Force,
+		})
+		if err != nil {
+			return cliresult.Response{}, err
+		}
+		data := warehouseDestroyData(result)
+		if result.Status == "not_empty" {
+			return cliresult.Invalid("warehouse.destroy", data, []cliresult.Diagnostic{{
+				ID:         "dataset_not_empty",
+				Field:      "warehouse.dataset",
+				Message:    result.Message,
+				Suggestion: "segmentstream warehouse destroy --force",
+			}}), nil
+		}
+
+		config.Warehouse.Project = ""
+		config.Warehouse.Dataset = ""
+		config.Warehouse.Location = ""
+		if err := store.SavePartial(config); err != nil {
+			return cliresult.Response{}, err
+		}
+		if err := credentialStore.DeleteAccessMarker(provider.Type(), config.Warehouse.Auth); err != nil {
+			return cliresult.Response{}, err
+		}
+		return cliresult.OK("warehouse.destroy", data), nil
+	})
+	cmd.Flags().BoolVar(&options.Force, "force", false, "Destroy a non-empty configured dataset")
 	return cmd
 }
 
@@ -507,6 +600,17 @@ func (data warehouseQueryData) HumanDocument() cliresult.Document {
 func (data warehouseConfigureData) HumanDocument() cliresult.Document {
 	return textDocument(func(out io.Writer) {
 		writeConfigureResult(out, warehouse.ConfigureResult(data))
+	})
+}
+
+func (data warehouseDestroyData) HumanDocument() cliresult.Document {
+	return textDocument(func(out io.Writer) {
+		result := warehouse.DestroyResult(data)
+		if result.Message != "" {
+			fmt.Fprintln(out, result.Message)
+			return
+		}
+		fmt.Fprintf(out, "Warehouse dataset %s:%s destroy status: %s\n", result.Project, result.Dataset, result.Status)
 	})
 }
 

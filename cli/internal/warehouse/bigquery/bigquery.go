@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"regexp"
 	"strings"
 	"time"
 
@@ -26,6 +27,8 @@ const (
 	defaultAuthName = "default-bigquery"
 	defaultLocation = "US"
 )
+
+var backtickTableReferencePattern = regexp.MustCompile("`([^`]+)`")
 
 type Options struct {
 	OAuthLogin warehouse.OAuthLogin
@@ -418,6 +421,70 @@ func validateExistingDataset(warehouseType string, config project.Warehouse, loc
 	return warehouse.NewConfigureResult(warehouseType, validations, diagnostics)
 }
 
+func (connector Connector) Destroy(ctx context.Context, credentialPath string, config project.Warehouse, options warehouse.DestroyOptions) (warehouse.DestroyResult, error) {
+	service, err := connector.service(ctx, credentialPath)
+	if err != nil {
+		return warehouse.DestroyResult{}, err
+	}
+	projectID := strings.TrimSpace(config.Project)
+	datasetID := strings.TrimSpace(config.Dataset)
+
+	if _, err := service.Datasets.Get(projectID, datasetID).Context(ctx).Do(); err != nil {
+		if isHTTPStatus(err, 404) {
+			return warehouse.NewDestroyResult(
+				connector.Type(),
+				projectID,
+				datasetID,
+				"absent",
+				fmt.Sprintf("Dataset %s:%s does not exist; nothing to destroy.", projectID, datasetID),
+			), nil
+		}
+		return warehouse.DestroyResult{}, fmt.Errorf("check BigQuery dataset before destroy: %w", explainGoogleAPIError(err))
+	}
+
+	tables, err := service.Tables.List(projectID, datasetID).MaxResults(1).Context(ctx).Do()
+	if err != nil {
+		return warehouse.DestroyResult{}, fmt.Errorf("list BigQuery dataset contents before destroy: %w", explainGoogleAPIError(err))
+	}
+	if tables != nil && len(tables.Tables) > 0 && !options.Force {
+		found := "an object"
+		if tables.Tables[0] != nil && tables.Tables[0].TableReference != nil && tables.Tables[0].TableReference.TableId != "" {
+			found = fmt.Sprintf("object %q", tables.Tables[0].TableReference.TableId)
+		}
+		return warehouse.NewDestroyResult(
+			connector.Type(),
+			projectID,
+			datasetID,
+			"not_empty",
+			fmt.Sprintf("Dataset %s:%s is not empty (%s found); rerun with --force to delete it and its contents.", projectID, datasetID, found),
+		), nil
+	}
+
+	deleteCall := service.Datasets.Delete(projectID, datasetID).Context(ctx)
+	if options.Force {
+		deleteCall = deleteCall.DeleteContents(true)
+	}
+	if err := deleteCall.Do(); err != nil {
+		if isHTTPStatus(err, 404) {
+			return warehouse.NewDestroyResult(
+				connector.Type(),
+				projectID,
+				datasetID,
+				"absent",
+				fmt.Sprintf("Dataset %s:%s does not exist; nothing to destroy.", projectID, datasetID),
+			), nil
+		}
+		return warehouse.DestroyResult{}, fmt.Errorf("delete BigQuery dataset: %w", explainGoogleAPIError(err))
+	}
+	return warehouse.NewDestroyResult(
+		connector.Type(),
+		projectID,
+		datasetID,
+		"destroyed",
+		fmt.Sprintf("Destroyed dataset %s:%s.", projectID, datasetID),
+	), nil
+}
+
 func (connector Connector) Test(ctx context.Context, credentialPath string, config project.Warehouse) (warehouse.TestResult, error) {
 	service, err := connector.service(ctx, credentialPath)
 	if err != nil {
@@ -516,12 +583,7 @@ func (connector Connector) Query(ctx context.Context, credentialPath string, con
 		},
 	}).Context(ctx).Do()
 	if err != nil {
-		return nil, warehouse.NewQueryError(
-			"query_dry_run_failed",
-			"--sql",
-			fmt.Sprintf("BigQuery dry run failed: %s", explainGoogleAPIError(err).Error()),
-			"",
-		)
+		return nil, connector.queryFailure(ctx, service, config, options.SQL, "query_dry_run_failed", "--sql", "BigQuery dry run failed", err)
 	}
 	statementType := bigQueryStatementType(dryRunJob)
 	if statementType != "SELECT" {
@@ -549,12 +611,7 @@ func (connector Connector) Query(ctx context.Context, credentialPath string, con
 	}
 	response, err := service.Jobs.Query(config.Project, queryRequest).Context(ctx).Do()
 	if err != nil {
-		return nil, warehouse.NewQueryError(
-			"query_execution_failed",
-			"--sql",
-			fmt.Sprintf("BigQuery query failed: %s", explainGoogleAPIError(err).Error()),
-			"",
-		)
+		return nil, connector.queryFailure(ctx, service, config, options.SQL, "query_execution_failed", "--sql", "BigQuery query failed", err)
 	}
 	if response != nil && !response.JobComplete {
 		cancelBigQueryQuery(ctx, service, config.Project, queryLocation, response.JobReference)
@@ -570,6 +627,153 @@ func (connector Connector) Query(ctx context.Context, credentialPath string, con
 		return nil, err
 	}
 	return rows, nil
+}
+
+func (connector Connector) queryFailure(ctx context.Context, service *bq.Service, config project.Warehouse, sql, id, field, prefix string, err error) warehouse.QueryError {
+	providerMessage := explainGoogleAPIError(err).Error()
+	message := fmt.Sprintf("%s: %s", prefix, providerMessage)
+	if !isBigQueryLocationError(providerMessage) {
+		return warehouse.NewQueryError(id, field, message, "")
+	}
+
+	queryLocation := strings.TrimSpace(config.Location)
+	if queryLocation == "" {
+		queryLocation = defaultLocation
+	}
+	inference, inferred := connector.inferSingleSourceLocation(ctx, service, sql, config.Project)
+	suggestion := "BigQuery reported a location mismatch. Confirm the raw dataset location with segmentstream warehouse browse, then recreate the configured dataset in that location."
+	var actions []cliresult.Action
+	if inferred && inference.Location != "" && !strings.EqualFold(inference.Location, queryLocation) {
+		message = fmt.Sprintf("%s: BigQuery looked for %s in warehouse.location %s, but %s in %s. Raw BigQuery error: %s",
+			prefix,
+			formatBigQuerySourceDatasets(inference.References),
+			queryLocation,
+			sourceDatasetVerb(inference.References),
+			inference.Location,
+			providerMessage,
+		)
+		configureCommand := fmt.Sprintf("segmentstream warehouse configure --project %s --dataset %s --location %s --create-dataset --json", config.Project, config.Dataset, inference.Location)
+		suggestion = fmt.Sprintf("Recreate the configured SegmentStream dataset %s.%s in %s, then rerun warehouse test.", config.Project, config.Dataset, inference.Location)
+		actions = []cliresult.Action{
+			{
+				Type:    "run_command",
+				Label:   "Destroy the configured dataset",
+				Command: "segmentstream warehouse destroy --json",
+			},
+			{
+				Type:    "run_command",
+				Label:   "Recreate the configured dataset in the source location",
+				Command: configureCommand,
+			},
+		}
+	}
+	return warehouse.NewQueryErrorWithActions("query_location_mismatch", field, message, suggestion, actions)
+}
+
+func isBigQueryLocationError(message string) bool {
+	lower := strings.ToLower(message)
+	if !strings.Contains(lower, "location") {
+		return false
+	}
+	for _, marker := range []string{
+		"not found",
+		"different locations",
+		"same location",
+		"location mismatch",
+		"wrong location",
+	} {
+		if strings.Contains(lower, marker) {
+			return true
+		}
+	}
+	return false
+}
+
+type bigQueryLocationInference struct {
+	Location   string
+	References []bigQueryTableReference
+}
+
+func (connector Connector) inferSingleSourceLocation(ctx context.Context, service *bq.Service, sql, defaultProject string) (bigQueryLocationInference, bool) {
+	refs := extractBigQueryTableReferences(sql, defaultProject)
+	if len(refs) == 0 {
+		return bigQueryLocationInference{}, false
+	}
+	locations := make(map[string]string)
+	for _, ref := range refs {
+		dataset, err := service.Datasets.Get(ref.ProjectID, ref.DatasetID).Context(ctx).Do()
+		if err != nil || dataset == nil || strings.TrimSpace(dataset.Location) == "" {
+			return bigQueryLocationInference{}, false
+		}
+		normalized := strings.ToUpper(strings.TrimSpace(dataset.Location))
+		locations[normalized] = strings.TrimSpace(dataset.Location)
+	}
+	if len(locations) != 1 {
+		return bigQueryLocationInference{}, false
+	}
+	for _, location := range locations {
+		return bigQueryLocationInference{Location: location, References: refs}, true
+	}
+	return bigQueryLocationInference{}, false
+}
+
+func formatBigQuerySourceDatasets(refs []bigQueryTableReference) string {
+	names := make([]string, 0, len(refs))
+	for _, ref := range refs {
+		names = append(names, ref.ProjectID+"."+ref.DatasetID)
+	}
+	if len(names) == 1 {
+		return "source dataset " + names[0]
+	}
+	return "source datasets " + strings.Join(names, ", ")
+}
+
+func sourceDatasetVerb(refs []bigQueryTableReference) string {
+	if len(refs) == 1 {
+		return "it is"
+	}
+	return "they are"
+}
+
+type bigQueryTableReference struct {
+	ProjectID string
+	DatasetID string
+}
+
+func extractBigQueryTableReferences(sql, defaultProject string) []bigQueryTableReference {
+	matches := backtickTableReferencePattern.FindAllStringSubmatch(sql, -1)
+	refs := make([]bigQueryTableReference, 0, len(matches))
+	seen := make(map[string]struct{}, len(matches))
+	for _, match := range matches {
+		if len(match) < 2 {
+			continue
+		}
+		parts := strings.Split(strings.TrimSpace(match[1]), ".")
+		var projectID, datasetID string
+		switch len(parts) {
+		case 2:
+			projectID = strings.TrimSpace(defaultProject)
+			datasetID = strings.TrimSpace(parts[0])
+		case 3:
+			projectID = strings.TrimSpace(parts[0])
+			datasetID = strings.TrimSpace(parts[1])
+		default:
+			continue
+		}
+		if projectID == "" || datasetID == "" {
+			continue
+		}
+		key := projectID + "." + datasetID
+		if _, ok := seen[key]; ok {
+			continue
+		}
+		seen[key] = struct{}{}
+		refs = append(refs, bigQueryTableReference{
+			ProjectID: projectID,
+			DatasetID: datasetID,
+		})
+	}
+	return refs
 }
 
 func bigQueryStatementType(job *bq.Job) string {
