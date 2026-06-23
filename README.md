@@ -1,288 +1,147 @@
-# SegmentStream CLI
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset=".github/assets/segmentstream-on-dark.svg">
+    <img alt="SegmentStream" src=".github/assets/segmentstream-on-light.svg" width="320">
+  </picture>
+</p>
 
-SegmentStream CLI runs marketing analytics pipelines locally and writes the
-results to your own data warehouse.
+<p align="center">
+  The composable, transparent, AI-ready marketing measurement stack —<br>
+  running in your own data warehouse.
+</p>
 
-## Install
+<p align="center">
+  <a href="https://segmentstream.com">Website</a> ·
+  <a href="https://segmentstream.com/pricing">Pricing</a> ·
+  <a href="https://segmentstream.com/about">About</a> ·
+  <a href="#license">License</a>
+</p>
 
-```sh
-curl -fsSL https://raw.githubusercontent.com/segmentstream/segmentstream-cli/main/install.sh | sh
-```
+<p align="center">
+  <img src="https://img.shields.io/badge/license-BSL%201.1-6366F1" alt="License: BSL 1.1">
+  <img src="https://img.shields.io/badge/warehouse--native-000000" alt="Warehouse-native">
+  <img src="https://img.shields.io/badge/AI--ready-MCP-6366F1" alt="AI-ready · MCP">
+  <img src="https://img.shields.io/badge/built%20by-SegmentStream-18181B" alt="Built by SegmentStream">
+</p>
 
-The installer places the binary in `$HOME/.segmentstream/bin` by default and
-prints PATH guidance if needed. If `$HOME/.local/bin` already exists, is
-writable, and is on PATH, the installer creates a safe symlink there.
+---
 
-For local development from this repository:
-
-```sh
-make install
-```
-
-## Getting Started
-
-Before starting, make sure these are installed and available from your terminal:
-
-- Docker Desktop or Docker Engine with Docker Compose V2.
-- Git.
-
-Create a new SegmentStream project in an empty directory:
-
-```sh
-mkdir my-segmentstream-project
-cd my-segmentstream-project
-segmentstream init --warehouse bigquery
-```
-
-`segmentstream init --warehouse bigquery` creates the project files you edit:
-
-```text
-segmentstream.yml   warehouse configuration
-README.md           project guide
-AGENTS.md           instructions for coding agents
-```
-
-Pass `--json` to any command when an agent or script needs structured output.
-JSON mode emits one response object on stdout with `schema_version`, `command`,
-`status`, and command-specific `data`; diagnostics and actions are structured
-when present. Progress and interactive guidance use stderr so stdout remains
-parseable.
-
-Use `segmentstream init --json` when an agent needs setup state and the next
-action. The init state machine is returned under `data.envelope`. A successful
-state inspection exits `0` even when `data.envelope.ready` is `false`; use
-`ready`, `stages`, `diagnostics`, and `next_action` to decide what to do next.
-`next_action.type` is either `run_command` with an executable command or
-`human_input` with structured `accepts` inputs and a `verify` command. The
-envelope also reports supported auth methods under `capabilities.auth_methods`.
-JSON mode is read-only unless you pass a mutation flag such as `--warehouse`.
-
-## Scaffold A Source
-
-Sources are project-owned dbt packages that contain source-specific
-transformations. Agents should start by discovering supported source contracts:
+The full Measurement Engine on your terminal. Every model is readable SQL. Every
+number is auditable. Your data never leaves your infrastructure.
 
 ```sh
-segmentstream source contracts --json
-segmentstream source contracts --type events --json
+curl -fsSL https://segmentstream.com/cli/install.sh | sh
 ```
 
-Scaffold a local source template from a contract:
+Prefer to read it first? Inspect the script at
+[segmentstream.com/cli/install.sh](https://segmentstream.com/cli/install.sh)
+(mirrors `install.sh` in this repo).
 
-```sh
-segmentstream source scaffold ga4 --type events
-```
+## Why
 
-This scaffolds `sources/ga4/` as a source template with a pinned `contract.yml`,
-an `IMPLEMENTATION_GUIDE.md`, dbt verification tests, and one author-editable
-model: `sources/ga4/models/events.sql`. The scaffold is not implemented yet;
-read the guide before editing the source.
+> Marketing measurement drifted into a belief system — teams trusting
+> attribution models and MMM frameworks the way people trust horoscopes.
+> Confident. Detailed. Mostly fiction.
 
-Declare the source in `segmentstream.yml`:
+SegmentStream is the opposite of a black box. It runs inside **your** warehouse,
+on **your** data, with **every** model published as inspectable SQL. We work for
+the advertiser — that is the only side we work for. A measurement number you
+cannot defend is a measurement number you cannot use.
 
-```yaml
-sources:
-  - name: ga4
-    path: ./sources/ga4
-```
+## What makes it different
 
-Verify the implemented source before running the pipeline:
+- **Transparent** — No black boxes. Every attribution and measurement model is
+  readable SQL; every figure traces back to deterministic data you own. Modeled
+  numbers are labeled as modeled.
+- **Composable** — Warehouse-native. Sources are dbt packages that map your raw
+  tables to a typed canonical contract — mix built-in and custom freely.
+- **Extendable** — Add a source by writing one SQL model against the contract;
+  contract tests verify it. Bring your own identity keys, dimensions and
+  attribution models.
+- **AI-ready** — A CLI with text-based, version-controlled config and SQL models
+  — agent-operable end to end. Source scaffolds are written for humans *and*
+  agents. Works with any MCP client.
 
-```sh
-segmentstream source verify ga4
-```
+## How it works
 
-On run, SegmentStream reads `segmentstream.yml`, installs declared sources as
-dbt packages, and generates a core `events` model that unions each source
-package's `events` model.
+1. **Initialize** — scaffold a version-controlled project.
+2. **Connect** — authenticate to your warehouse (BigQuery today; Snowflake &
+   Databricks on the roadmap); credentials stay in your OS keychain.
+3. **Add sources** — events, costs and conversions from built-in or custom
+   connectors.
+4. **Configure** — identity keys, dimensions and attribution models, built-in or
+   custom SQL.
+5. **Run** — identity stitching, attribution and reporting execute locally, in
+   your warehouse.
+6. **Activate** — send conversions back to ad platforms via server-side
+   Conversions APIs.
 
-## Configure Your Warehouse
+## Status & roadmap
 
-Authenticate with Google OAuth:
+Legend: ✅ Live · 🚧 Building · 📋 Planned — directional, not dated. Detail lives
+on the [public roadmap board](#).
 
-```sh
-segmentstream warehouse auth login
-```
+### Warehouses
 
-The CLI prints a Google OAuth URL and waits for the browser redirect on a local
-loopback callback. Open the URL in a browser on the same computer where the CLI
-is running. The CLI stores an authorized-user credential outside the project and
-writes only the credential name to `segmentstream.yml`.
+| Adapter           | Status      |
+| ----------------- | ----------- |
+| Google BigQuery   | ✅ Live      |
+| Snowflake         | 📋 Planned  |
+| Databricks        | 📋 Planned  |
 
-For sandbox or forwarded-loopback testing, choose the callback port explicitly:
+### Sources (contract-based, warehouse-native)
 
-```sh
-segmentstream warehouse auth login --port 40473
-```
+| Capability         | Status      | Notes                                          |
+| ------------------ | ----------- | ---------------------------------------------- |
+| Event sources      | ✅ Live      | Typed contract + dbt scaffold, contract-verified |
+| Cost sources       | 📋 Planned  | Same contract rails                            |
+| Conversion sources | 📋 Planned  | Simple / custom / combined / lead-scoring      |
 
-For headless servers, CI, or environments where a browser cannot reach the
-CLI's local callback, authenticate with a BigQuery service-account key:
+### Identity graph (deterministic — no fingerprinting)
 
-```sh
-segmentstream warehouse auth --service-account-key=/path/to/service-account.json
-```
+| Capability            | Status      | Notes                                          |
+| --------------------- | ----------- | ---------------------------------------------- |
+| Default identity keys | 🚧 Building | Built-in keys for cross-device stitching       |
+| Custom identity keys  | 🚧 Building | Bring-your-own keys with configurable confidence windows |
 
-Credentials are stored under `$HOME/.segmentstream/bigquery/`.
+### Attribution, dimensions & activation
 
-Browse available projects, datasets, tables, and schemas:
+| Capability                         | Status     | Notes                                   |
+| ---------------------------------- | ---------- | --------------------------------------- |
+| Attribution models (SQL)           | 📋 Planned | Built-in and custom SQL models          |
+| Custom & grouped dimensions        | 📋 Planned | For reports and optimization portfolios |
+| Conversion export / Conversions API| 📋 Planned | Server-side Conversions API destinations|
+| Incrementality / budget allocation | 📋 Planned | Geo holdouts, marginal ROAS, automated allocation |
 
-```sh
-segmentstream warehouse browse --json
-segmentstream warehouse browse --path my-gcp-project --json
-segmentstream warehouse browse --path my-gcp-project/my_dataset --json
-segmentstream warehouse browse --path my-gcp-project/my_dataset/my_table --json
-```
+## License
 
-Inspect raw rows with read-only SELECT queries:
+SegmentStream is **source-available** under the
+[Business Source License 1.1](LICENSE) — not an OSI open-source license, and we
+don't call it one. One license over the whole repository: no second-class
+folders, no "look but don't touch" code.
 
-```sh
-segmentstream warehouse query \
-  --sql "SELECT payload FROM \`my-gcp-project.my_dataset.my_table\` WHERE payload IS NOT NULL LIMIT 5" \
-  --json
+- ✅ Read all the source. Self-host it. Use it in production for your own
+  marketing — commercial use included.
+- ✅ Modify and extend it for your own use.
+- 🚫 You may not offer it to third parties as a competing hosted or managed
+  service.
+- ⏳ Four years after each version is published, that version converts to the
+  Apache License, Version 2.0.
 
-segmentstream warehouse query \
-  --sql "SELECT JSON_VALUE(payload, '$.event') AS event_name, COUNT(*) AS events FROM \`my-gcp-project.my_dataset.my_table\` GROUP BY 1 ORDER BY events DESC LIMIT 50" \
-  --json
+## ☁️ SegmentStream Cloud & Commercial
 
-segmentstream warehouse query \
-  --sql "SELECT COUNTIF(payload IS NULL) AS null_payloads, COUNT(*) AS rows FROM \`my-gcp-project.my_dataset.my_table\`" \
-  --json
+This project is built and maintained by the team behind
+**[SegmentStream](https://segmentstream.com)** — the independent measurement
+platform for advertisers, in production since 2018.
 
-segmentstream warehouse query \
-  --sql "SELECT MIN(event_date) AS min_event_date, MAX(event_date) AS max_event_date FROM \`my-gcp-project.my_dataset.my_table\`" \
-  --json
-```
+Want a fully-managed deployment, enterprise support and SLAs, hands-on
+onboarding, or to do something the source-available license doesn't permit? We
+offer SegmentStream Cloud and commercial licensing.
 
-`warehouse query --json` returns only row objects under `data`. For BigQuery,
-the CLI validates the SQL with a dry run and executes it only when BigQuery
-reports the statement type as `SELECT`.
+**[See plans & talk to us →](https://segmentstream.com/pricing)**
 
-Configure the BigQuery project, dataset, and location:
+---
 
-```sh
-segmentstream warehouse configure --project my-gcp-project --dataset segmentstream --location US
-segmentstream warehouse test
-```
-
-If the dataset does not exist yet, create it explicitly:
-
-```sh
-segmentstream warehouse configure --project my-gcp-project --dataset segmentstream --location US --create-dataset
-```
-
-The resulting `segmentstream.yml` should look like:
-
-```yaml
-version: 1
-
-warehouse:
-  type: bigquery
-  auth: default-bigquery
-  project: my-gcp-project
-  dataset: segmentstream
-  location: US
-```
-
-Fields:
-
-- `warehouse.type`: currently only `bigquery` is supported.
-- `warehouse.auth`: named credential reference. It is not a secret value.
-- `warehouse.project`: your Google Cloud project ID.
-- `warehouse.dataset`: the BigQuery dataset where SegmentStream writes tables.
-- `warehouse.location`: BigQuery dataset location.
-
-Credentials are handled separately from `segmentstream.yml`. Do not put tokens,
-private keys, or passwords in this file.
-
-## Run The Pipeline
-
-```sh
-segmentstream run
-```
-
-`segmentstream run` runs the SegmentStream pipeline and produces tables in the
-configured warehouse. Each run refreshes the local project environment and
-processes the last 30 UTC daily partitions by default.
-
-To run from a specific date through today UTC:
-
-```sh
-segmentstream run --start-date 2026-05-01
-```
-
-Pipeline state persists across `segmentstream run` even though `.segmentstream/`
-is regenerated.
-
-The first run can take a few minutes while SegmentStream sets up the local
-environment. Later runs should be faster.
-
-## Commands
-
-`segmentstream init` reports current setup state and the next action.
-`segmentstream init --json` emits the common JSON response with the setup
-state-machine envelope under `data.envelope`.
-`segmentstream init --warehouse bigquery` selects BigQuery in `segmentstream.yml`.
-
-`segmentstream run` runs the configured analytics pipeline and writes results to
-the configured warehouse. It runs the last 30 UTC daily partitions by default;
-use `segmentstream run --start-date YYYY-MM-DD` to start earlier or later.
-
-`segmentstream source contracts [--type events] [--json]` lists supported source
-contracts and returns their schemas.
-
-`segmentstream source scaffold <name> --type events [--json]` scaffolds a local
-source template under `sources/<name>/`. The template must be implemented next.
-
-`segmentstream source verify <name> [--start-date YYYY-MM-DD] [--json]` runs the
-source package's dbt verification tests inside Docker. It defaults to the last 7
-UTC days.
-
-`segmentstream warehouse auth login [--port <port>]` prints a Google OAuth URL,
-waits for a loopback browser redirect on the same computer, and stores a
-BigQuery OAuth credential outside the project. Use `--port` when a sandbox or
-container needs the callback port to be forwarded before the command starts.
-
-`segmentstream warehouse auth --service-account-key=<path>` stores a BigQuery
-service-account credential outside the project for headless servers, CI, or
-other non-interactive environments.
-
-`segmentstream warehouse browse [--path <project>[/<dataset>[/<table>]]] [--json]`
-lists BigQuery projects, datasets, tables, or a table schema.
-
-`segmentstream warehouse query --sql "<select statement>" [--max-rows 100] [--timeout 30s] [--maximum-bytes-billed <bytes>] [--json]`
-runs a dry-run-verified read-only SELECT query and returns rows.
-
-`segmentstream warehouse configure --project --dataset --location [--create-dataset]`
-validates and writes warehouse settings. Use `--create-dataset` to create a
-missing BigQuery dataset explicitly.
-
-`segmentstream warehouse test [--json]` checks BigQuery connect, read, create
-table, and query permissions.
-
-`segmentstream update [--json]` updates an installed CLI release.
-
-`segmentstream update --check [--json]` checks whether an update is available
-without installing it.
-
-`segmentstream version [--json]` prints the installed CLI version.
-
-## Release
-
-Publish a GitHub Release with a semver tag to build and attach release assets:
-
-1. Open https://github.com/segmentstream/segmentstream-cli/releases/new
-2. Create or choose a tag like `v0.1.0`.
-3. Publish the release.
-
-The release workflow runs when the release is published and uses GoReleaser to
-attach platform archives and `checksums.txt`. The installer waits for those
-assets, so it is safe to run shortly after publishing a release.
-
-Release builds bundle the SegmentStream desktop OAuth client using these
-GitHub Actions secrets:
-
-- `SEGMENTSTREAM_GOOGLE_OAUTH_CLIENT_ID`
-- `SEGMENTSTREAM_GOOGLE_OAUTH_CLIENT_SECRET`
-
-For local builds, put the same variable names in `.env` or export them before
-running `make install`.
+Built by [SegmentStream](https://segmentstream.com/about) — the independent
+measurement platform for advertisers. Learn the discipline first:
+[segmentstream.com](https://segmentstream.com).
