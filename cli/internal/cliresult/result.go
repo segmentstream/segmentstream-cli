@@ -206,7 +206,6 @@ func ExitCode(err error) int {
 
 func WriteJSON(out io.Writer, value any) error {
 	encoder := json.NewEncoder(out)
-	encoder.SetIndent("", "  ")
 	if err := encoder.Encode(value); err != nil {
 		return fmt.Errorf("write json: %w", err)
 	}

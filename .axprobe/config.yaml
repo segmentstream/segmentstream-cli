@@ -1,0 +1,14 @@
+schema_version: "1"
+
+defaults:
+  driver_model: moonshotai/kimi-k2-thinking
+
+box:
+  image: segmentstream-cli-axprobe:local
+  copy:
+    - ./.config/segmentstream-axprobe-e2e.json:/run/secrets/segmentstream-bigquery.json
+  setup:
+    - segmentstream version
+    - chmod 600 /run/secrets/segmentstream-bigquery.json
+    - printf '%s\n' 'export SEGMENTSTREAM_BIGQUERY_SERVICE_ACCOUNT_KEY=/run/secrets/segmentstream-bigquery.json' > /etc/profile.d/segmentstream-axprobe.sh
+    - if command -v bq >/dev/null 2>&1 || command -v gcloud >/dev/null 2>&1 || command -v gsutil >/dev/null 2>&1; then echo "unexpected Google Cloud CLI found in axprobe box"; exit 1; fi

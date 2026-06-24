@@ -114,8 +114,14 @@ func TestWarehouseAuthLoginStoresOAuthCredentialAndUpdatesConfig(t *testing.T) {
 	if config.Warehouse.Auth != "production-bigquery" {
 		t.Fatalf("warehouse.auth = %q, want production-bigquery", config.Warehouse.Auth)
 	}
-	if !strings.Contains(out.String(), `"method": "oauth"`) {
-		t.Fatalf("json output = %s, want oauth method", out.String())
+	var authResponse struct {
+		Data warehouseAuthResult `json:"data"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &authResponse); err != nil {
+		t.Fatalf("parse auth json output: %v\n%s", err, out.String())
+	}
+	if authResponse.Data.Method != "oauth" {
+		t.Fatalf("auth method = %q, want oauth", authResponse.Data.Method)
 	}
 }
 
@@ -563,8 +569,14 @@ func TestWarehouseBrowseDoesNotRequireConfiguredProject(t *testing.T) {
 	if fake.browsePath != "" {
 		t.Fatalf("browse path = %q, want empty project-list path", fake.browsePath)
 	}
-	if !strings.Contains(out.String(), `"level": "project"`) || !strings.Contains(out.String(), `"id": "example-project"`) {
-		t.Fatalf("browse output = %s, want project result", out.String())
+	var browseResponse struct {
+		Data warehouseBrowseData `json:"data"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &browseResponse); err != nil {
+		t.Fatalf("parse browse json output: %v\n%s", err, out.String())
+	}
+	if browseResponse.Data.Level != "project" || len(browseResponse.Data.Children) != 1 || browseResponse.Data.Children[0].ID != "example-project" {
+		t.Fatalf("browse data = %+v, want project result", browseResponse.Data)
 	}
 }
 
