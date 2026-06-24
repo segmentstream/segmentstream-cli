@@ -1,0 +1,19 @@
+schema_version: "1"
+name: full-analytics
+goal: >-
+  I need a brand-new SegmentStream project to complete its first real analytics
+  run in my BigQuery warehouse. The sandbox already has a BigQuery
+  service-account key at /run/secrets/segmentstream-bigquery.json. Use Google
+  Cloud project segmentstream-ai-website, dataset segmentstream_cli_axprobe_e2e,
+  and location EU. Implement a Vercel logs events source from the raw BigQuery
+  table segmentstream-ai-website.segmentstream_1774442186472.vercel_logs. The
+  finished state should prove that SegmentStream can access the warehouse, map
+  that Vercel logs table into the events contract, and successfully produce
+  analytics from that event data.
+workspace:
+  template: fixtures/empty-project
+expect:
+  goal_reached: true
+  outcome: goal_reached
+  max_human_interventions: 0
+  max_false_errors: 0
