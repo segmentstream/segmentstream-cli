@@ -46,3 +46,8 @@ models:
         +cluster_by:
           - source_anonymous_id
           - target_anonymous_id
+      identities:
+        +materialized: table
+        +cluster_by:
+          - identity_id
+          - anonymous_id

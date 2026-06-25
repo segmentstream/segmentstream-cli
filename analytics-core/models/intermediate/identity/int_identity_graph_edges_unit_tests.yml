@@ -1,0 +1,26 @@
+version: 2
+
+unit_tests:
+  - name: int_identity_graph_edges__normalizes_and_deduplicates_links
+    model: int_identity_graph_edges
+    given:
+      - input: ref('segmentstream_analytics_core', 'identity_links')
+        format: sql
+        rows: |
+          select 'anon_b' as source_anonymous_id, 'anon_a' as target_anonymous_id, 'user_id' as key_name, 'user_1' as key_value, 'deterministic' as tier, date '2026-01-02' as source_first_seen_date, date '2026-01-01' as target_first_seen_date
+          union all
+          select 'anon_a' as source_anonymous_id, 'anon_b' as target_anonymous_id, 'user_id' as key_name, 'user_1' as key_value, 'deterministic' as tier, date '2026-01-01' as source_first_seen_date, date '2026-01-02' as target_first_seen_date
+          union all
+          select 'anon_c' as source_anonymous_id, 'anon_b' as target_anonymous_id, 'ip_address' as key_name, '203.0.113.1' as key_value, 'probabilistic' as tier, date '2026-01-03' as source_first_seen_date, date '2026-01-02' as target_first_seen_date
+          union all
+          select 'anon_d' as source_anonymous_id, 'anon_d' as target_anonymous_id, 'user_id' as key_name, 'user_4' as key_value, 'deterministic' as tier, date '2026-01-04' as source_first_seen_date, date '2026-01-04' as target_first_seen_date
+          union all
+          select null as source_anonymous_id, 'anon_e' as target_anonymous_id, 'user_id' as key_name, 'user_5' as key_value, 'deterministic' as tier, date '2026-01-05' as source_first_seen_date, date '2026-01-05' as target_first_seen_date
+    expect:
+      rows:
+        - source_anonymous_id: anon_a
+          target_anonymous_id: anon_b
+          tier: deterministic
+        - source_anonymous_id: anon_b
+          target_anonymous_id: anon_c
+          tier: probabilistic

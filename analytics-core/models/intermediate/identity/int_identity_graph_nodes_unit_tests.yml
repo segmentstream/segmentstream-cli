@@ -1,0 +1,22 @@
+version: 2
+
+unit_tests:
+  - name: int_identity_graph_nodes__deduplicates_first_seen_dates
+    model: int_identity_graph_nodes
+    given:
+      - input: ref('segmentstream_analytics_core', 'identity_keys')
+        format: sql
+        rows: |
+          select 'web' as segmentstream_source, date '2026-01-03' as date, 'anon_a' as anonymous_id, 'ip_address' as key_name, '203.0.113.1' as key_value
+          union all
+          select 'web' as segmentstream_source, date '2026-01-01' as date, 'anon_a' as anonymous_id, 'user_id' as key_name, 'user_1' as key_value
+          union all
+          select 'web' as segmentstream_source, date '2026-01-02' as date, 'anon_b' as anonymous_id, 'user_id' as key_name, 'user_2' as key_value
+          union all
+          select 'web' as segmentstream_source, date '2026-01-04' as date, null as anonymous_id, 'user_id' as key_name, 'ignored' as key_value
+    expect:
+      rows:
+        - anonymous_id: anon_a
+          first_seen_date: "2026-01-01"
+        - anonymous_id: anon_b
+          first_seen_date: "2026-01-02"

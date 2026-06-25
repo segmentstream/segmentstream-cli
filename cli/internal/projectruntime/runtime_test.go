@@ -366,6 +366,177 @@ func TestAnalyticsCoreIdentityLinksModelsUseExpectedShape(t *testing.T) {
 	}
 }
 
+func TestAnalyticsCoreIdentitiesModelsUseExpectedGraphShape(t *testing.T) {
+	macro, err := os.ReadFile(filepath.Join("..", "..", "..", "analytics-core", "macros", "identity_connected_components.sql"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		"segmentstream_identity_connected_components",
+		"label-propagation",
+		"Unytics BigFunctions",
+		"range(max_iterations | int)",
+		"connected_component_id",
+	} {
+		if !strings.Contains(string(macro), want) {
+			t.Fatalf("identity connected components macro does not contain %q:\n%s", want, string(macro))
+		}
+	}
+
+	nodesModel, err := os.ReadFile(filepath.Join("..", "..", "..", "analytics-core", "models", "intermediate", "identity", "int_identity_graph_nodes.sql"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		"from {{ ref('identity_keys') }}",
+		"min(date) as first_seen_date",
+		"group by 1",
+	} {
+		if !strings.Contains(string(nodesModel), want) {
+			t.Fatalf("identity graph nodes model does not contain %q:\n%s", want, string(nodesModel))
+		}
+	}
+
+	edgesModel, err := os.ReadFile(filepath.Join("..", "..", "..", "analytics-core", "models", "intermediate", "identity", "int_identity_graph_edges.sql"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		"from {{ ref('identity_links') }}",
+		"select distinct",
+		"source_anonymous_id <= target_anonymous_id",
+		"tier in ('deterministic', 'probabilistic')",
+	} {
+		if !strings.Contains(string(edgesModel), want) {
+			t.Fatalf("identity graph edges model does not contain %q:\n%s", want, string(edgesModel))
+		}
+	}
+
+	deterministicComponentsModel, err := os.ReadFile(filepath.Join("..", "..", "..", "analytics-core", "models", "intermediate", "identity", "int_identity_graph_deterministic_components.sql"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		"segmentstream_identity_graph_max_iterations",
+		"where tier = 'deterministic'",
+		"segmentstream_identity_connected_components",
+		"row_number() over",
+		"order by identity_graph_nodes.first_seen_date, connected_components.node_id",
+	} {
+		if !strings.Contains(string(deterministicComponentsModel), want) {
+			t.Fatalf("identity deterministic components model does not contain %q:\n%s", want, string(deterministicComponentsModel))
+		}
+	}
+
+	allComponentsModel, err := os.ReadFile(filepath.Join("..", "..", "..", "analytics-core", "models", "intermediate", "identity", "int_identity_graph_all_components.sql"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		"segmentstream_identity_graph_max_iterations",
+		"segmentstream_identity_connected_components",
+		"component_size",
+		"identity_id",
+	} {
+		if !strings.Contains(string(allComponentsModel), want) {
+			t.Fatalf("identity all components model does not contain %q:\n%s", want, string(allComponentsModel))
+		}
+	}
+
+	resolvedModel, err := os.ReadFile(filepath.Join("..", "..", "..", "analytics-core", "models", "intermediate", "identity", "int_identities__resolved.sql"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		"segmentstream_identity_graph_max_component_size",
+		"segmentstream_identity_graph_max_deterministic_component_size",
+		"valid_deterministic_components",
+		"valid_all_components",
+		"coalesce(",
+	} {
+		if !strings.Contains(string(resolvedModel), want) {
+			t.Fatalf("identity resolved model does not contain %q:\n%s", want, string(resolvedModel))
+		}
+	}
+
+	identitiesMart, err := os.ReadFile(filepath.Join("..", "..", "..", "analytics-core", "models", "marts", "identities.sql"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		"select distinct",
+		"anonymous_id",
+		"identity_id",
+		"first_seen_date",
+		"from {{ ref('int_identities__resolved') }}",
+	} {
+		if !strings.Contains(string(identitiesMart), want) {
+			t.Fatalf("identities mart does not contain %q:\n%s", want, string(identitiesMart))
+		}
+	}
+
+	convergenceTest, err := os.ReadFile(filepath.Join("..", "..", "..", "analytics-core", "tests", "assert_identity_graph_connected_components_converged.sql"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		"int_identity_graph_edges",
+		"int_identity_graph_deterministic_components",
+		"int_identity_graph_all_components",
+		"source_connected_component_id",
+		"target_connected_component_id",
+	} {
+		if !strings.Contains(string(convergenceTest), want) {
+			t.Fatalf("identity graph convergence test does not contain %q:\n%s", want, string(convergenceTest))
+		}
+	}
+
+	martSchema, err := os.ReadFile(filepath.Join("..", "..", "..", "analytics-core", "models", "marts", "schema.yml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		"- name: identities",
+		"export_name: identities",
+		"type: identities",
+		"- segmentstream_unpartitioned",
+		"- unique",
+	} {
+		if !strings.Contains(string(martSchema), want) {
+			t.Fatalf("analytics-core marts schema does not contain %q:\n%s", want, string(martSchema))
+		}
+	}
+
+	intermediateSchema, err := os.ReadFile(filepath.Join("..", "..", "..", "analytics-core", "models", "intermediate", "identity", "schema.yml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		"- name: int_identity_graph_deterministic_components",
+		"- name: int_identity_graph_all_components",
+		"- segmentstream_unpartitioned",
+	} {
+		if !strings.Contains(string(intermediateSchema), want) {
+			t.Fatalf("analytics-core identity intermediate schema does not contain %q:\n%s", want, string(intermediateSchema))
+		}
+	}
+
+	dbtProject, err := os.ReadFile(filepath.Join("..", "..", "..", "analytics-core", "dbt_project.yml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		"identities:",
+		"+materialized: table",
+		"identity_id",
+		"anonymous_id",
+	} {
+		if !strings.Contains(string(dbtProject), want) {
+			t.Fatalf("analytics-core dbt_project.yml does not contain %q:\n%s", want, string(dbtProject))
+		}
+	}
+}
+
 func TestPrepareRemovesStaleRuntimeFiles(t *testing.T) {
 	root := t.TempDir()
 	withAnalyticsCoreRelease(t, "0.0.20")

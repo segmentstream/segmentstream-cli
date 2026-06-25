@@ -109,3 +109,31 @@ models:
         description: First date the target anonymous ID appeared in identity_keys.
         data_tests:
           - not_null
+
+  - name: identities
+    description: Flat SegmentStream identity map resolved from identity links.
+    config:
+      tags:
+        - segmentstream_core
+        - segmentstream_mart
+        - segmentstream_unpartitioned
+      meta:
+        segmentstream:
+          export_name: identities
+          contract:
+            type: identities
+            schema_version: 1
+    columns:
+      - name: anonymous_id
+        description: Anonymous user or device identifier.
+        data_tests:
+          - not_null
+          - unique
+      - name: identity_id
+        description: Stable identity ID for the connected identity component.
+        data_tests:
+          - not_null
+      - name: first_seen_date
+        description: First date this anonymous ID appeared in identity_keys.
+        data_tests:
+          - not_null

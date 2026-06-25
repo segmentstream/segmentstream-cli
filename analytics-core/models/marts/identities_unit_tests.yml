@@ -1,0 +1,17 @@
+version: 2
+
+unit_tests:
+  - name: identities__deduplicates_resolved_rows
+    model: identities
+    given:
+      - input: ref('int_identities__resolved')
+        format: sql
+        rows: |
+          select 'anon_a' as anonymous_id, 'anon_b' as identity_id, date '2026-01-01' as first_seen_date
+          union all
+          select 'anon_a' as anonymous_id, 'anon_b' as identity_id, date '2026-01-01' as first_seen_date
+    expect:
+      rows:
+        - anonymous_id: anon_a
+          identity_id: anon_b
+          first_seen_date: "2026-01-01"
