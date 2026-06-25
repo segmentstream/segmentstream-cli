@@ -1,0 +1,25 @@
+type: identity_keys
+schema_version: 1
+description: Normalized identity key stream emitted by a custom source package.
+default: false
+status: supported
+model:
+  name: identity_keys
+  partition: date
+columns:
+  - name: date
+    type: DATE
+    required: true
+    description: Date partition for this identity key observation.
+  - name: anonymous_id
+    type: STRING
+    required: true
+    description: Anonymous user or device identifier.
+  - name: key_name
+    type: STRING
+    required: true
+    description: Identity key type, for example user_id, email_hash, click_id, or ip_address.
+  - name: key_value
+    type: STRING
+    required: true
+    description: Normalized identity key value.

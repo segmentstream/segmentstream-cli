@@ -32,3 +32,35 @@ models:
         description: Event timestamp in UTC.
       - name: event_date
         description: Date partition for this event row.
+
+  - name: identity_keys
+    description: Canonical SegmentStream identity key stream composed from declared identity key sources.
+    config:
+      tags:
+        - segmentstream_core
+        - segmentstream_mart
+      meta:
+        segmentstream:
+          export_name: identity_keys
+          contract:
+            type: identity_keys
+            schema_version: 1
+    columns:
+      - name: segmentstream_source
+        description: Source name from segmentstream.yml.
+      - name: date
+        description: Date partition for this identity key observation.
+        data_tests:
+          - not_null
+      - name: anonymous_id
+        description: Anonymous user or device identifier.
+        data_tests:
+          - not_null
+      - name: key_name
+        description: Identity key type.
+        data_tests:
+          - not_null
+      - name: key_value
+        description: Normalized identity key value.
+        data_tests:
+          - not_null

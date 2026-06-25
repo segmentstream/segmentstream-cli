@@ -377,9 +377,13 @@ func MarkerPath(sourcePath string) string {
 }
 
 func RequireTemplateTests(sourcePath string) error {
+	modelName, err := verificationModelName(sourcePath)
+	if err != nil {
+		return err
+	}
 	for _, relative := range []string{
-		filepath.Join("tests", "verify_events_contract.sql"),
-		filepath.Join("tests", "verify_events_non_empty.sql"),
+		filepath.Join("tests", fmt.Sprintf("verify_%s_contract.sql", modelName)),
+		filepath.Join("tests", fmt.Sprintf("verify_%s_non_empty.sql", modelName)),
 	} {
 		path := filepath.Join(sourcePath, relative)
 		if info, err := os.Stat(path); err != nil {
@@ -399,6 +403,37 @@ func RequireTemplateTests(sourcePath string) error {
 		}
 	}
 	return nil
+}
+
+func verificationModelName(sourcePath string) (string, error) {
+	data, err := os.ReadFile(filepath.Join(sourcePath, "contract.yml"))
+	if err != nil {
+		return "", fmt.Errorf("read source contract snapshot: %w", err)
+	}
+
+	var contract Contract
+	if err := yaml.Unmarshal(data, &contract); err != nil {
+		return "", fmt.Errorf("parse source contract snapshot: %w", err)
+	}
+	modelName := strings.TrimSpace(contract.Model.Name)
+	if modelName != "" {
+		if !sourceNamePattern.MatchString(modelName) {
+			return "", fmt.Errorf("source contract model name %q is invalid", modelName)
+		}
+		return modelName, nil
+	}
+
+	if strings.TrimSpace(contract.Type) == "" {
+		return "", errors.New("source contract snapshot is incomplete")
+	}
+	embedded, err := ContractByType(contract.Type)
+	if err != nil {
+		return "", err
+	}
+	if !sourceNamePattern.MatchString(embedded.Model.Name) {
+		return "", fmt.Errorf("embedded source contract model name %q is invalid", embedded.Model.Name)
+	}
+	return embedded.Model.Name, nil
 }
 
 func sourceVerifyDockerInvocation(runtimeDir string, args []string) CommandInvocation {

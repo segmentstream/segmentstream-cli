@@ -26,7 +26,10 @@ class SegmentStreamSource:
     name: str
     path: Path
     package_name: str
+    contract_type: str
+    model_name: str
     events_model_name: str
+    identity_keys_model_name: str
 
 
 def prepare_segmentstream_dbt_project(log=None) -> dict:
@@ -70,7 +73,10 @@ def dbt_vars(
     segmentstream_start_date: str | None = None,
     segmentstream_end_date: str | None = None,
 ) -> str:
-    data = {"segmentstream_sources": source_vars(sources)}
+    data = {
+        "segmentstream_sources": event_source_vars(sources),
+        "segmentstream_identity_key_sources": identity_key_source_vars(sources),
+    }
     if segmentstream_start_date is not None:
         data["segmentstream_start_date"] = segmentstream_start_date
     if segmentstream_end_date is not None:
@@ -78,7 +84,7 @@ def dbt_vars(
     return json.dumps(data)
 
 
-def source_vars(sources: list[SegmentStreamSource]) -> list[dict[str, str]]:
+def event_source_vars(sources: list[SegmentStreamSource]) -> list[dict[str, str]]:
     return [
         {
             "name": source.name,
@@ -86,6 +92,19 @@ def source_vars(sources: list[SegmentStreamSource]) -> list[dict[str, str]]:
             "events_model_name": source.events_model_name,
         }
         for source in sources
+        if source.contract_type == "events"
+    ]
+
+
+def identity_key_source_vars(sources: list[SegmentStreamSource]) -> list[dict[str, str]]:
+    return [
+        {
+            "name": source.name,
+            "package_name": source.package_name,
+            "identity_keys_model_name": source.identity_keys_model_name,
+        }
+        for source in sources
+        if source.contract_type == "identity_keys"
     ]
 
 
@@ -123,13 +142,24 @@ def parse_sources(config: dict) -> list[SegmentStreamSource]:
         validate_identifier(package_name, f"sources.{name}.package_name")
 
         path = resolve_source_path(name, path_value)
-        events_model_name = discover_events_model_name(name, path)
+        contract_type, model_name = discover_source_contract(name, path)
+        if contract_type not in {"events", "identity_keys"}:
+            raise RuntimeError(
+                f'source "{name}" uses unsupported contract type "{contract_type}"'
+            )
+        events_model_name = (
+            model_name if contract_type == "events" else discover_events_model_name(name, path)
+        )
+        identity_keys_model_name = model_name if contract_type == "identity_keys" else "identity_keys"
         sources.append(
             SegmentStreamSource(
                 name=name,
                 path=path,
                 package_name=package_name,
+                contract_type=contract_type,
+                model_name=model_name,
                 events_model_name=events_model_name,
+                identity_keys_model_name=identity_keys_model_name,
             )
         )
     return sources
@@ -176,7 +206,7 @@ def resolve_source_path(name: str, value: str) -> Path:
         raise RuntimeError(f'source "{name}" path must not be inside .segmentstream')
     if not path.is_dir():
         raise RuntimeError(
-            f'source "{name}" path {value} does not exist; run segmentstream source scaffold {name} --type events or update segmentstream.yml'
+            f'source "{name}" path {value} does not exist; run segmentstream source scaffold {name} --type <contract> or update segmentstream.yml'
         )
     return path
 
@@ -190,6 +220,33 @@ def discover_events_model_name(name: str, path: Path) -> str:
         return legacy_model
 
     return "events"
+
+
+def discover_source_contract(name: str, path: Path) -> tuple[str, str]:
+    contract_path = path / "contract.yml"
+    if not contract_path.is_file():
+        return "events", discover_events_model_name(name, path)
+
+    with contract_path.open("r", encoding="utf-8") as file:
+        contract = yaml.safe_load(file) or {}
+    if not isinstance(contract, dict):
+        raise RuntimeError(f'source "{name}" contract.yml must contain a YAML mapping')
+
+    contract_type = normalize_required_string(contract.get("type"), f"sources.{name}.contract.type")
+    validate_identifier(contract_type, f"sources.{name}.contract.type")
+
+    model = contract.get("model") or {}
+    if not isinstance(model, dict):
+        raise RuntimeError(f'source "{name}" contract.yml field model must be a mapping')
+    model_name = normalize_optional_string(model.get("name"))
+    if model_name == "":
+        if contract_type == "events":
+            model_name = discover_events_model_name(name, path)
+        else:
+            model_name = contract_type
+    validate_identifier(model_name, f"sources.{name}.contract.model.name")
+
+    return contract_type, model_name
 
 
 def write_packages_yml(sources: list[SegmentStreamSource]) -> None:

@@ -26,10 +26,18 @@ models:
     intermediate:
       events:
         +materialized: ephemeral
+      identity:
+        +materialized: ephemeral
     marts:
       +materialized: incremental
       +incremental_strategy: insert_overwrite
-      +partition_by:
-        field: event_date
-        data_type: date
-        granularity: day
+      events:
+        +partition_by:
+          field: event_date
+          data_type: date
+          granularity: day
+      identity_keys:
+        +partition_by:
+          field: date
+          data_type: date
+          granularity: day

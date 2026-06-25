@@ -3,3 +3,5 @@ version: 2
 models:
   - name: int_events__unioned
     description: Internal union of declared source event models before publishing the canonical events mart.
+  - name: int_identity_keys__unioned
+    description: Internal union of declared source identity key models before publishing the canonical identity_keys mart.

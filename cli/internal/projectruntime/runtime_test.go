@@ -156,8 +156,12 @@ func TestPrepareCreatesExpectedRuntimeFiles(t *testing.T) {
 		"build_ingestion_assets",
 		"dbt_partition_vars",
 		"segmentstream_sources",
+		"segmentstream_identity_key_sources",
 		"segmentstream_start_date",
 		"segmentstream_end_date",
+		"event_source_vars",
+		"identity_key_source_vars",
+		"discover_source_contract",
 		"discover_events_model_name",
 		`legacy_model = f"events_{name}"`,
 	} {
@@ -193,6 +197,42 @@ func TestAnalyticsCoreIntermediateEventsModelUsesValidBigQueryZeroRowQuery(t *te
 	} {
 		if !strings.Contains(string(eventsModel), want) {
 			t.Fatalf("analytics-core events model does not contain %q:\n%s", want, string(eventsModel))
+		}
+	}
+}
+
+func TestAnalyticsCoreIdentityKeysModelsUseExpectedUnionAndDistinctShape(t *testing.T) {
+	identityModel, err := os.ReadFile(filepath.Join("..", "..", "..", "analytics-core", "models", "intermediate", "identity", "int_identity_keys__unioned.sql"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		"segmentstream_identity_key_sources",
+		"from (select 1) as empty_project",
+		"where false",
+		`ref(source["package_name"], source["identity_keys_model_name"])`,
+		"date >= date('{{ segmentstream_start_date }}')",
+		"date < date('{{ segmentstream_end_date }}')",
+	} {
+		if !strings.Contains(string(identityModel), want) {
+			t.Fatalf("analytics-core identity union model does not contain %q:\n%s", want, string(identityModel))
+		}
+	}
+
+	identityMart, err := os.ReadFile(filepath.Join("..", "..", "..", "analytics-core", "models", "marts", "identity_keys.sql"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		"select distinct",
+		"segmentstream_source",
+		"anonymous_id",
+		"key_name",
+		"key_value",
+		"from {{ ref('int_identity_keys__unioned') }}",
+	} {
+		if !strings.Contains(string(identityMart), want) {
+			t.Fatalf("analytics-core identity mart does not contain %q:\n%s", want, string(identityMart))
 		}
 	}
 }

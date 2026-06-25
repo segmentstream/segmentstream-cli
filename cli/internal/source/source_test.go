@@ -12,10 +12,10 @@ func TestContractsLoadFromEmbeddedTemplates(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Contracts failed: %v", err)
 	}
-	if len(contracts) != 1 {
-		t.Fatalf("contracts = %+v, want exactly one supported contract", contracts)
+	if len(contracts) != 2 {
+		t.Fatalf("contracts = %+v, want exactly two supported contracts", contracts)
 	}
-	contract := contracts[0]
+	contract := findContract(t, contracts, "events")
 	if contract.Type != "events" || contract.SchemaVersion != 1 {
 		t.Fatalf("contract identity = %s/%d, want events/1", contract.Type, contract.SchemaVersion)
 	}
@@ -34,6 +34,20 @@ func TestContractsLoadFromEmbeddedTemplates(t *testing.T) {
 	if contract.Columns[0].Name != "event_id" || !contract.Columns[0].Required {
 		t.Fatalf("first column = %+v, want required event_id", contract.Columns[0])
 	}
+
+	identityContract := findContract(t, contracts, "identity_keys")
+	if identityContract.Default {
+		t.Fatal("identity_keys contract should not be the default")
+	}
+	if identityContract.Model.Name != "identity_keys" || identityContract.Model.Partition != "date" {
+		t.Fatalf("identity model = %+v, want identity_keys partitioned by date", identityContract.Model)
+	}
+	if len(identityContract.Columns) != 4 {
+		t.Fatalf("identity columns = %+v, want 4 columns", identityContract.Columns)
+	}
+	if identityContract.Columns[0].Name != "date" || !identityContract.Columns[0].Required {
+		t.Fatalf("first identity column = %+v, want required date", identityContract.Columns[0])
+	}
 }
 
 func TestContractByTypeRejectsUnknownType(t *testing.T) {
@@ -42,7 +56,7 @@ func TestContractByTypeRejectsUnknownType(t *testing.T) {
 		t.Fatal("expected unknown contract type error")
 	}
 	if !strings.Contains(err.Error(), `unknown source contract type "costs"`) ||
-		!strings.Contains(err.Error(), "supported types: events") {
+		!strings.Contains(err.Error(), "supported types: events, identity_keys") {
 		t.Fatalf("error = %v, want clear unknown type message", err)
 	}
 }
@@ -187,6 +201,102 @@ func TestCreateScaffoldsSourcePackageFromContract(t *testing.T) {
 	}
 }
 
+func TestCreateScaffoldsIdentityKeysSourcePackageFromContract(t *testing.T) {
+	root := t.TempDir()
+	writeProjectConfig(t, root)
+
+	source, err := Create(root, "crm", "identity_keys")
+	if err != nil {
+		t.Fatalf("Create failed: %v", err)
+	}
+
+	if source.Contract.Type != "identity_keys" || source.Contract.SchemaVersion != 1 {
+		t.Fatalf("Contract = %+v, want identity_keys schema version 1", source.Contract)
+	}
+	if source.ModelName != "identity_keys" {
+		t.Fatalf("ModelName = %q, want identity_keys", source.ModelName)
+	}
+
+	expectedFiles := []string{
+		".gitignore",
+		"contract.yml",
+		"dbt_project.yml",
+		filepath.Join("models", "identity_keys.sql"),
+		filepath.Join("models", "schema.yml"),
+		"README.md",
+		"source.yml",
+		filepath.Join("tests", "verify_identity_keys_contract.sql"),
+		filepath.Join("tests", "verify_identity_keys_non_empty.sql"),
+	}
+	for _, relative := range expectedFiles {
+		assertGenerated(t, filepath.Join(source.Path, relative))
+		if !containsCreatedFile(source.CreatedFiles, filepath.ToSlash(filepath.Join("sources", "crm", relative))) {
+			t.Fatalf("CreatedFiles = %v, want %s", source.CreatedFiles, relative)
+		}
+	}
+
+	readme, err := os.ReadFile(filepath.Join(source.Path, "README.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		"# crm Identity Keys Source",
+		"identity_keys",
+		"Output Schema",
+	} {
+		if !strings.Contains(string(readme), want) {
+			t.Fatalf("README.md does not contain %q:\n%s", want, string(readme))
+		}
+	}
+
+	schema, err := os.ReadFile(filepath.Join(source.Path, "models", "schema.yml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		"name: crm_raw",
+		"identifier: REPLACE_WITH_RAW_IDENTITY_KEYS_TABLE",
+		"type: identity_keys",
+		"name: identity_keys",
+	} {
+		if !strings.Contains(string(schema), want) {
+			t.Fatalf("schema.yml does not contain %q:\n%s", want, string(schema))
+		}
+	}
+
+	model, err := os.ReadFile(filepath.Join(source.Path, "models", "identity_keys.sql"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		"segmentstream_start_date",
+		"segmentstream_end_date",
+		"Implement sources/crm/models/identity_keys.sql",
+		"anonymous_id",
+		"key_name",
+		"where false",
+	} {
+		if !strings.Contains(string(model), want) {
+			t.Fatalf("model does not contain %q:\n%s", want, string(model))
+		}
+	}
+
+	contractTest, err := os.ReadFile(filepath.Join(source.Path, "tests", "verify_identity_keys_contract.sql"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		"segmentstream_source_verify",
+		"cast(date as date)",
+		"anonymous_id is null",
+		"date >= date('{{ segmentstream_end_date }}')",
+	} {
+		if !strings.Contains(string(contractTest), want) {
+			t.Fatalf("contract test does not contain %q:\n%s", want, string(contractTest))
+		}
+	}
+}
+
 func TestCreateRequiresSegmentStreamProject(t *testing.T) {
 	_, err := Create(t.TempDir(), "ga4", "events")
 	if err == nil {
@@ -238,6 +348,14 @@ func TestCreateUsesRequestedContract(t *testing.T) {
 	if source.Contract.Type != "events" || source.ModelName != "events" {
 		t.Fatalf("source = %+v, want events contract and model", source)
 	}
+
+	identitySource, err := Create(root, "crm", "identity_keys")
+	if err != nil {
+		t.Fatalf("Create failed: %v", err)
+	}
+	if identitySource.Contract.Type != "identity_keys" || identitySource.ModelName != "identity_keys" {
+		t.Fatalf("source = %+v, want identity_keys contract and model", identitySource)
+	}
 }
 
 func TestValidateSourceDirRejectsUnexpectedPath(t *testing.T) {
@@ -263,6 +381,17 @@ warehouse:
 	if err := os.WriteFile(filepath.Join(root, "segmentstream.yml"), []byte(config), 0o644); err != nil {
 		t.Fatal(err)
 	}
+}
+
+func findContract(t *testing.T, contracts []Contract, contractType string) Contract {
+	t.Helper()
+	for _, contract := range contracts {
+		if contract.Type == contractType {
+			return contract
+		}
+	}
+	t.Fatalf("contracts = %+v, want contract type %q", contracts, contractType)
+	return Contract{}
 }
 
 func assertGenerated(t *testing.T, path string) {

@@ -1,0 +1,15 @@
+version: 2
+
+# Example raw input declaration for this source package.
+# Replace these placeholders with the warehouse tables this source reads from.
+# For BigQuery, database is the project, schema is the dataset, and identifier
+# is the physical table name. Add or remove tables as needed.
+sources:
+  - name: __SOURCE_NAME___raw
+    description: REPLACE_WITH_RAW_INPUT_DESCRIPTION
+    database: REPLACE_WITH_RAW_BIGQUERY_PROJECT
+    schema: REPLACE_WITH_RAW_BIGQUERY_DATASET
+    tables:
+      - name: identity_keys
+        identifier: REPLACE_WITH_RAW_IDENTITY_KEYS_TABLE
+        description: REPLACE_WITH_RAW_TABLE_DESCRIPTION
