@@ -13,6 +13,8 @@ unit_tests:
             'ip_address' as key_name,
             '203.0.113.1' as key_value,
             'probabilistic' as tier,
+            timestamp('2026-01-02 09:00:00+00') as source_first_seen_at,
+            timestamp('2026-01-01 08:00:00+00') as target_first_seen_at,
             date '2026-01-02' as source_first_seen_date,
             date '2026-01-01' as target_first_seen_date
           union all
@@ -22,6 +24,8 @@ unit_tests:
             'ip_address' as key_name,
             '203.0.113.1' as key_value,
             'probabilistic' as tier,
+            timestamp('2026-01-02 09:00:00+00') as source_first_seen_at,
+            timestamp('2026-01-01 08:00:00+00') as target_first_seen_at,
             date '2026-01-02' as source_first_seen_date,
             date '2026-01-01' as target_first_seen_date
     expect:
@@ -31,5 +35,7 @@ unit_tests:
           key_name: ip_address
           key_value: 203.0.113.1
           tier: probabilistic
+          source_first_seen_at: "2026-01-02 09:00:00+00"
+          target_first_seen_at: "2026-01-01 08:00:00+00"
           source_first_seen_date: "2026-01-02"
           target_first_seen_date: "2026-01-01"

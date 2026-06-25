@@ -35,7 +35,7 @@ models:
         description: Date partition for this event row.
 
   - name: identity_keys
-    description: Canonical SegmentStream identity key stream composed from declared identity key sources.
+    description: Canonical SegmentStream daily identity key spans composed from declared identity key observation sources.
     config:
       tags:
         - segmentstream_core
@@ -46,7 +46,7 @@ models:
           export_name: identity_keys
           contract:
             type: identity_keys
-            schema_version: 1
+            schema_version: 2
     columns:
       - name: segmentstream_source
         description: Source name from segmentstream.yml.
@@ -64,6 +64,14 @@ models:
           - not_null
       - name: key_value
         description: Normalized identity key value.
+        data_tests:
+          - not_null
+      - name: daily_first_observed_at
+        description: First timestamp this key value was observed for the anonymous ID on this date.
+        data_tests:
+          - not_null
+      - name: daily_last_observed_at
+        description: Last timestamp this key value was observed for the anonymous ID on this date.
         data_tests:
           - not_null
 
@@ -101,6 +109,14 @@ models:
         description: Link tier from segmentstream.yml, either deterministic or probabilistic.
         data_tests:
           - not_null
+      - name: source_first_seen_at
+        description: First timestamp the source anonymous ID appeared in identity_keys.
+        data_tests:
+          - not_null
+      - name: target_first_seen_at
+        description: First timestamp the target anonymous ID appeared in identity_keys.
+        data_tests:
+          - not_null
       - name: source_first_seen_date
         description: First date the source anonymous ID appeared in identity_keys.
         data_tests:
@@ -131,6 +147,10 @@ models:
           - unique
       - name: identity_id
         description: Stable identity ID for the connected identity component.
+        data_tests:
+          - not_null
+      - name: first_seen_at
+        description: First timestamp this anonymous ID appeared in identity_keys.
         data_tests:
           - not_null
       - name: first_seen_date

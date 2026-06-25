@@ -6,6 +6,8 @@ select distinct
   key_name,
   key_value,
   tier,
+  source_first_seen_at,
+  target_first_seen_at,
   source_first_seen_date,
   target_first_seen_date
 from {{ ref('int_identity_links__filtered') }}

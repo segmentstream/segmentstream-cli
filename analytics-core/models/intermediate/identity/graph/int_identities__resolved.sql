@@ -36,6 +36,7 @@ select
     valid_deterministic_components.identity_id,
     identity_graph_nodes.anonymous_id
   ) as identity_id,
+  identity_graph_nodes.first_seen_at,
   identity_graph_nodes.first_seen_date
 from identity_graph_nodes
 left join valid_all_components

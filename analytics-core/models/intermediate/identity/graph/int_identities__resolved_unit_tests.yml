@@ -11,17 +11,17 @@ unit_tests:
       - input: ref('int_identity_graph_nodes')
         format: sql
         rows: |
-          select 'anon_a' as anonymous_id, date '2026-01-01' as first_seen_date
+          select 'anon_a' as anonymous_id, timestamp('2026-01-01 08:00:00+00') as first_seen_at, date '2026-01-01' as first_seen_date
           union all
-          select 'anon_b' as anonymous_id, date '2026-01-02' as first_seen_date
+          select 'anon_b' as anonymous_id, timestamp('2026-01-02 08:00:00+00') as first_seen_at, date '2026-01-02' as first_seen_date
           union all
-          select 'anon_c' as anonymous_id, date '2026-01-03' as first_seen_date
+          select 'anon_c' as anonymous_id, timestamp('2026-01-03 08:00:00+00') as first_seen_at, date '2026-01-03' as first_seen_date
           union all
-          select 'anon_d' as anonymous_id, date '2026-01-04' as first_seen_date
+          select 'anon_d' as anonymous_id, timestamp('2026-01-04 08:00:00+00') as first_seen_at, date '2026-01-04' as first_seen_date
           union all
-          select 'anon_e' as anonymous_id, date '2026-01-05' as first_seen_date
+          select 'anon_e' as anonymous_id, timestamp('2026-01-05 08:00:00+00') as first_seen_at, date '2026-01-05' as first_seen_date
           union all
-          select 'anon_f' as anonymous_id, date '2026-01-06' as first_seen_date
+          select 'anon_f' as anonymous_id, timestamp('2026-01-06 08:00:00+00') as first_seen_at, date '2026-01-06' as first_seen_date
       - input: ref('int_identity_graph_deterministic_components')
         format: sql
         rows: |
@@ -50,19 +50,25 @@ unit_tests:
       rows:
         - anonymous_id: anon_a
           identity_id: anon_b
+          first_seen_at: "2026-01-01 08:00:00+00"
           first_seen_date: "2026-01-01"
         - anonymous_id: anon_b
           identity_id: anon_b
+          first_seen_at: "2026-01-02 08:00:00+00"
           first_seen_date: "2026-01-02"
         - anonymous_id: anon_c
           identity_id: anon_d
+          first_seen_at: "2026-01-03 08:00:00+00"
           first_seen_date: "2026-01-03"
         - anonymous_id: anon_d
           identity_id: anon_d
+          first_seen_at: "2026-01-04 08:00:00+00"
           first_seen_date: "2026-01-04"
         - anonymous_id: anon_e
           identity_id: anon_e
+          first_seen_at: "2026-01-05 08:00:00+00"
           first_seen_date: "2026-01-05"
         - anonymous_id: anon_f
           identity_id: anon_f
+          first_seen_at: "2026-01-06 08:00:00+00"
           first_seen_date: "2026-01-06"

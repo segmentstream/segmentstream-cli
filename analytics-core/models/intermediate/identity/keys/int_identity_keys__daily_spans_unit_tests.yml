@@ -1,0 +1,25 @@
+version: 2
+
+unit_tests:
+  - name: int_identity_keys__daily_spans__compresses_observations_to_daily_ranges
+    model: int_identity_keys__daily_spans
+    given:
+      - input: ref('int_identity_keys__unioned')
+        format: sql
+        rows: |
+          select 'web' as segmentstream_source, date '2026-01-01' as date, timestamp('2026-01-01 08:00:00+00') as observed_at, 'anon_1' as anonymous_id, 'ip_address' as key_name, '203.0.113.1' as key_value
+          union all
+          select 'web' as segmentstream_source, date '2026-01-01' as date, timestamp('2026-01-01 09:30:00+00') as observed_at, 'anon_1' as anonymous_id, 'ip_address' as key_name, '203.0.113.1' as key_value
+          union all
+          select 'web' as segmentstream_source, date '2026-01-02' as date, timestamp('2026-01-01 10:00:00+00') as observed_at, 'anon_1' as anonymous_id, 'ip_address' as key_name, 'ignored_mismatched_date' as key_value
+          union all
+          select 'web' as segmentstream_source, date '2026-01-01' as date, cast(null as timestamp) as observed_at, 'anon_2' as anonymous_id, 'user_id' as key_name, 'ignored_null_timestamp' as key_value
+    expect:
+      rows:
+        - segmentstream_source: web
+          date: "2026-01-01"
+          anonymous_id: anon_1
+          key_name: ip_address
+          key_value: 203.0.113.1
+          daily_first_observed_at: "2026-01-01 08:00:00+00"
+          daily_last_observed_at: "2026-01-01 09:30:00+00"

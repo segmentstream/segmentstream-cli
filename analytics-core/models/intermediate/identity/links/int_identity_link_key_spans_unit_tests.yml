@@ -7,9 +7,9 @@ unit_tests:
       - input: ref('int_identity_link_key_observations')
         format: sql
         rows: |
-          select 'web' as segmentstream_source, 'web' as scope_value, 'source' as scope, 'anon_1' as anonymous_id, date '2026-01-01' as date, 'ip_address' as key_name, '203.0.113.1' as key_value, 'probabilistic' as tier, 3 as window_days, 100 as max_distinct_anonymous_ids
+          select 'web' as segmentstream_source, 'web' as scope_value, 'source' as scope, 'anon_1' as anonymous_id, date '2026-01-01' as date, 'ip_address' as key_name, '203.0.113.1' as key_value, timestamp('2026-01-01 08:00:00+00') as daily_first_observed_at, timestamp('2026-01-01 08:30:00+00') as daily_last_observed_at, 'probabilistic' as tier, 3 as window_days, 100 as max_distinct_anonymous_ids
           union all
-          select 'web' as segmentstream_source, 'web' as scope_value, 'source' as scope, 'anon_1' as anonymous_id, date '2026-01-04' as date, 'ip_address' as key_name, '203.0.113.1' as key_value, 'probabilistic' as tier, 3 as window_days, 100 as max_distinct_anonymous_ids
+          select 'web' as segmentstream_source, 'web' as scope_value, 'source' as scope, 'anon_1' as anonymous_id, date '2026-01-04' as date, 'ip_address' as key_name, '203.0.113.1' as key_value, timestamp('2026-01-04 07:30:00+00') as daily_first_observed_at, timestamp('2026-01-04 09:00:00+00') as daily_last_observed_at, 'probabilistic' as tier, 3 as window_days, 100 as max_distinct_anonymous_ids
     expect:
       rows:
         - scope: source
@@ -20,5 +20,5 @@ unit_tests:
           tier: probabilistic
           window_days: 3
           max_distinct_anonymous_ids: 100
-          first_key_seen_date: "2026-01-01"
-          last_key_seen_date: "2026-01-04"
+          first_key_seen_at: "2026-01-01 08:00:00+00"
+          last_key_seen_at: "2026-01-04 09:00:00+00"

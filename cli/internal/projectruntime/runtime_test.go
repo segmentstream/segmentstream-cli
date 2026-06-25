@@ -167,6 +167,7 @@ func TestPrepareCreatesExpectedRuntimeFiles(t *testing.T) {
 		"segmentstream_identity_link_keys",
 		"segmentstream_start_date",
 		"segmentstream_end_date",
+		"SUPPORTED_SOURCE_CONTRACT_SCHEMA_VERSIONS",
 		"event_source_vars",
 		"identity_key_source_vars",
 		"parse_identity_link_keys",
@@ -221,6 +222,7 @@ func TestAnalyticsCoreIdentityKeysModelsUseExpectedUnionAndDistinctShape(t *test
 		"from (select 1) as empty_project",
 		"where false",
 		`ref(source["package_name"], source["identity_keys_model_name"])`,
+		"observed_at",
 		"date >= date('{{ segmentstream_start_date }}')",
 		"date < date('{{ segmentstream_end_date }}')",
 	} {
@@ -236,13 +238,30 @@ func TestAnalyticsCoreIdentityKeysModelsUseExpectedUnionAndDistinctShape(t *test
 	for _, want := range []string{
 		"select distinct",
 		"segmentstream_source",
+		"daily_first_observed_at",
+		"daily_last_observed_at",
 		"anonymous_id",
 		"key_name",
 		"key_value",
-		"from {{ ref('int_identity_keys__unioned') }}",
+		"from {{ ref('int_identity_keys__daily_spans') }}",
 	} {
 		if !strings.Contains(string(identityMart), want) {
 			t.Fatalf("analytics-core identity mart does not contain %q:\n%s", want, string(identityMart))
+		}
+	}
+
+	dailySpansModel, err := os.ReadFile(filepath.Join("..", "..", "..", "analytics-core", "models", "intermediate", "identity", "keys", "int_identity_keys__daily_spans.sql"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		"min(observed_at) as daily_first_observed_at",
+		"max(observed_at) as daily_last_observed_at",
+		"date = {{ segmentstream_timestamp_to_date('observed_at') }}",
+		"group by 1, 2, 3, 4, 5",
+	} {
+		if !strings.Contains(string(dailySpansModel), want) {
+			t.Fatalf("analytics-core identity daily spans model does not contain %q:\n%s", want, string(dailySpansModel))
 		}
 	}
 }
@@ -289,8 +308,8 @@ func TestAnalyticsCoreIdentityLinksModelsUseExpectedShape(t *testing.T) {
 		"count(distinct anonymous_id) as distinct_anonymous_ids",
 		"<= identity_link_key_spans.max_distinct_anonymous_ids",
 		"source_key_span.anonymous_id < target_key_span.anonymous_id",
-		"date_diff(",
-		"<= source_key_span.window_days",
+		"segmentstream_timestamp_diff_seconds(",
+		"<= source_key_span.window_days * 86400",
 	} {
 		if !strings.Contains(string(candidatesModel), want) {
 			t.Fatalf("identity link candidates model does not contain %q:\n%s", want, string(candidatesModel))
@@ -319,8 +338,10 @@ func TestAnalyticsCoreIdentityLinksModelsUseExpectedShape(t *testing.T) {
 		"deterministic_conflicts",
 		"source_value_sets.key_value_set != target_value_sets.key_value_set",
 		"where deterministic_conflicts.anonymous_id_a is null",
-		"when first_seen_date_a > first_seen_date_b then anonymous_id_a",
+		"when first_seen_at_a > first_seen_at_b then anonymous_id_a",
 		"when anonymous_id_a > anonymous_id_b then anonymous_id_a",
+		"source_first_seen_at",
+		"target_first_seen_at",
 		"source_first_seen_date",
 		"target_first_seen_date",
 	} {
@@ -340,6 +361,8 @@ func TestAnalyticsCoreIdentityLinksModelsUseExpectedShape(t *testing.T) {
 		"key_name",
 		"key_value",
 		"tier",
+		"source_first_seen_at",
+		"target_first_seen_at",
 		"source_first_seen_date",
 		"target_first_seen_date",
 		"from {{ ref('int_identity_links__filtered') }}",
@@ -389,7 +412,8 @@ func TestAnalyticsCoreIdentitiesModelsUseExpectedGraphShape(t *testing.T) {
 	}
 	for _, want := range []string{
 		"from {{ ref('identity_keys') }}",
-		"min(date) as first_seen_date",
+		"min(daily_first_observed_at) as first_seen_at",
+		"segmentstream_timestamp_to_date",
 		"group by 1",
 	} {
 		if !strings.Contains(string(nodesModel), want) {
@@ -421,7 +445,7 @@ func TestAnalyticsCoreIdentitiesModelsUseExpectedGraphShape(t *testing.T) {
 		"where tier = 'deterministic'",
 		"segmentstream_identity_connected_components",
 		"row_number() over",
-		"order by identity_graph_nodes.first_seen_date, connected_components.node_id",
+		"order by identity_graph_nodes.first_seen_at, connected_components.node_id",
 	} {
 		if !strings.Contains(string(deterministicComponentsModel), want) {
 			t.Fatalf("identity deterministic components model does not contain %q:\n%s", want, string(deterministicComponentsModel))
@@ -467,6 +491,7 @@ func TestAnalyticsCoreIdentitiesModelsUseExpectedGraphShape(t *testing.T) {
 		"select distinct",
 		"anonymous_id",
 		"identity_id",
+		"first_seen_at",
 		"first_seen_date",
 		"from {{ ref('int_identities__resolved') }}",
 	} {

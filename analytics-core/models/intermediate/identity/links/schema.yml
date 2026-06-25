@@ -32,6 +32,10 @@ models:
         data_type: string
       - name: key_value
         data_type: string
+      - name: daily_first_observed_at
+        data_type: timestamp
+      - name: daily_last_observed_at
+        data_type: timestamp
       - name: tier
         data_type: string
       - name: window_days
@@ -40,15 +44,17 @@ models:
         data_type: int64
 
   - name: int_identity_anonymous_id_first_seen
-    description: First observed identity_keys date per anonymous ID for link orientation.
+    description: First observed identity_keys timestamp per anonymous ID for link orientation.
     columns:
       - name: anonymous_id
         data_type: string
+      - name: first_seen_at
+        data_type: timestamp
       - name: first_seen_date
         data_type: date
 
   - name: int_identity_link_key_spans
-    description: Per-anonymous-ID date spans for each configured key value and scope.
+    description: Per-anonymous-ID timestamp spans for each configured key value and scope.
     columns:
       - name: scope
         data_type: string
@@ -66,13 +72,13 @@ models:
         data_type: int64
       - name: max_distinct_anonymous_ids
         data_type: int64
-      - name: first_key_seen_date
-        data_type: date
-      - name: last_key_seen_date
-        data_type: date
+      - name: first_key_seen_at
+        data_type: timestamp
+      - name: last_key_seen_at
+        data_type: timestamp
 
   - name: int_identity_link_candidates
-    description: Candidate anonymous-ID pairs that share a configured non-skewed key within its configured date window.
+    description: Candidate anonymous-ID pairs that share a configured non-skewed key within its configured timestamp window.
     columns:
       - name: scope
         data_type: string
@@ -88,14 +94,14 @@ models:
         data_type: string
       - name: anonymous_id_b
         data_type: string
-      - name: first_key_seen_date_a
-        data_type: date
-      - name: last_key_seen_date_a
-        data_type: date
-      - name: first_key_seen_date_b
-        data_type: date
-      - name: last_key_seen_date_b
-        data_type: date
+      - name: first_key_seen_at_a
+        data_type: timestamp
+      - name: last_key_seen_at_a
+        data_type: timestamp
+      - name: first_key_seen_at_b
+        data_type: timestamp
+      - name: last_key_seen_at_b
+        data_type: timestamp
 
   - name: int_identity_link_deterministic_value_sets
     description: Per-user deterministic key value sets used as hard constraints for identity links.
@@ -124,6 +130,10 @@ models:
         data_type: string
       - name: tier
         data_type: string
+      - name: source_first_seen_at
+        data_type: timestamp
+      - name: target_first_seen_at
+        data_type: timestamp
       - name: source_first_seen_date
         data_type: date
       - name: target_first_seen_date

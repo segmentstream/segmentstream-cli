@@ -11,6 +11,7 @@
 select
   cast(null as string) as segmentstream_source,
   cast(null as date) as date,
+  cast(null as timestamp) as observed_at,
   cast(null as string) as anonymous_id,
   cast(null as string) as key_name,
   cast(null as string) as key_value
@@ -23,6 +24,7 @@ where false
 select
   '{{ source["name"] }}' as segmentstream_source,
   date,
+  observed_at,
   anonymous_id,
   key_name,
   key_value

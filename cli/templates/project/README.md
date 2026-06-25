@@ -17,8 +17,10 @@ UTC daily partitions by default.
 
 Project-owned source packages live outside this generated directory under
 `../sources/`. Event sources implement the `events` contract; identity key
-sources implement the `identity_keys` contract and emit normalized rows with
-`date`, `anonymous_id`, `key_name`, and `key_value`.
+sources implement the `identity_keys` contract and emit timestamped observation
+rows with `date`, `observed_at`, `anonymous_id`, `key_name`, and `key_value`.
+Analytics-core compresses those observations into daily key spans before
+building links.
 
 Declare source packages and identity link keys in `../segmentstream.yml`:
 

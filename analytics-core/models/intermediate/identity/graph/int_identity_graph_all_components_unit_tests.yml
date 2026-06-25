@@ -10,11 +10,11 @@ unit_tests:
       - input: ref('int_identity_graph_nodes')
         format: sql
         rows: |
-          select 'anon_a' as anonymous_id, date '2026-01-03' as first_seen_date
+          select 'anon_a' as anonymous_id, timestamp('2026-01-03 08:00:00+00') as first_seen_at, date '2026-01-03' as first_seen_date
           union all
-          select 'anon_b' as anonymous_id, date '2026-01-01' as first_seen_date
+          select 'anon_b' as anonymous_id, timestamp('2026-01-01 09:00:00+00') as first_seen_at, date '2026-01-01' as first_seen_date
           union all
-          select 'anon_c' as anonymous_id, date '2026-01-02' as first_seen_date
+          select 'anon_c' as anonymous_id, timestamp('2026-01-01 08:00:00+00') as first_seen_at, date '2026-01-01' as first_seen_date
       - input: ref('int_identity_graph_edges')
         format: sql
         rows: |
@@ -26,12 +26,12 @@ unit_tests:
         - anonymous_id: anon_a
           connected_component_id: anon_a
           component_size: 3
-          identity_id: anon_b
+          identity_id: anon_c
         - anonymous_id: anon_b
           connected_component_id: anon_a
           component_size: 3
-          identity_id: anon_b
+          identity_id: anon_c
         - anonymous_id: anon_c
           connected_component_id: anon_a
           component_size: 3
-          identity_id: anon_b
+          identity_id: anon_c

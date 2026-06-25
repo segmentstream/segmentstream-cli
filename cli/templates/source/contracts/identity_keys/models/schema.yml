@@ -26,10 +26,12 @@ models:
           source_name: __SOURCE_NAME__
           contract:
             type: identity_keys
-            schema_version: 1
+            schema_version: 2
     columns:
       - name: date
-        description: Date partition for this identity key observation.
+        description: UTC date partition for this identity key observation.
+      - name: observed_at
+        description: UTC timestamp when this identity key was observed.
       - name: anonymous_id
         description: Anonymous user or device identifier.
       - name: key_name

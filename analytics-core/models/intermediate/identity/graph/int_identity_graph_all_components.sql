@@ -45,7 +45,7 @@ component_identity_candidates as (
     connected_components.node_id,
     row_number() over (
       partition by connected_components.connected_component_id
-      order by identity_graph_nodes.first_seen_date, connected_components.node_id
+      order by identity_graph_nodes.first_seen_at, connected_components.node_id
     ) as identity_rank
   from connected_components
   inner join identity_graph_nodes

@@ -7,11 +7,11 @@ unit_tests:
       - input: ref('int_identity_link_candidates')
         format: sql
         rows: |
-          select 'source' as scope, 'web' as scope_value, 'ip_address' as key_name, '203.0.113.1' as key_value, 'probabilistic' as tier, 'anon_a' as anonymous_id_a, 'anon_b' as anonymous_id_b, date '2026-01-01' as first_key_seen_date_a, date '2026-01-01' as last_key_seen_date_a, date '2026-01-01' as first_key_seen_date_b, date '2026-01-01' as last_key_seen_date_b
+          select 'source' as scope, 'web' as scope_value, 'ip_address' as key_name, '203.0.113.1' as key_value, 'probabilistic' as tier, 'anon_a' as anonymous_id_a, 'anon_b' as anonymous_id_b, timestamp('2026-01-01 08:00:00+00') as first_key_seen_at_a, timestamp('2026-01-01 08:00:00+00') as last_key_seen_at_a, timestamp('2026-01-01 08:00:00+00') as first_key_seen_at_b, timestamp('2026-01-01 08:00:00+00') as last_key_seen_at_b
           union all
-          select 'source' as scope, 'web' as scope_value, 'ip_address' as key_name, '203.0.113.2' as key_value, 'probabilistic' as tier, 'anon_c' as anonymous_id_a, 'anon_d' as anonymous_id_b, date '2026-01-02' as first_key_seen_date_a, date '2026-01-02' as last_key_seen_date_a, date '2026-01-02' as first_key_seen_date_b, date '2026-01-02' as last_key_seen_date_b
+          select 'source' as scope, 'web' as scope_value, 'ip_address' as key_name, '203.0.113.2' as key_value, 'probabilistic' as tier, 'anon_c' as anonymous_id_a, 'anon_d' as anonymous_id_b, timestamp('2026-01-02 08:00:00+00') as first_key_seen_at_a, timestamp('2026-01-02 08:00:00+00') as last_key_seen_at_a, timestamp('2026-01-02 08:00:00+00') as first_key_seen_at_b, timestamp('2026-01-02 08:00:00+00') as last_key_seen_at_b
           union all
-          select 'project' as scope, '__segmentstream_project__' as scope_value, 'user_id' as key_name, 'user_3' as key_value, 'deterministic' as tier, 'anon_e' as anonymous_id_a, 'anon_f' as anonymous_id_b, date '2026-01-03' as first_key_seen_date_a, date '2026-01-03' as last_key_seen_date_a, date '2026-01-03' as first_key_seen_date_b, date '2026-01-03' as last_key_seen_date_b
+          select 'project' as scope, '__segmentstream_project__' as scope_value, 'user_id' as key_name, 'user_3' as key_value, 'deterministic' as tier, 'anon_e' as anonymous_id_a, 'anon_f' as anonymous_id_b, timestamp('2026-01-03 08:00:00+00') as first_key_seen_at_a, timestamp('2026-01-03 08:00:00+00') as last_key_seen_at_a, timestamp('2026-01-03 08:00:00+00') as first_key_seen_at_b, timestamp('2026-01-03 08:00:00+00') as last_key_seen_at_b
       - input: ref('int_identity_link_deterministic_value_sets')
         format: sql
         rows: |
@@ -27,17 +27,17 @@ unit_tests:
       - input: ref('int_identity_anonymous_id_first_seen')
         format: sql
         rows: |
-          select 'anon_a' as anonymous_id, date '2026-01-03' as first_seen_date
+          select 'anon_a' as anonymous_id, timestamp('2026-01-03 08:00:00+00') as first_seen_at, date '2026-01-03' as first_seen_date
           union all
-          select 'anon_b' as anonymous_id, date '2026-01-01' as first_seen_date
+          select 'anon_b' as anonymous_id, timestamp('2026-01-01 08:00:00+00') as first_seen_at, date '2026-01-01' as first_seen_date
           union all
-          select 'anon_c' as anonymous_id, date '2026-01-04' as first_seen_date
+          select 'anon_c' as anonymous_id, timestamp('2026-01-04 08:00:00+00') as first_seen_at, date '2026-01-04' as first_seen_date
           union all
-          select 'anon_d' as anonymous_id, date '2026-01-02' as first_seen_date
+          select 'anon_d' as anonymous_id, timestamp('2026-01-02 08:00:00+00') as first_seen_at, date '2026-01-02' as first_seen_date
           union all
-          select 'anon_e' as anonymous_id, date '2026-01-01' as first_seen_date
+          select 'anon_e' as anonymous_id, timestamp('2026-01-01 09:00:00+00') as first_seen_at, date '2026-01-01' as first_seen_date
           union all
-          select 'anon_f' as anonymous_id, date '2026-01-01' as first_seen_date
+          select 'anon_f' as anonymous_id, timestamp('2026-01-01 10:00:00+00') as first_seen_at, date '2026-01-01' as first_seen_date
     expect:
       rows:
         - source_anonymous_id: anon_c
@@ -45,6 +45,8 @@ unit_tests:
           key_name: ip_address
           key_value: 203.0.113.2
           tier: probabilistic
+          source_first_seen_at: "2026-01-04 08:00:00+00"
+          target_first_seen_at: "2026-01-02 08:00:00+00"
           source_first_seen_date: "2026-01-04"
           target_first_seen_date: "2026-01-02"
         - source_anonymous_id: anon_f
@@ -52,5 +54,7 @@ unit_tests:
           key_name: user_id
           key_value: user_3
           tier: deterministic
+          source_first_seen_at: "2026-01-01 10:00:00+00"
+          target_first_seen_at: "2026-01-01 09:00:00+00"
           source_first_seen_date: "2026-01-01"
           target_first_seen_date: "2026-01-01"

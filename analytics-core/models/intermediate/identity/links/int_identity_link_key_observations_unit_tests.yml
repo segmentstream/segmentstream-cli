@@ -13,13 +13,13 @@ unit_tests:
       - input: ref('segmentstream_analytics_core', 'identity_keys')
         format: sql
         rows: |
-          select 'web' as segmentstream_source, date '2026-01-01' as date, 'anon_1' as anonymous_id, 'user_id' as key_name, 'user_1' as key_value
+          select 'web' as segmentstream_source, date '2026-01-01' as date, 'anon_1' as anonymous_id, 'user_id' as key_name, 'user_1' as key_value, timestamp('2026-01-01 08:00:00+00') as daily_first_observed_at, timestamp('2026-01-01 08:00:00+00') as daily_last_observed_at
           union all
-          select 'web' as segmentstream_source, date '2026-01-01' as date, 'anon_1' as anonymous_id, 'ip_address' as key_name, '203.0.113.1' as key_value
+          select 'web' as segmentstream_source, date '2026-01-01' as date, 'anon_1' as anonymous_id, 'ip_address' as key_name, '203.0.113.1' as key_value, timestamp('2026-01-01 09:00:00+00') as daily_first_observed_at, timestamp('2026-01-01 09:30:00+00') as daily_last_observed_at
           union all
-          select 'web' as segmentstream_source, date '2026-01-01' as date, 'anon_1' as anonymous_id, 'ignored_key' as key_name, 'ignored' as key_value
+          select 'web' as segmentstream_source, date '2026-01-01' as date, 'anon_1' as anonymous_id, 'ignored_key' as key_name, 'ignored' as key_value, timestamp('2026-01-01 10:00:00+00') as daily_first_observed_at, timestamp('2026-01-01 10:00:00+00') as daily_last_observed_at
           union all
-          select 'web' as segmentstream_source, cast(null as date) as date, 'anon_2' as anonymous_id, 'user_id' as key_name, 'user_2' as key_value
+          select 'web' as segmentstream_source, cast(null as date) as date, 'anon_2' as anonymous_id, 'user_id' as key_name, 'user_2' as key_value, timestamp('2026-01-01 11:00:00+00') as daily_first_observed_at, timestamp('2026-01-01 11:00:00+00') as daily_last_observed_at
     expect:
       rows:
         - segmentstream_source: web
@@ -29,6 +29,8 @@ unit_tests:
           date: "2026-01-01"
           key_name: user_id
           key_value: user_1
+          daily_first_observed_at: "2026-01-01 08:00:00+00"
+          daily_last_observed_at: "2026-01-01 08:00:00+00"
           tier: deterministic
           window_days: 180
           max_distinct_anonymous_ids: 1000
@@ -39,6 +41,8 @@ unit_tests:
           date: "2026-01-01"
           key_name: ip_address
           key_value: 203.0.113.1
+          daily_first_observed_at: "2026-01-01 09:00:00+00"
+          daily_last_observed_at: "2026-01-01 09:30:00+00"
           tier: probabilistic
           window_days: 3
           max_distinct_anonymous_ids: 100
