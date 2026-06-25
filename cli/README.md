@@ -66,36 +66,70 @@ transformations. Agents should start by discovering supported source contracts:
 ```sh
 segmentstream source contracts --json
 segmentstream source contracts --type events --json
+segmentstream source contracts --type identity_keys --json
 ```
 
 Scaffold a local source template from a contract:
 
 ```sh
 segmentstream source scaffold ga4 --type events
+segmentstream source scaffold sdk_identity --type identity_keys
 ```
 
-This scaffolds `sources/ga4/` as a source template with a pinned `contract.yml`,
-a `README.md`, dbt verification tests, and one author-editable model:
-`sources/ga4/models/events.sql`. The scaffold is not implemented yet; read the
-README to understand the source package and output contract.
+This scaffolds project-owned source templates with pinned `contract.yml`
+snapshots, `README.md` files, dbt verification tests, and author-editable
+contract models:
 
-Declare the source in `segmentstream.yml`:
+- `sources/ga4/models/events.sql`
+- `sources/sdk_identity/models/identity_keys.sql`
+
+The scaffolds are not implemented yet; read each README to understand the
+source package and output contract.
+
+Declare the sources in `segmentstream.yml`:
 
 ```yaml
 sources:
   - name: ga4
     path: ./sources/ga4
+  - name: sdk_identity
+    path: ./sources/sdk_identity
 ```
 
-Verify the implemented source before running the pipeline:
+Verify implemented sources before running the pipeline:
 
 ```sh
 segmentstream source verify ga4
+segmentstream source verify sdk_identity
 ```
 
 On run, SegmentStream reads `segmentstream.yml`, installs analytics-core and
-declared sources as dbt packages, and materializes the core `events` model from
-analytics-core.
+declared sources as dbt packages, and materializes the core `events` and
+`identity_keys` models from analytics-core.
+
+## Configure Identity Links
+
+Source packages that use the `identity_keys` contract emit normalized key rows.
+Declare which keys may create identity links in `segmentstream.yml`:
+
+```yaml
+identity:
+  keys:
+    - name: user_id
+      tier: deterministic
+      window_days: 180
+      max_distinct_anonymous_ids: 1000
+      scope: project
+    - name: ip_address
+      tier: probabilistic
+      window_days: 3
+      max_distinct_anonymous_ids: 100
+      scope: source
+```
+
+Every linkable key must be declared explicitly. `deterministic` keys also
+prevent links between anonymous IDs that have conflicting deterministic values.
+Source SQL owns key extraction, normalization, and filtering.
 
 ## Configure Your Warehouse
 
@@ -243,11 +277,12 @@ state-machine envelope under `data.envelope`.
 the configured warehouse. It runs the last 30 UTC daily partitions by default;
 use `segmentstream run --start-date YYYY-MM-DD` to start earlier or later.
 
-`segmentstream source contracts [--type events] [--json]` lists supported source
-contracts and returns their schemas.
+`segmentstream source contracts [--type events|identity_keys] [--json]` lists
+supported source contracts and returns their schemas.
 
-`segmentstream source scaffold <name> --type events [--json]` scaffolds a local
-source template under `sources/<name>/`. The template must be implemented next.
+`segmentstream source scaffold <name> --type events|identity_keys [--json]`
+scaffolds a local source template under `sources/<name>/`. The template must be
+implemented next.
 
 `segmentstream source verify <name> [--start-date YYYY-MM-DD] [--json]` runs the
 source package's dbt verification tests inside Docker. It defaults to the last 7
