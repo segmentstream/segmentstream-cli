@@ -114,6 +114,23 @@ func TestRequireTemplateTests(t *testing.T) {
 	}
 }
 
+func TestRequireTemplateTestsUsesIdentityKeysContractModel(t *testing.T) {
+	root, _ := writeIdentityKeysSourcePackage(t)
+	sourcePath := filepath.Join(root, "sources", "crm")
+
+	if err := RequireTemplateTests(sourcePath); err != nil {
+		t.Fatalf("RequireTemplateTests failed: %v", err)
+	}
+
+	writeFile(t, filepath.Join(sourcePath, "tests", "verify_identity_keys_contract.sql"), "select 1 where false\n")
+	err := RequireTemplateTests(sourcePath)
+	if err == nil ||
+		!strings.Contains(err.Error(), "verify_identity_keys_contract.sql") ||
+		!strings.Contains(err.Error(), "segmentstream_source_verify") {
+		t.Fatalf("error = %v, want missing tag error for identity_keys contract test", err)
+	}
+}
+
 func writeSourcePackage(t *testing.T) (string, project.Source) {
 	t.Helper()
 	root := t.TempDir()
@@ -127,6 +144,24 @@ schema_version: 1
 	writeFile(t, filepath.Join(sourcePath, "tests", "verify_events_contract.sql"), "{{ config(tags=['segmentstream_source_verify']) }}\nselect 1 where false\n")
 	writeFile(t, filepath.Join(sourcePath, "tests", "verify_events_non_empty.sql"), "{{ config(tags=['segmentstream_source_verify']) }}\nselect 1 where false\n")
 	return root, project.Source{Name: "ga4", Path: "./sources/ga4"}
+}
+
+func writeIdentityKeysSourcePackage(t *testing.T) (string, project.Source) {
+	t.Helper()
+	root := t.TempDir()
+	sourcePath := filepath.Join(root, "sources", "crm")
+	writeFile(t, filepath.Join(sourcePath, "contract.yml"), `type: identity_keys
+schema_version: 1
+model:
+  name: identity_keys
+  partition: date
+`)
+	writeFile(t, filepath.Join(sourcePath, "dbt_project.yml"), `name: segmentstream_source_crm
+`)
+	writeFile(t, filepath.Join(sourcePath, "models", "identity_keys.sql"), "select current_date() as date\n")
+	writeFile(t, filepath.Join(sourcePath, "tests", "verify_identity_keys_contract.sql"), "{{ config(tags=['segmentstream_source_verify']) }}\nselect 1 where false\n")
+	writeFile(t, filepath.Join(sourcePath, "tests", "verify_identity_keys_non_empty.sql"), "{{ config(tags=['segmentstream_source_verify']) }}\nselect 1 where false\n")
+	return root, project.Source{Name: "crm", Path: "./sources/crm"}
 }
 
 func writeFile(t *testing.T, path, content string) {
