@@ -70,6 +70,16 @@ warehouse:
 # sources:
 #   - name: ga4
 #     path: ./sources/ga4
+#   - name: sdk_identity
+#     path: ./sources/sdk_identity
+#
+# identity:
+#   keys:
+#     - name: user_id
+#       tier: deterministic
+#       window_days: 180
+#       max_distinct_anonymous_ids: 1000
+#       scope: project
 `
 }
 

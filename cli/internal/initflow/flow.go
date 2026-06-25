@@ -11,10 +11,12 @@ import (
 )
 
 const (
-	testWarehouseCommand   = "segmentstream warehouse test --json"
-	sourceContractsCommand = "segmentstream source contracts"
-	initVerifyCommand      = "segmentstream init --json"
-	runCommand             = "segmentstream run"
+	testWarehouseCommand             = "segmentstream warehouse test --json"
+	sourceContractsCommand           = "segmentstream source contracts"
+	eventSourceContractCommand       = "segmentstream source contracts --type events"
+	identityKeySourceContractCommand = "segmentstream source contracts --type identity_keys"
+	initVerifyCommand                = "segmentstream init --json"
+	runCommand                       = "segmentstream run"
 
 	statusSatisfied = "satisfied"
 	statusMissing   = "missing"
@@ -35,6 +37,7 @@ const (
 	stageWarehouseConfig stageID = "warehouse_config"
 	stageWarehouseAccess stageID = "warehouse_access"
 	stageSources         stageID = "sources"
+	stageIdentity        stageID = "identity"
 )
 
 type Options struct {
@@ -68,6 +71,7 @@ var stagePlan = []stageSpec{
 	{ID: stageWarehouseConfig, DependsOn: []stageID{stageWarehouseAuth}},
 	{ID: stageWarehouseAccess, DependsOn: []stageID{stageWarehouseConfig}},
 	{ID: stageSources, DependsOn: []stageID{stageWarehouseAccess}},
+	{ID: stageIdentity, DependsOn: []stageID{stageSources}},
 }
 
 type blocker struct {
@@ -184,11 +188,13 @@ func (service Service) Evaluate(ctx context.Context, options Options) (Result, e
 		})), nil
 	}
 
+	sourceCoverage := sourceContractCoverage{}
 	for _, source := range config.Sources {
 		status, err := sourceVerifier.CheckSource(service.ProjectRoot, source)
 		if err != nil {
 			return Result{}, err
 		}
+		sourceCoverage.record(status.Contract.Type)
 		if !status.Valid {
 			sourceName := source.Name
 			reason := status.Reason
@@ -210,7 +216,27 @@ func (service Service) Evaluate(ctx context.Context, options Options) (Result, e
 		}
 	}
 
+	if !sourceCoverage.satisfied() {
+		return resultFor(envelope, eval.withBlocker(sourceCoverageBlocker(sourceCoverage))), nil
+	}
 	eval.complete(stageSources)
+
+	if config.Identity == nil || len(config.Identity.Keys) == 0 {
+		return resultFor(envelope, eval.withBlocker(blocker{
+			StageID:    stageIdentity,
+			Status:     statusMissing,
+			NextAction: configureIdentityAction(),
+			Diagnostics: []cliresult.Diagnostic{
+				{
+					ID:         "missing_identity_keys",
+					Field:      "identity.keys",
+					Message:    "segmentstream.yml does not configure identity.keys.",
+					Suggestion: "Add at least one key emitted by an identity_keys source under identity.keys, then run segmentstream init --json.",
+				},
+			},
+		})), nil
+	}
+	eval.complete(stageIdentity)
 
 	eval.ready = true
 	return resultFor(envelope, eval), nil
@@ -363,7 +389,16 @@ func selectSourceAction() cliresult.NextAction {
 		Type:    actionRunCommand,
 		Stage:   string(stageSources),
 		Command: sourceContractsCommand,
-		Reason:  "No sources are configured. Inspect supported source contracts, then ask the user which source to implement.",
+		Reason:  "No sources are configured. Inspect supported source contracts, then configure at least one events source and one identity_keys source.",
+	}
+}
+
+func selectRequiredSourceContractAction(command, reason string) cliresult.NextAction {
+	return cliresult.NextAction{
+		Type:    actionRunCommand,
+		Stage:   string(stageSources),
+		Command: command,
+		Reason:  reason,
 	}
 }
 
@@ -389,6 +424,81 @@ func doneAction() cliresult.NextAction {
 		Stage:   "ready",
 		Command: runCommand,
 		Reason:  "SegmentStream project is ready.",
+	}
+}
+
+func configureIdentityAction() cliresult.NextAction {
+	return cliresult.NextAction{
+		Type:   actionHumanInput,
+		Stage:  string(stageIdentity),
+		Reason: "Configure identity.keys in segmentstream.yml using keys emitted by your identity_keys source.",
+		Accepts: []cliresult.NextActionAccept{
+			{
+				Method: "edit_segmentstream_yml",
+				Label:  "Add identity.keys to segmentstream.yml",
+			},
+		},
+		Verify: initVerifyCommand,
+	}
+}
+
+type sourceContractCoverage struct {
+	hasEvents       bool
+	hasIdentityKeys bool
+}
+
+func (coverage *sourceContractCoverage) record(contractType string) {
+	switch contractType {
+	case "events":
+		coverage.hasEvents = true
+	case "identity_keys":
+		coverage.hasIdentityKeys = true
+	}
+}
+
+func (coverage sourceContractCoverage) satisfied() bool {
+	return coverage.hasEvents && coverage.hasIdentityKeys
+}
+
+func sourceCoverageBlocker(coverage sourceContractCoverage) blocker {
+	switch {
+	case !coverage.hasEvents && !coverage.hasIdentityKeys:
+		return requiredSourceBlocker(
+			"missing_required_source_contracts",
+			sourceContractsCommand,
+			"segmentstream.yml must declare at least one events source and one identity_keys source.",
+			"Configure one events source and one identity_keys source under sources.",
+		)
+	case !coverage.hasEvents:
+		return requiredSourceBlocker(
+			"missing_events_source",
+			eventSourceContractCommand,
+			"segmentstream.yml must declare at least one events source.",
+			"Run segmentstream source scaffold <name> --type events, implement it, add it under sources, then verify it.",
+		)
+	default:
+		return requiredSourceBlocker(
+			"missing_identity_keys_source",
+			identityKeySourceContractCommand,
+			"segmentstream.yml must declare at least one identity_keys source.",
+			"Run segmentstream source scaffold <name> --type identity_keys, implement it, add it under sources, then verify it.",
+		)
+	}
+}
+
+func requiredSourceBlocker(id, command, message, suggestion string) blocker {
+	return blocker{
+		StageID:    stageSources,
+		Status:     statusMissing,
+		NextAction: selectRequiredSourceContractAction(command, message),
+		Diagnostics: []cliresult.Diagnostic{
+			{
+				ID:         id,
+				Field:      "sources",
+				Message:    message,
+				Suggestion: suggestion,
+			},
+		},
 	}
 }
 

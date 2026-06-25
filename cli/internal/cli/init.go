@@ -80,9 +80,15 @@ func writeInitResult(out io.Writer, selectedWarehouse string, result initflow.Re
 		for _, diagnostic := range result.Envelope.Diagnostics {
 			if diagnostic.Field != "" {
 				fmt.Fprintf(out, "- %s: %s\n", diagnostic.Field, diagnostic.Message)
+				if diagnostic.Suggestion != "" {
+					fmt.Fprintf(out, "  Suggestion: %s\n", diagnostic.Suggestion)
+				}
 				continue
 			}
 			fmt.Fprintf(out, "- %s\n", diagnostic.Message)
+			if diagnostic.Suggestion != "" {
+				fmt.Fprintf(out, "  Suggestion: %s\n", diagnostic.Suggestion)
+			}
 		}
 	}
 	if result.Envelope.NextAction.Type != "" {
