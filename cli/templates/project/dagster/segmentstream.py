@@ -35,6 +35,7 @@ class SegmentStreamSource:
 def prepare_segmentstream_dbt_project(log=None) -> dict:
     config = load_segmentstream_config()
     sources = parse_sources(config)
+    identity_link_keys = parse_identity_link_keys(config)
     write_packages_yml(sources)
     run_dbt_command(["deps", "--project-dir", str(SEGMENTSTREAM_DIR)], log)
     run_dbt_command(
@@ -45,7 +46,7 @@ def prepare_segmentstream_dbt_project(log=None) -> dict:
             "--profiles-dir",
             str(SEGMENTSTREAM_DIR),
             "--vars",
-            dbt_vars(sources),
+            dbt_vars(sources, identity_link_keys),
         ],
         log,
     )
@@ -61,21 +62,31 @@ def build_ingestion_assets(config: dict) -> list:
 def dbt_partition_vars(context, config: dict) -> str:
     window = context.partition_time_window
     sources = parse_sources(config)
+    identity_link_keys = parse_identity_link_keys(config)
     return dbt_vars(
         sources,
+        identity_link_keys,
         segmentstream_start_date=window.start.date().isoformat(),
         segmentstream_end_date=window.end.date().isoformat(),
     )
 
 
+def dbt_project_vars(config: dict) -> str:
+    sources = parse_sources(config)
+    identity_link_keys = parse_identity_link_keys(config)
+    return dbt_vars(sources, identity_link_keys)
+
+
 def dbt_vars(
     sources: list[SegmentStreamSource],
+    identity_link_keys: list[dict],
     segmentstream_start_date: str | None = None,
     segmentstream_end_date: str | None = None,
 ) -> str:
     data = {
         "segmentstream_sources": event_source_vars(sources),
         "segmentstream_identity_key_sources": identity_key_source_vars(sources),
+        "segmentstream_identity_link_keys": identity_link_keys,
     }
     if segmentstream_start_date is not None:
         data["segmentstream_start_date"] = segmentstream_start_date
@@ -106,6 +117,82 @@ def identity_key_source_vars(sources: list[SegmentStreamSource]) -> list[dict[st
         for source in sources
         if source.contract_type == "identity_keys"
     ]
+
+
+def parse_identity_link_keys(config: dict) -> list[dict]:
+    identity = config.get("identity")
+    if identity is None:
+        return []
+    if not isinstance(identity, dict):
+        raise RuntimeError("segmentstream.yml field identity must be a mapping")
+
+    raw_keys = identity.get("keys")
+    if raw_keys is None:
+        return []
+    if not isinstance(raw_keys, list):
+        raise RuntimeError("segmentstream.yml field identity.keys must be a list")
+
+    seen: set[str] = set()
+    keys: list[dict] = []
+    for index, raw_key in enumerate(raw_keys):
+        field = f"identity.keys[{index}]"
+        if not isinstance(raw_key, dict):
+            raise RuntimeError(f"segmentstream.yml field {field} must be a mapping")
+
+        name = normalize_required_identity_string(raw_key.get("name"), f"{field}.name")
+        if name in seen:
+            raise RuntimeError(f'duplicate identity key "{name}"')
+        seen.add(name)
+
+        tier = normalize_required_identity_string(raw_key.get("tier"), f"{field}.tier")
+        if tier not in {"deterministic", "probabilistic"}:
+            raise RuntimeError(f"{field}.tier must be deterministic or probabilistic")
+
+        scope = normalize_required_identity_string(raw_key.get("scope"), f"{field}.scope")
+        if scope not in {"project", "source"}:
+            raise RuntimeError(f"{field}.scope must be project or source")
+
+        keys.append(
+            {
+                "name": name,
+                "tier": tier,
+                "window_days": normalize_positive_int(
+                    raw_key.get("window_days"), f"{field}.window_days"
+                ),
+                "max_distinct_anonymous_ids": normalize_positive_int(
+                    raw_key.get("max_distinct_anonymous_ids"),
+                    f"{field}.max_distinct_anonymous_ids",
+                ),
+                "scope": scope,
+            }
+        )
+    return keys
+
+
+def normalize_required_identity_string(value, field: str) -> str:
+    value = normalize_identity_string(value, field)
+    if value == "":
+        raise RuntimeError(f"missing required field {field}")
+    return value
+
+
+def normalize_identity_string(value, field: str) -> str:
+    if value is None:
+        return ""
+    if not isinstance(value, str):
+        raise RuntimeError(f"{field} must be a string")
+    value = value.strip()
+    if "\n" in value or "\r" in value:
+        raise RuntimeError(f"{field} must not contain newlines")
+    return value
+
+
+def normalize_positive_int(value, field: str) -> int:
+    if isinstance(value, bool) or not isinstance(value, int):
+        raise RuntimeError(f"{field} must be a positive integer")
+    if value <= 0:
+        raise RuntimeError(f"{field} must be a positive integer")
+    return value
 
 
 def load_segmentstream_config() -> dict:

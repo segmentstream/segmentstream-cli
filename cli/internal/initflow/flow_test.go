@@ -8,6 +8,7 @@ import (
 
 	"github.com/segmentstream/segmentstream-cli/cli/internal/cliresult"
 	"github.com/segmentstream/segmentstream-cli/cli/internal/project"
+	sourcepkg "github.com/segmentstream/segmentstream-cli/cli/internal/source"
 	"github.com/segmentstream/segmentstream-cli/cli/internal/warehouse"
 	"github.com/segmentstream/segmentstream-cli/cli/internal/warehouse/bigquery"
 )
@@ -219,9 +220,10 @@ func TestEvaluateNeedsSourcesAfterAccessMarker(t *testing.T) {
 		t.Fatalf("next action = %+v, want source contracts command", result.Envelope.NextAction)
 	}
 	assertStage(t, result.Envelope.Stages, 5, stageSources, statusMissing, true)
+	assertStage(t, result.Envelope.Stages, 6, stageIdentity, statusPending, false)
 }
 
-func TestEvaluateReadyAfterAccessMarkerAndSource(t *testing.T) {
+func TestEvaluateNeedsIdentitySourceAfterEventSource(t *testing.T) {
 	result, err := (Service{
 		WarehouseRegistry: testRegistry(),
 		ProjectStore:      configuredProjectStoreWithSource(),
@@ -231,6 +233,104 @@ func TestEvaluateReadyAfterAccessMarkerAndSource(t *testing.T) {
 		},
 		Scaffolder:     &fakeScaffolder{},
 		SourceVerifier: &fakeSourceVerifier{valid: true},
+	}).Evaluate(context.Background(), Options{})
+	if err != nil {
+		t.Fatalf("Evaluate failed: %v", err)
+	}
+
+	assertInitEnvelopeV2(t, result.Envelope)
+	if result.ExitCode != cliresult.ExitReady || result.Envelope.Ready {
+		t.Fatalf("result = %+v, want not ready without identity_keys source", result)
+	}
+	if result.Envelope.NextAction.Type != actionRunCommand ||
+		result.Envelope.NextAction.Stage != string(stageSources) ||
+		result.Envelope.NextAction.Command != "segmentstream source contracts --type identity_keys" {
+		t.Fatalf("next action = %+v, want identity_keys source contract command", result.Envelope.NextAction)
+	}
+	if len(result.Envelope.Diagnostics) != 1 || result.Envelope.Diagnostics[0].ID != "missing_identity_keys_source" {
+		t.Fatalf("diagnostics = %+v, want missing_identity_keys_source", result.Envelope.Diagnostics)
+	}
+	assertStage(t, result.Envelope.Stages, 5, stageSources, statusMissing, true)
+	assertStage(t, result.Envelope.Stages, 6, stageIdentity, statusPending, false)
+}
+
+func TestEvaluateNeedsEventSourceAfterIdentitySource(t *testing.T) {
+	result, err := (Service{
+		WarehouseRegistry: testRegistry(),
+		ProjectStore:      configuredProjectStoreWithIdentitySource(),
+		CredentialStore: &fakeCredentialStore{
+			hasBigQueryCredential: true,
+			hasAccessMarker:       true,
+		},
+		Scaffolder: &fakeScaffolder{},
+		SourceVerifier: &fakeSourceVerifier{
+			valid: true,
+			contracts: map[string]string{
+				"sdk_identity": "identity_keys",
+			},
+		},
+	}).Evaluate(context.Background(), Options{})
+	if err != nil {
+		t.Fatalf("Evaluate failed: %v", err)
+	}
+
+	assertInitEnvelopeV2(t, result.Envelope)
+	if result.ExitCode != cliresult.ExitReady || result.Envelope.Ready {
+		t.Fatalf("result = %+v, want not ready without events source", result)
+	}
+	if result.Envelope.NextAction.Type != actionRunCommand ||
+		result.Envelope.NextAction.Stage != string(stageSources) ||
+		result.Envelope.NextAction.Command != "segmentstream source contracts --type events" {
+		t.Fatalf("next action = %+v, want events source contract command", result.Envelope.NextAction)
+	}
+	if len(result.Envelope.Diagnostics) != 1 || result.Envelope.Diagnostics[0].ID != "missing_events_source" {
+		t.Fatalf("diagnostics = %+v, want missing_events_source", result.Envelope.Diagnostics)
+	}
+}
+
+func TestEvaluateNeedsIdentityConfigAfterRequiredSources(t *testing.T) {
+	result, err := (Service{
+		WarehouseRegistry: testRegistry(),
+		ProjectStore:      configuredProjectStoreWithRequiredSources(),
+		CredentialStore: &fakeCredentialStore{
+			hasBigQueryCredential: true,
+			hasAccessMarker:       true,
+		},
+		Scaffolder:     &fakeScaffolder{},
+		SourceVerifier: fakeRequiredSourceVerifier(),
+	}).Evaluate(context.Background(), Options{})
+	if err != nil {
+		t.Fatalf("Evaluate failed: %v", err)
+	}
+
+	assertInitEnvelopeV2(t, result.Envelope)
+	if result.ExitCode != cliresult.ExitReady || result.Envelope.Ready {
+		t.Fatalf("result = %+v, want not ready without identity.keys", result)
+	}
+	if result.Envelope.NextAction.Type != actionHumanInput ||
+		result.Envelope.NextAction.Stage != string(stageIdentity) ||
+		result.Envelope.NextAction.Verify != "segmentstream init --json" {
+		t.Fatalf("next action = %+v, want identity human_input action", result.Envelope.NextAction)
+	}
+	if len(result.Envelope.Diagnostics) != 1 ||
+		result.Envelope.Diagnostics[0].ID != "missing_identity_keys" ||
+		result.Envelope.Diagnostics[0].Suggestion == "" {
+		t.Fatalf("diagnostics = %+v, want missing_identity_keys with suggestion", result.Envelope.Diagnostics)
+	}
+	assertStage(t, result.Envelope.Stages, 5, stageSources, statusSatisfied, false)
+	assertStage(t, result.Envelope.Stages, 6, stageIdentity, statusMissing, true)
+}
+
+func TestEvaluateReadyAfterAccessMarkerSourcesAndIdentityConfig(t *testing.T) {
+	result, err := (Service{
+		WarehouseRegistry: testRegistry(),
+		ProjectStore:      configuredProjectStoreWithRequiredSourcesAndIdentity(),
+		CredentialStore: &fakeCredentialStore{
+			hasBigQueryCredential: true,
+			hasAccessMarker:       true,
+		},
+		Scaffolder:     &fakeScaffolder{},
+		SourceVerifier: fakeRequiredSourceVerifier(),
 	}).Evaluate(context.Background(), Options{})
 	if err != nil {
 		t.Fatalf("Evaluate failed: %v", err)
@@ -385,6 +485,7 @@ func TestBuildStagesProjectsBlockerOntoStagePlan(t *testing.T) {
 	assertStage(t, stages, 3, stageWarehouseConfig, statusInvalid, true)
 	assertStage(t, stages, 4, stageWarehouseAccess, statusPending, false)
 	assertStage(t, stages, 5, stageSources, statusPending, false)
+	assertStage(t, stages, 6, stageIdentity, statusPending, false)
 }
 
 func TestBuildStagesRequiresCompletedDependencies(t *testing.T) {
@@ -541,6 +642,49 @@ func configuredProjectStoreWithSource() *fakeProjectStore {
 	return store
 }
 
+func configuredProjectStoreWithIdentitySource() *fakeProjectStore {
+	store := configuredProjectStore()
+	store.config.Sources = []project.Source{
+		{Name: "sdk_identity", Path: "./sources/sdk_identity"},
+	}
+	return store
+}
+
+func configuredProjectStoreWithRequiredSources() *fakeProjectStore {
+	store := configuredProjectStore()
+	store.config.Sources = []project.Source{
+		{Name: "ga4", Path: "./sources/ga4"},
+		{Name: "sdk_identity", Path: "./sources/sdk_identity"},
+	}
+	return store
+}
+
+func configuredProjectStoreWithRequiredSourcesAndIdentity() *fakeProjectStore {
+	store := configuredProjectStoreWithRequiredSources()
+	store.config.Identity = &project.Identity{
+		Keys: []project.IdentityKey{
+			{
+				Name:                    "user_id",
+				Tier:                    "deterministic",
+				WindowDays:              180,
+				MaxDistinctAnonymousIDs: 1000,
+				Scope:                   "project",
+			},
+		},
+	}
+	return store
+}
+
+func fakeRequiredSourceVerifier() *fakeSourceVerifier {
+	return &fakeSourceVerifier{
+		valid: true,
+		contracts: map[string]string{
+			"ga4":          "events",
+			"sdk_identity": "identity_keys",
+		},
+	}
+}
+
 type fakeProjectStore struct {
 	config            project.Config
 	exists            bool
@@ -611,14 +755,26 @@ func (scaffolder *fakeScaffolder) EnsureInitFiles() error {
 }
 
 type fakeSourceVerifier struct {
-	valid  bool
-	reason string
-	err    error
+	valid     bool
+	reason    string
+	err       error
+	contracts map[string]string
 }
 
 func (verifier *fakeSourceVerifier) CheckSource(projectRoot string, source project.Source) (SourceVerificationStatus, error) {
 	if verifier.err != nil {
 		return SourceVerificationStatus{}, verifier.err
 	}
-	return SourceVerificationStatus{Valid: verifier.valid, Reason: verifier.reason}, nil
+	contractType := verifier.contracts[source.Name]
+	if contractType == "" {
+		contractType = "events"
+	}
+	return SourceVerificationStatus{
+		Valid:  verifier.valid,
+		Reason: verifier.reason,
+		Contract: sourcepkg.ContractIdentity{
+			Type:          contractType,
+			SchemaVersion: 1,
+		},
+	}, nil
 }

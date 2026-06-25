@@ -399,11 +399,26 @@ warehouse:
 sources:
   - name: ga4
     path: ./sources/ga4
+  - name: sdk_identity
+    path: ./sources/sdk_identity
+identity:
+  keys:
+    - name: user_id
+      tier: deterministic
+      window_days: 180
+      max_distinct_anonymous_ids: 1000
+      scope: project
 `)
 	if _, err := sourcepkg.Create(root, "ga4", "events"); err != nil {
 		t.Fatal(err)
 	}
+	if _, err := sourcepkg.Create(root, "sdk_identity", "identity_keys"); err != nil {
+		t.Fatal(err)
+	}
 	if _, _, err := sourcepkg.SavePassing(root, project.Source{Name: "ga4", Path: "./sources/ga4"}, "2026-06-16", "2026-06-23", time.Date(2026, 6, 22, 12, 0, 0, 0, time.UTC)); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := sourcepkg.SavePassing(root, project.Source{Name: "sdk_identity", Path: "./sources/sdk_identity"}, "2026-06-16", "2026-06-23", time.Date(2026, 6, 22, 12, 0, 0, 0, time.UTC)); err != nil {
 		t.Fatal(err)
 	}
 	writeNamedCredential(t, home, "default-bigquery")
@@ -437,6 +452,72 @@ sources:
 		envelope.NextAction.Stage != "ready" ||
 		envelope.NextAction.Command != "segmentstream run" {
 		t.Fatalf("envelope = %+v, want ready run command", envelope)
+	}
+}
+
+func TestInitShowsIdentityGuidanceWhenKeysAreMissing(t *testing.T) {
+	root := t.TempDir()
+	withWorkingDirectory(t, root)
+	home := filepath.Join(root, "home")
+	writeConfig(t, root, `version: 1
+warehouse:
+  type: bigquery
+  auth: default-bigquery
+  project: example-project
+  dataset: segmentstream
+  location: EU
+sources:
+  - name: ga4
+    path: ./sources/ga4
+  - name: sdk_identity
+    path: ./sources/sdk_identity
+`)
+	if _, err := sourcepkg.Create(root, "ga4", "events"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := sourcepkg.Create(root, "sdk_identity", "identity_keys"); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := sourcepkg.SavePassing(root, project.Source{Name: "ga4", Path: "./sources/ga4"}, "2026-06-16", "2026-06-23", time.Date(2026, 6, 22, 12, 0, 0, 0, time.UTC)); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := sourcepkg.SavePassing(root, project.Source{Name: "sdk_identity", Path: "./sources/sdk_identity"}, "2026-06-16", "2026-06-23", time.Date(2026, 6, 22, 12, 0, 0, 0, time.UTC)); err != nil {
+		t.Fatal(err)
+	}
+	writeNamedCredential(t, home, "default-bigquery")
+	if err := bigquery.NewConnector().SaveAccessMarker(credentials.Store{HomeDir: home}, "default-bigquery", project.Warehouse{
+		Type:     "bigquery",
+		Auth:     "default-bigquery",
+		Project:  "example-project",
+		Dataset:  "segmentstream",
+		Location: "EU",
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	var out bytes.Buffer
+	var errOut bytes.Buffer
+	cmd := newRootCommand(&out, &errOut, cliOptions{
+		Credentials: credentials.Store{HomeDir: home},
+	})
+	cmd.SetArgs([]string{"init"})
+
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("init failed: %v", err)
+	}
+
+	got := out.String()
+	for _, want := range []string{
+		"SegmentStream project is not ready yet.",
+		"identity.keys: segmentstream.yml does not configure identity.keys.",
+		"Suggestion: Add at least one key emitted by an identity_keys source under identity.keys",
+		"Next action: human_input",
+		"Option: Add identity.keys to segmentstream.yml",
+		"Verify: segmentstream init --json",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("init output = %q, want %q", got, want)
+		}
 	}
 }
 

@@ -1,0 +1,19 @@
+version: 2
+
+unit_tests:
+  - name: identity_keys__deduplicates_unioned_keys
+    model: identity_keys
+    given:
+      - input: ref('int_identity_keys__unioned')
+        format: sql
+        rows: |
+          select 'web' as segmentstream_source, date '2026-01-01' as date, 'anon_1' as anonymous_id, 'ip_address' as key_name, '203.0.113.1' as key_value
+          union all
+          select 'web' as segmentstream_source, date '2026-01-01' as date, 'anon_1' as anonymous_id, 'ip_address' as key_name, '203.0.113.1' as key_value
+    expect:
+      rows:
+        - segmentstream_source: web
+          date: "2026-01-01"
+          anonymous_id: anon_1
+          key_name: ip_address
+          key_value: 203.0.113.1

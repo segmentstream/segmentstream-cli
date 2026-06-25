@@ -103,7 +103,10 @@ func TestPrepareCreatesExpectedRuntimeFiles(t *testing.T) {
 	for _, want := range []string{
 		"dbt_assets",
 		`ANALYTICS_CORE_PACKAGE_NAME = "segmentstream_analytics_core"`,
-		`select=f"package:{ANALYTICS_CORE_PACKAGE_NAME}"`,
+		"partitioned_dbt_select",
+		"unpartitioned_dbt_select",
+		"tag:segmentstream_partitioned",
+		"tag:segmentstream_unpartitioned",
 		"SegmentStreamDbtTranslator",
 		"DagsterDbtTranslator",
 		"AssetKey",
@@ -118,6 +121,10 @@ func TestPrepareCreatesExpectedRuntimeFiles(t *testing.T) {
 		"partitions_def=segmentstream_daily_partitions",
 		"dbt_partition_vars",
 		"dbt_partition_vars(context, segmentstream_config)",
+		"dbt_project_vars",
+		"dbt_project_vars(segmentstream_config)",
+		"segmentstream_partitioned_dbt_assets",
+		"segmentstream_unpartitioned_dbt_assets",
 		"define_asset_job",
 		"AssetSelection.all()",
 		"segmentstream_materialize_all",
@@ -157,10 +164,13 @@ func TestPrepareCreatesExpectedRuntimeFiles(t *testing.T) {
 		"dbt_partition_vars",
 		"segmentstream_sources",
 		"segmentstream_identity_key_sources",
+		"segmentstream_identity_link_keys",
 		"segmentstream_start_date",
 		"segmentstream_end_date",
 		"event_source_vars",
 		"identity_key_source_vars",
+		"parse_identity_link_keys",
+		"normalize_positive_int",
 		"discover_source_contract",
 		"discover_events_model_name",
 		`legacy_model = f"events_{name}"`,
@@ -233,6 +243,125 @@ func TestAnalyticsCoreIdentityKeysModelsUseExpectedUnionAndDistinctShape(t *test
 	} {
 		if !strings.Contains(string(identityMart), want) {
 			t.Fatalf("analytics-core identity mart does not contain %q:\n%s", want, string(identityMart))
+		}
+	}
+}
+
+func TestAnalyticsCoreIdentityLinksModelsUseExpectedShape(t *testing.T) {
+	configModel, err := os.ReadFile(filepath.Join("..", "..", "..", "analytics-core", "models", "intermediate", "identity", "int_identity_link_key_config.sql"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		"segmentstream_identity_link_keys",
+		"empty_identity_link_config",
+		"key_name",
+		"tier",
+		"window_days",
+		"max_distinct_anonymous_ids",
+		"scope",
+	} {
+		if !strings.Contains(string(configModel), want) {
+			t.Fatalf("identity link config model does not contain %q:\n%s", want, string(configModel))
+		}
+	}
+
+	observationsModel, err := os.ReadFile(filepath.Join("..", "..", "..", "analytics-core", "models", "intermediate", "identity", "int_identity_link_key_observations.sql"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		"from {{ ref('identity_keys') }}",
+		"inner join identity_link_key_config",
+		"when identity_link_key_config.scope = 'source' then identity_keys.segmentstream_source",
+		"else '__segmentstream_project__'",
+	} {
+		if !strings.Contains(string(observationsModel), want) {
+			t.Fatalf("identity link observations model does not contain %q:\n%s", want, string(observationsModel))
+		}
+	}
+
+	candidatesModel, err := os.ReadFile(filepath.Join("..", "..", "..", "analytics-core", "models", "intermediate", "identity", "int_identity_link_candidates.sql"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		"count(distinct anonymous_id) as distinct_anonymous_ids",
+		"<= identity_link_key_spans.max_distinct_anonymous_ids",
+		"source_key_span.anonymous_id < target_key_span.anonymous_id",
+		"date_diff(",
+		"<= source_key_span.window_days",
+	} {
+		if !strings.Contains(string(candidatesModel), want) {
+			t.Fatalf("identity link candidates model does not contain %q:\n%s", want, string(candidatesModel))
+		}
+	}
+
+	valueSetsModel, err := os.ReadFile(filepath.Join("..", "..", "..", "analytics-core", "models", "intermediate", "identity", "int_identity_link_deterministic_value_sets.sql"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		"where tier = 'deterministic'",
+		"array_agg(distinct key_value order by key_value)",
+		"key_value_set",
+	} {
+		if !strings.Contains(string(valueSetsModel), want) {
+			t.Fatalf("identity link deterministic value sets model does not contain %q:\n%s", want, string(valueSetsModel))
+		}
+	}
+
+	filteredModel, err := os.ReadFile(filepath.Join("..", "..", "..", "analytics-core", "models", "intermediate", "identity", "int_identity_links__filtered.sql"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		"deterministic_conflicts",
+		"source_value_sets.key_value_set != target_value_sets.key_value_set",
+		"where deterministic_conflicts.anonymous_id_a is null",
+		"when first_seen_date_a > first_seen_date_b then anonymous_id_a",
+		"when anonymous_id_a > anonymous_id_b then anonymous_id_a",
+		"source_first_seen_date",
+		"target_first_seen_date",
+	} {
+		if !strings.Contains(string(filteredModel), want) {
+			t.Fatalf("identity links filtered model does not contain %q:\n%s", want, string(filteredModel))
+		}
+	}
+
+	identityLinksMart, err := os.ReadFile(filepath.Join("..", "..", "..", "analytics-core", "models", "marts", "identity_links.sql"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		"select distinct",
+		"source_anonymous_id",
+		"target_anonymous_id",
+		"key_name",
+		"key_value",
+		"tier",
+		"source_first_seen_date",
+		"target_first_seen_date",
+		"from {{ ref('int_identity_links__filtered') }}",
+	} {
+		if !strings.Contains(string(identityLinksMart), want) {
+			t.Fatalf("identity_links mart does not contain %q:\n%s", want, string(identityLinksMart))
+		}
+	}
+
+	dbtProject, err := os.ReadFile(filepath.Join("..", "..", "..", "analytics-core", "dbt_project.yml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		"identity_links:",
+		"+materialized: table",
+		"+cluster_by:",
+		"source_anonymous_id",
+		"target_anonymous_id",
+	} {
+		if !strings.Contains(string(dbtProject), want) {
+			t.Fatalf("analytics-core dbt_project.yml does not contain %q:\n%s", want, string(dbtProject))
 		}
 	}
 }

@@ -18,8 +18,9 @@ type CredentialStore interface {
 }
 
 type SourceVerificationStatus struct {
-	Valid  bool
-	Reason string
+	Valid    bool
+	Reason   string
+	Contract sourcepkg.ContractIdentity
 }
 
 type SourceVerifier interface {
@@ -47,8 +48,9 @@ func (verifier sourceVerifier) CheckSource(projectRoot string, source project.So
 		return SourceVerificationStatus{}, err
 	}
 	return SourceVerificationStatus{
-		Valid:  status.Valid,
-		Reason: status.Reason,
+		Valid:    status.Valid,
+		Reason:   status.Reason,
+		Contract: status.Contract,
 	}, nil
 }
 

@@ -1,0 +1,40 @@
+version: 2
+
+unit_tests:
+  - name: int_identity_link_key_config__empty_without_config
+    model: int_identity_link_key_config
+    overrides:
+      vars:
+        segmentstream_identity_link_keys: []
+    given: []
+    expect:
+      rows: []
+
+  - name: int_identity_link_key_config__renders_yaml_keys
+    model: int_identity_link_key_config
+    overrides:
+      vars:
+        segmentstream_identity_link_keys:
+          - name: user_id
+            tier: deterministic
+            window_days: 180
+            max_distinct_anonymous_ids: 1000
+            scope: project
+          - name: ip_address
+            tier: probabilistic
+            window_days: 3
+            max_distinct_anonymous_ids: 100
+            scope: source
+    given: []
+    expect:
+      rows:
+        - key_name: user_id
+          tier: deterministic
+          window_days: 180
+          max_distinct_anonymous_ids: 1000
+          scope: project
+        - key_name: ip_address
+          tier: probabilistic
+          window_days: 3
+          max_distinct_anonymous_ids: 100
+          scope: source

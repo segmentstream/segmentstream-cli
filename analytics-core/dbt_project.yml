@@ -41,3 +41,8 @@ models:
           field: date
           data_type: date
           granularity: day
+      identity_links:
+        +materialized: table
+        +cluster_by:
+          - source_anonymous_id
+          - target_anonymous_id

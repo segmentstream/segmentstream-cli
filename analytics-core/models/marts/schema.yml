@@ -7,6 +7,7 @@ models:
       tags:
         - segmentstream_core
         - segmentstream_mart
+        - segmentstream_partitioned
       meta:
         segmentstream:
           export_name: events
@@ -39,6 +40,7 @@ models:
       tags:
         - segmentstream_core
         - segmentstream_mart
+        - segmentstream_partitioned
       meta:
         segmentstream:
           export_name: identity_keys
@@ -62,5 +64,48 @@ models:
           - not_null
       - name: key_value
         description: Normalized identity key value.
+        data_tests:
+          - not_null
+
+  - name: identity_links
+    description: Canonical SegmentStream identity link edge table generated from configured identity key rules.
+    config:
+      tags:
+        - segmentstream_core
+        - segmentstream_mart
+        - segmentstream_unpartitioned
+      meta:
+        segmentstream:
+          export_name: identity_links
+          contract:
+            type: identity_links
+            schema_version: 1
+    columns:
+      - name: source_anonymous_id
+        description: Later first-seen anonymous ID in the link.
+        data_tests:
+          - not_null
+      - name: target_anonymous_id
+        description: Earlier first-seen anonymous ID in the link.
+        data_tests:
+          - not_null
+      - name: key_name
+        description: Configured identity key type that created the link.
+        data_tests:
+          - not_null
+      - name: key_value
+        description: Normalized key value shared by both anonymous IDs.
+        data_tests:
+          - not_null
+      - name: tier
+        description: Link tier from segmentstream.yml, either deterministic or probabilistic.
+        data_tests:
+          - not_null
+      - name: source_first_seen_date
+        description: First date the source anonymous ID appeared in identity_keys.
+        data_tests:
+          - not_null
+      - name: target_first_seen_date
+        description: First date the target anonymous ID appeared in identity_keys.
         data_tests:
           - not_null
