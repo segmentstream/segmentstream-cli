@@ -10,11 +10,26 @@ import (
 	"strings"
 
 	"github.com/segmentstream/segmentstream-cli/cli/internal/project"
+	"github.com/segmentstream/segmentstream-cli/cli/internal/version"
 	"github.com/segmentstream/segmentstream-cli/cli/internal/warehouse"
 	"github.com/segmentstream/segmentstream-cli/cli/templates"
 )
 
-const RuntimeDirName = ".segmentstream"
+const (
+	RuntimeDirName                   = ".segmentstream"
+	AnalyticsCoreLocalPathEnv        = "SEGMENTSTREAM_ANALYTICS_CORE_LOCAL_PATH"
+	AnalyticsCoreRevisionEnv         = "SEGMENTSTREAM_ANALYTICS_CORE_REVISION"
+	AnalyticsCoreContainerPath       = "/opt/segmentstream/analytics-core"
+	analyticsCoreComposeOverrideFile = "docker-compose.override.yml"
+	analyticsCoreDBTProjectFile      = "dbt_project.yml"
+)
+
+var currentVersion = version.Current
+
+type analyticsCoreDependency struct {
+	LocalPath string
+	Revision  string
+}
 
 func Prepare(projectRoot string, config project.Config, provider warehouse.Provider) error {
 	if provider == nil {
@@ -25,6 +40,10 @@ func Prepare(projectRoot string, config project.Config, provider warehouse.Provi
 		return fmt.Errorf("resolve project root: %w", err)
 	}
 	hostHome, err := hostSegmentStreamHome()
+	if err != nil {
+		return err
+	}
+	analyticsCore, err := resolveAnalyticsCoreDependency()
 	if err != nil {
 		return err
 	}
@@ -43,8 +62,13 @@ func Prepare(projectRoot string, config project.Config, provider warehouse.Provi
 	if err := copyProjectTemplate(runtimeDir); err != nil {
 		return err
 	}
-	if err := writeRuntimeEnv(runtimeDir, config, hostHome, provider); err != nil {
+	if err := writeRuntimeEnv(runtimeDir, config, hostHome, provider, analyticsCore); err != nil {
 		return err
+	}
+	if analyticsCore.LocalPath != "" {
+		if err := writeAnalyticsCoreComposeOverride(runtimeDir); err != nil {
+			return err
+		}
 	}
 	if err := writeDBTProfile(runtimeDir, config, provider); err != nil {
 		return err
@@ -53,6 +77,46 @@ func Prepare(projectRoot string, config project.Config, provider warehouse.Provi
 		return err
 	}
 	return nil
+}
+
+func ValidateAnalyticsCoreDependency() error {
+	_, err := resolveAnalyticsCoreDependency()
+	return err
+}
+
+func resolveAnalyticsCoreDependency() (analyticsCoreDependency, error) {
+	if rawPath := strings.TrimSpace(os.Getenv(AnalyticsCoreLocalPathEnv)); rawPath != "" {
+		if strings.ContainsAny(rawPath, "\r\n") {
+			return analyticsCoreDependency{}, fmt.Errorf("%s must not contain newlines", AnalyticsCoreLocalPathEnv)
+		}
+		path, err := filepath.Abs(rawPath)
+		if err != nil {
+			return analyticsCoreDependency{}, fmt.Errorf("resolve %s: %w", AnalyticsCoreLocalPathEnv, err)
+		}
+		info, err := os.Stat(path)
+		if err != nil {
+			return analyticsCoreDependency{}, fmt.Errorf("%s %s is not accessible: %w", AnalyticsCoreLocalPathEnv, filepath.ToSlash(path), err)
+		}
+		if !info.IsDir() {
+			return analyticsCoreDependency{}, fmt.Errorf("%s %s is not a directory", AnalyticsCoreLocalPathEnv, filepath.ToSlash(path))
+		}
+		projectFile := filepath.Join(path, analyticsCoreDBTProjectFile)
+		if info, err := os.Stat(projectFile); err != nil {
+			return analyticsCoreDependency{}, fmt.Errorf("%s must point to analytics-core containing %s", AnalyticsCoreLocalPathEnv, analyticsCoreDBTProjectFile)
+		} else if info.IsDir() {
+			return analyticsCoreDependency{}, fmt.Errorf("%s %s is a directory", AnalyticsCoreLocalPathEnv, filepath.ToSlash(projectFile))
+		}
+		return analyticsCoreDependency{LocalPath: filepath.ToSlash(path)}, nil
+	}
+
+	revision := strings.TrimSpace(currentVersion().Version)
+	if revision == "" || revision == "dev" {
+		return analyticsCoreDependency{}, fmt.Errorf("%s is required when running a dev SegmentStream CLI build", AnalyticsCoreLocalPathEnv)
+	}
+	if strings.ContainsAny(revision, "\r\n") {
+		return analyticsCoreDependency{}, errors.New("SegmentStream CLI version must not contain newlines")
+	}
+	return analyticsCoreDependency{Revision: revision}, nil
 }
 
 func hostSegmentStreamHome() (string, error) {
@@ -120,9 +184,14 @@ func copyProjectTemplate(runtimeDir string) error {
 	})
 }
 
-func writeRuntimeEnv(runtimeDir string, config project.Config, hostHome string, provider warehouse.Provider) error {
+func writeRuntimeEnv(runtimeDir string, config project.Config, hostHome string, provider warehouse.Provider, analyticsCore analyticsCoreDependency) error {
 	env := []warehouse.EnvVar{
 		{Name: "SEGMENTSTREAM_HOST_HOME", Value: hostHome},
+	}
+	if analyticsCore.LocalPath != "" {
+		env = append(env, warehouse.EnvVar{Name: AnalyticsCoreLocalPathEnv, Value: analyticsCore.LocalPath})
+	} else {
+		env = append(env, warehouse.EnvVar{Name: AnalyticsCoreRevisionEnv, Value: analyticsCore.Revision})
 	}
 	env = append(env, provider.RuntimeEnvironment(config.Warehouse)...)
 
@@ -147,6 +216,22 @@ func writeRuntimeEnv(runtimeDir string, config project.Config, hostHome string, 
 	return nil
 }
 
+func writeAnalyticsCoreComposeOverride(runtimeDir string) error {
+	contents := fmt.Sprintf(`services:
+  segmentstream:
+    volumes:
+      - type: bind
+        source: "${SEGMENTSTREAM_ANALYTICS_CORE_LOCAL_PATH}"
+        target: %s
+        read_only: true
+`, AnalyticsCoreContainerPath)
+	path := filepath.Join(runtimeDir, analyticsCoreComposeOverrideFile)
+	if err := os.WriteFile(path, []byte(contents), 0o644); err != nil {
+		return fmt.Errorf("write %s: %w", analyticsCoreComposeOverrideFile, err)
+	}
+	return nil
+}
+
 func writeDBTProfile(runtimeDir string, config project.Config, provider warehouse.Provider) error {
 	profile := provider.DBTProfileYAML(config.Warehouse)
 	if strings.TrimSpace(profile) == "" {
@@ -165,7 +250,6 @@ func writeDBTProfile(runtimeDir string, config project.Config, provider warehous
 func ensureRuntimeDirs(runtimeDir string) error {
 	for _, dir := range []string{
 		filepath.Join("dbt", "macros"),
-		filepath.Join("dbt", "models", "exports"),
 		filepath.Join("dbt", "models", "staging"),
 		filepath.Join("dbt", "seeds"),
 		filepath.Join("dbt", "snapshots"),

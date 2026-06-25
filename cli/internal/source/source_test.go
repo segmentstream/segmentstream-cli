@@ -91,6 +91,7 @@ func TestCreateScaffoldsSourcePackageFromContract(t *testing.T) {
 		"macros",
 		"seeds",
 		"snapshots",
+		filepath.Join("models", "marts"),
 		filepath.Join("models", "staging"),
 		filepath.Join("models", "exports"),
 	} {

@@ -1,0 +1,35 @@
+name: segmentstream_analytics_core
+version: "0.1.0"
+config-version: 2
+
+profile: segmentstream
+
+model-paths:
+  - models
+test-paths:
+  - tests
+macro-paths:
+  - macros
+seed-paths:
+  - seeds
+snapshot-paths:
+  - snapshots
+
+target-path: target
+packages-install-path: dbt_packages
+clean-targets:
+  - target
+  - dbt_packages
+
+models:
+  segmentstream_analytics_core:
+    intermediate:
+      events:
+        +materialized: ephemeral
+    marts:
+      +materialized: incremental
+      +incremental_strategy: insert_overwrite
+      +partition_by:
+        field: event_date
+        data_type: date
+        granularity: day
