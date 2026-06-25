@@ -6,7 +6,7 @@ models:
     config:
       tags:
         - segmentstream_core
-        - segmentstream_export
+        - segmentstream_mart
       meta:
         segmentstream:
           export_name: events

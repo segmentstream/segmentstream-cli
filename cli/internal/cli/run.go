@@ -87,6 +87,9 @@ func runAnalytics(ctx context.Context, projectRoot string, progressOut io.Writer
 	progress := newRunProgress(progressOut, 4)
 
 	progress.Start("Checking local environment")
+	if err := projectruntime.ValidateAnalyticsCoreDependency(); err != nil {
+		return runResult{}, err
+	}
 	if err := preflightDocker(ctx, runner); err != nil {
 		return runResult{}, err
 	}

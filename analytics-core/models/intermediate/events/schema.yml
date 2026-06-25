@@ -1,0 +1,5 @@
+version: 2
+
+models:
+  - name: int_events__unioned
+    description: Internal union of declared source event models before publishing the canonical events mart.

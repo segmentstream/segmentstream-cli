@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/segmentstream/segmentstream-cli/cli/internal/project"
+	"github.com/segmentstream/segmentstream-cli/cli/internal/version"
 	"github.com/segmentstream/segmentstream-cli/cli/internal/warehouse"
 	"github.com/segmentstream/segmentstream-cli/cli/internal/warehouse/bigquery"
 	"gopkg.in/yaml.v3"
@@ -19,6 +20,7 @@ func testProvider() warehouse.Provider {
 
 func TestPrepareCreatesExpectedRuntimeFiles(t *testing.T) {
 	root := t.TempDir()
+	withAnalyticsCoreRelease(t, "0.0.20")
 
 	if err := Prepare(root, testConfig(), testProvider()); err != nil {
 		t.Fatalf("Prepare failed: %v", err)
@@ -34,7 +36,6 @@ func TestPrepareCreatesExpectedRuntimeFiles(t *testing.T) {
 		".env",
 		filepath.Join("dagster", "definitions.py"),
 		filepath.Join("dagster", "segmentstream.py"),
-		filepath.Join("dbt", "models", "exports", "schema.yml"),
 		filepath.Join("dbt", "models", "staging"),
 		filepath.Join("dbt", "macros"),
 		filepath.Join("dbt", "snapshots"),
@@ -69,6 +70,9 @@ func TestPrepareCreatesExpectedRuntimeFiles(t *testing.T) {
 	if !strings.Contains(string(dockerfile), "dagster-postgres") {
 		t.Fatalf("Dockerfile does not install dagster-postgres:\n%s", string(dockerfile))
 	}
+	if !strings.Contains(string(dockerfile), "apt-get install -y --no-install-recommends git") {
+		t.Fatalf("Dockerfile does not install git:\n%s", string(dockerfile))
+	}
 
 	dagsterConfig, err := os.ReadFile(filepath.Join(root, RuntimeDirName, "dagster.yaml"))
 	if err != nil {
@@ -98,7 +102,8 @@ func TestPrepareCreatesExpectedRuntimeFiles(t *testing.T) {
 	}
 	for _, want := range []string{
 		"dbt_assets",
-		`select="package:segmentstream"`,
+		`ANALYTICS_CORE_PACKAGE_NAME = "segmentstream_analytics_core"`,
+		`select=f"package:{ANALYTICS_CORE_PACKAGE_NAME}"`,
 		"SegmentStreamDbtTranslator",
 		"DagsterDbtTranslator",
 		"AssetKey",
@@ -112,6 +117,7 @@ func TestPrepareCreatesExpectedRuntimeFiles(t *testing.T) {
 		`start_date="1970-01-01"`,
 		"partitions_def=segmentstream_daily_partitions",
 		"dbt_partition_vars",
+		"dbt_partition_vars(context, segmentstream_config)",
 		"define_asset_job",
 		"AssetSelection.all()",
 		"segmentstream_materialize_all",
@@ -139,18 +145,21 @@ func TestPrepareCreatesExpectedRuntimeFiles(t *testing.T) {
 	for _, want := range []string{
 		"segmentstream.yml",
 		"packages.yml",
-		"events.sql",
+		"analytics_core_package",
+		"https://github.com/segmentstream/segmentstream.git",
+		`"subdirectory": ANALYTICS_CORE_GIT_SUBDIRECTORY`,
+		"SEGMENTSTREAM_ANALYTICS_CORE_REVISION",
+		"SEGMENTSTREAM_ANALYTICS_CORE_LOCAL_PATH",
 		`"deps"`,
 		`"parse"`,
+		`"--vars"`,
 		"build_ingestion_assets",
 		"dbt_partition_vars",
+		"segmentstream_sources",
 		"segmentstream_start_date",
 		"segmentstream_end_date",
 		"discover_events_model_name",
-		`ref("{source.package_name}", "{source.events_model_name}")`,
 		`legacy_model = f"events_{name}"`,
-		"where event_date >= date('{{ segmentstream_start_date }}')",
-		"and event_date < date('{{ segmentstream_end_date }}')",
 	} {
 		if !strings.Contains(string(dagsterResolver), want) {
 			t.Fatalf("Dagster resolver does not contain %q:\n%s", want, string(dagsterResolver))
@@ -158,6 +167,10 @@ func TestPrepareCreatesExpectedRuntimeFiles(t *testing.T) {
 	}
 	if strings.Contains(string(dagsterResolver), "_dbt_max_partition") {
 		t.Fatalf("Dagster resolver should not contain _dbt_max_partition:\n%s", string(dagsterResolver))
+	}
+	if strings.Contains(string(dagsterResolver), "write_core_events_model") ||
+		strings.Contains(string(dagsterResolver), "render_core_events_model") {
+		t.Fatalf("Dagster resolver should not generate core events SQL:\n%s", string(dagsterResolver))
 	}
 
 	runtimeReadme, err := os.ReadFile(filepath.Join(root, RuntimeDirName, "README.md"))
@@ -169,14 +182,8 @@ func TestPrepareCreatesExpectedRuntimeFiles(t *testing.T) {
 	}
 }
 
-func TestDagsterResolverEmptyProjectModelUsesValidBigQueryZeroRowQuery(t *testing.T) {
-	root := t.TempDir()
-
-	if err := Prepare(root, testConfig(), testProvider()); err != nil {
-		t.Fatalf("Prepare failed: %v", err)
-	}
-
-	dagsterResolver, err := os.ReadFile(filepath.Join(root, RuntimeDirName, "dagster", "segmentstream.py"))
+func TestAnalyticsCoreIntermediateEventsModelUsesValidBigQueryZeroRowQuery(t *testing.T) {
+	eventsModel, err := os.ReadFile(filepath.Join("..", "..", "..", "analytics-core", "models", "intermediate", "events", "int_events__unioned.sql"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -184,14 +191,15 @@ func TestDagsterResolverEmptyProjectModelUsesValidBigQueryZeroRowQuery(t *testin
 		"from (select 1) as empty_project",
 		"where false",
 	} {
-		if !strings.Contains(string(dagsterResolver), want) {
-			t.Fatalf("Dagster resolver empty project model does not contain %q:\n%s", want, string(dagsterResolver))
+		if !strings.Contains(string(eventsModel), want) {
+			t.Fatalf("analytics-core events model does not contain %q:\n%s", want, string(eventsModel))
 		}
 	}
 }
 
 func TestPrepareRemovesStaleRuntimeFiles(t *testing.T) {
 	root := t.TempDir()
+	withAnalyticsCoreRelease(t, "0.0.20")
 	stale := filepath.Join(root, RuntimeDirName, "stale.txt")
 	if err := os.MkdirAll(filepath.Dir(stale), 0o755); err != nil {
 		t.Fatal(err)
@@ -211,6 +219,7 @@ func TestPrepareRemovesStaleRuntimeFiles(t *testing.T) {
 
 func TestPrepareWritesRuntimeEnvAndStaticComposeFile(t *testing.T) {
 	root := t.TempDir()
+	withAnalyticsCoreRelease(t, "0.0.20")
 
 	if err := Prepare(root, testConfig(), testProvider()); err != nil {
 		t.Fatalf("Prepare failed: %v", err)
@@ -226,6 +235,9 @@ func TestPrepareWritesRuntimeEnvAndStaticComposeFile(t *testing.T) {
 	}
 	if !strings.Contains(string(compose), `source: "${SEGMENTSTREAM_HOST_HOME}"`) {
 		t.Fatalf("docker-compose.yml does not use static host env var mount:\n%s", string(compose))
+	}
+	if strings.Contains(string(compose), AnalyticsCoreLocalPathEnv) {
+		t.Fatalf("docker-compose.yml should not contain analytics-core local override:\n%s", string(compose))
 	}
 	for _, want := range []string{
 		"postgres:",
@@ -256,6 +268,7 @@ func TestPrepareWritesRuntimeEnvAndStaticComposeFile(t *testing.T) {
 	}
 	for _, want := range []string{
 		`SEGMENTSTREAM_HOST_HOME=` + strconv.Quote(filepath.ToSlash(hostHome)),
+		`SEGMENTSTREAM_ANALYTICS_CORE_REVISION="0.0.20"`,
 		`GOOGLE_APPLICATION_CREDENTIALS="/home/segmentstream/.segmentstream/bigquery/production-bigquery.json"`,
 		`SEGMENTSTREAM_BQ_PROJECT="example-project"`,
 		`SEGMENTSTREAM_BQ_DATASET="segmentstream"`,
@@ -264,6 +277,79 @@ func TestPrepareWritesRuntimeEnvAndStaticComposeFile(t *testing.T) {
 		if !strings.Contains(string(env), want) {
 			t.Fatalf(".env does not contain %q:\n%s", want, string(env))
 		}
+	}
+	if _, err := os.Stat(filepath.Join(root, RuntimeDirName, analyticsCoreComposeOverrideFile)); !os.IsNotExist(err) {
+		t.Fatalf("analytics-core override should not exist for release mode, stat error = %v", err)
+	}
+}
+
+func TestPrepareRequiresLocalAnalyticsCorePathForDevBuild(t *testing.T) {
+	root := t.TempDir()
+	withAnalyticsCoreRelease(t, "dev")
+
+	err := Prepare(root, testConfig(), testProvider())
+	if err == nil {
+		t.Fatal("expected Prepare to fail")
+	}
+	if !strings.Contains(err.Error(), AnalyticsCoreLocalPathEnv) ||
+		!strings.Contains(err.Error(), "dev SegmentStream CLI build") {
+		t.Fatalf("error = %v, want local analytics-core path requirement", err)
+	}
+	if _, statErr := os.Stat(filepath.Join(root, RuntimeDirName)); !os.IsNotExist(statErr) {
+		t.Fatalf("runtime dir should not be created, stat error = %v", statErr)
+	}
+}
+
+func TestPrepareWritesLocalAnalyticsCoreOverride(t *testing.T) {
+	root := t.TempDir()
+	withAnalyticsCoreRelease(t, "dev")
+	localPath := withLocalAnalyticsCore(t, root)
+
+	if err := Prepare(root, testConfig(), testProvider()); err != nil {
+		t.Fatalf("Prepare failed: %v", err)
+	}
+
+	env, err := os.ReadFile(filepath.Join(root, RuntimeDirName, ".env"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(env), AnalyticsCoreLocalPathEnv+"="+strconv.Quote(filepath.ToSlash(localPath))) {
+		t.Fatalf(".env does not contain local analytics-core path:\n%s", string(env))
+	}
+	if strings.Contains(string(env), AnalyticsCoreRevisionEnv) {
+		t.Fatalf(".env should not contain analytics-core revision in local mode:\n%s", string(env))
+	}
+
+	override, err := os.ReadFile(filepath.Join(root, RuntimeDirName, analyticsCoreComposeOverrideFile))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		`source: "${SEGMENTSTREAM_ANALYTICS_CORE_LOCAL_PATH}"`,
+		"target: /opt/segmentstream/analytics-core",
+		"read_only: true",
+	} {
+		if !strings.Contains(string(override), want) {
+			t.Fatalf("override does not contain %q:\n%s", want, string(override))
+		}
+	}
+}
+
+func TestPrepareRejectsInvalidLocalAnalyticsCorePath(t *testing.T) {
+	root := t.TempDir()
+	withAnalyticsCoreRelease(t, "dev")
+	t.Setenv(AnalyticsCoreLocalPathEnv, filepath.Join(root, "missing"))
+
+	err := Prepare(root, testConfig(), testProvider())
+	if err == nil {
+		t.Fatal("expected Prepare to fail")
+	}
+	if !strings.Contains(err.Error(), AnalyticsCoreLocalPathEnv) ||
+		!strings.Contains(err.Error(), "not accessible") {
+		t.Fatalf("error = %v, want invalid local analytics-core path", err)
+	}
+	if _, statErr := os.Stat(filepath.Join(root, RuntimeDirName)); !os.IsNotExist(statErr) {
+		t.Fatalf("runtime dir should not be created, stat error = %v", statErr)
 	}
 }
 
@@ -289,4 +375,29 @@ func testConfig() project.Config {
 			Location: "US",
 		},
 	}
+}
+
+func withAnalyticsCoreRelease(t *testing.T, release string) {
+	t.Helper()
+	t.Setenv(AnalyticsCoreLocalPathEnv, "")
+	previous := currentVersion
+	currentVersion = func() version.Info {
+		return version.Info{Version: release}
+	}
+	t.Cleanup(func() {
+		currentVersion = previous
+	})
+}
+
+func withLocalAnalyticsCore(t *testing.T, root string) string {
+	t.Helper()
+	path := filepath.Join(root, "analytics-core")
+	if err := os.MkdirAll(path, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(path, "dbt_project.yml"), []byte("name: segmentstream_analytics_core\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv(AnalyticsCoreLocalPathEnv, path)
+	return path
 }

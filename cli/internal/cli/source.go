@@ -200,6 +200,7 @@ func newSourceVerifyCommand(out, errOut io.Writer, commandContext structuredComm
 				}
 				return preflightWarehouseAuth(config, provider, credentialStore)
 			},
+			RuntimePreflight: projectruntime.ValidateAnalyticsCoreDependency,
 			PrepareRuntime: func(projectRoot string, config project.Config) error {
 				provider, err := registry.Provider(config.Warehouse.Type)
 				if err != nil {

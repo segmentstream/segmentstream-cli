@@ -2,6 +2,10 @@ FROM python:3.11-slim
 
 ENV PIP_NO_CACHE_DIR=1
 
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends git \
+    && rm -rf /var/lib/apt/lists/*
+
 RUN pip install \
     "dbt-bigquery>=1.8,<1.9" \
     "dagster>=1.13,<2" \

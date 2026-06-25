@@ -14,6 +14,7 @@ import (
 	"github.com/segmentstream/segmentstream-cli/cli/internal/cliresult"
 	"github.com/segmentstream/segmentstream-cli/cli/internal/credentials"
 	"github.com/segmentstream/segmentstream-cli/cli/internal/dagster"
+	"github.com/segmentstream/segmentstream-cli/cli/internal/projectruntime"
 )
 
 func TestRunFailsWhenConfigIsMissing(t *testing.T) {
@@ -831,6 +832,7 @@ sources:
 	home := filepath.Join(root, "home")
 	withRunAuthHome(t, home)
 	writeBigQueryAuth(t, home)
+	withRunAnalyticsCore(t, root)
 }
 
 func writeConfig(t *testing.T, root string, config string) {
@@ -863,6 +865,18 @@ func writeBigQueryAuth(t *testing.T, home string) {
 	if err := os.WriteFile(credentialsPath, []byte(`{"type":"service_account","client_email":"test@example.iam.gserviceaccount.com","private_key":"-----BEGIN PRIVATE KEY-----\ntest\n-----END PRIVATE KEY-----\n"}`), 0o600); err != nil {
 		t.Fatal(err)
 	}
+}
+
+func withRunAnalyticsCore(t *testing.T, root string) {
+	t.Helper()
+	path := filepath.Join(root, "analytics-core")
+	if err := os.MkdirAll(path, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(path, "dbt_project.yml"), []byte("name: segmentstream_analytics_core\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv(projectruntime.AnalyticsCoreLocalPathEnv, path)
 }
 
 func assertCommand(t *testing.T, got commandInvocation, name string, args []string, dir string) {

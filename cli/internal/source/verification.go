@@ -54,6 +54,7 @@ type VerifyRequest struct {
 	Runner             CommandRunner
 	Progress           Progress
 	WarehousePreflight func(project.Config) error
+	RuntimePreflight   func() error
 	PrepareRuntime     func(projectRoot string, config project.Config) error
 	Now                func() time.Time
 }
@@ -146,6 +147,11 @@ func Verify(ctx context.Context, request VerifyRequest) (VerifyResult, error) {
 	}
 
 	progress.Start("Checking local environment")
+	if request.RuntimePreflight != nil {
+		if err := request.RuntimePreflight(); err != nil {
+			return VerifyResult{}, err
+		}
+	}
 	if err := preflightDocker(ctx, request.Runner); err != nil {
 		return VerifyResult{}, err
 	}

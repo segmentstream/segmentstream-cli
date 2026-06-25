@@ -9,6 +9,7 @@ from dagster_dbt import DagsterDbtTranslator, DbtCliResource, dbt_assets
 
 SEGMENTSTREAM_DIR = Path(__file__).resolve().parents[1]
 DAGSTER_DIR = SEGMENTSTREAM_DIR / "dagster"
+ANALYTICS_CORE_PACKAGE_NAME = "segmentstream_analytics_core"
 sys.path.insert(0, str(DAGSTER_DIR))
 
 from segmentstream import build_ingestion_assets, dbt_partition_vars, prepare_segmentstream_dbt_project
@@ -43,19 +44,22 @@ class SegmentStreamDbtTranslator(DagsterDbtTranslator):
         if dbt_resource_props.get("resource_type") == "source":
             return source_asset_key(dbt_resource_props)
         package_name = dbt_resource_props.get("package_name")
-        if dbt_resource_props.get("resource_type") == "model" and package_name != "segmentstream":
+        if (
+            dbt_resource_props.get("resource_type") == "model"
+            and package_name not in {"segmentstream", ANALYTICS_CORE_PACKAGE_NAME}
+        ):
             return AssetKey([str(package_name), str(dbt_resource_props["name"])])
         return super().get_asset_key(dbt_resource_props)
 
 
 @dbt_assets(
     manifest=manifest_path,
-    select="package:segmentstream",
+    select=f"package:{ANALYTICS_CORE_PACKAGE_NAME}",
     partitions_def=segmentstream_daily_partitions,
     dagster_dbt_translator=SegmentStreamDbtTranslator(),
 )
 def segmentstream_dbt_assets(context: AssetExecutionContext, dbt: DbtCliResource):
-    yield from dbt.cli(["build", "--vars", dbt_partition_vars(context)], context=context).stream()
+    yield from dbt.cli(["build", "--vars", dbt_partition_vars(context, segmentstream_config)], context=context).stream()
 
 
 segmentstream_materialize_all = define_asset_job(

@@ -93,9 +93,9 @@ Verify the implemented source before running the pipeline:
 segmentstream source verify ga4
 ```
 
-On run, SegmentStream reads `segmentstream.yml`, installs declared sources as
-dbt packages, and generates a core `events` model that unions each source
-package's `events` model.
+On run, SegmentStream reads `segmentstream.yml`, installs analytics-core and
+declared sources as dbt packages, and materializes the core `events` model from
+analytics-core.
 
 ## Configure Your Warehouse
 

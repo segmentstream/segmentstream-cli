@@ -67,7 +67,7 @@ Do not add or assume a `segmentstream source test` command. That architecture wa
    /private/tmp/segmentstream-cli-e2e/segmentstream source scaffold ga4 --type events --json
    ```
 
-   Check that scaffold output points to `IMPLEMENTATION_GUIDE.md`, not to a pretend-complete implementation. Inspect generated `sources/ga4/models/schema.yml`, `sources/ga4/source.yml`, `sources/ga4/models/events.sql`, and `sources/ga4/IMPLEMENTATION_GUIDE.md`.
+   Check that scaffold output points to `README.md`, which is the source implementation guide, not to a pretend-complete implementation. Inspect generated `sources/ga4/models/schema.yml`, `sources/ga4/source.yml`, `sources/ga4/models/events.sql`, and `sources/ga4/README.md`.
 
 7. If validating `segmentstream init` readiness, test both states:
 
