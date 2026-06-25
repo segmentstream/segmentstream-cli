@@ -212,7 +212,7 @@ func TestAnalyticsCoreIntermediateEventsModelUsesValidBigQueryZeroRowQuery(t *te
 }
 
 func TestAnalyticsCoreIdentityKeysModelsUseExpectedUnionAndDistinctShape(t *testing.T) {
-	identityModel, err := os.ReadFile(filepath.Join("..", "..", "..", "analytics-core", "models", "intermediate", "identity", "int_identity_keys__unioned.sql"))
+	identityModel, err := os.ReadFile(filepath.Join("..", "..", "..", "analytics-core", "models", "intermediate", "identity", "keys", "int_identity_keys__unioned.sql"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -248,7 +248,7 @@ func TestAnalyticsCoreIdentityKeysModelsUseExpectedUnionAndDistinctShape(t *test
 }
 
 func TestAnalyticsCoreIdentityLinksModelsUseExpectedShape(t *testing.T) {
-	configModel, err := os.ReadFile(filepath.Join("..", "..", "..", "analytics-core", "models", "intermediate", "identity", "int_identity_link_key_config.sql"))
+	configModel, err := os.ReadFile(filepath.Join("..", "..", "..", "analytics-core", "models", "intermediate", "identity", "links", "int_identity_link_key_config.sql"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -266,7 +266,7 @@ func TestAnalyticsCoreIdentityLinksModelsUseExpectedShape(t *testing.T) {
 		}
 	}
 
-	observationsModel, err := os.ReadFile(filepath.Join("..", "..", "..", "analytics-core", "models", "intermediate", "identity", "int_identity_link_key_observations.sql"))
+	observationsModel, err := os.ReadFile(filepath.Join("..", "..", "..", "analytics-core", "models", "intermediate", "identity", "links", "int_identity_link_key_observations.sql"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -281,7 +281,7 @@ func TestAnalyticsCoreIdentityLinksModelsUseExpectedShape(t *testing.T) {
 		}
 	}
 
-	candidatesModel, err := os.ReadFile(filepath.Join("..", "..", "..", "analytics-core", "models", "intermediate", "identity", "int_identity_link_candidates.sql"))
+	candidatesModel, err := os.ReadFile(filepath.Join("..", "..", "..", "analytics-core", "models", "intermediate", "identity", "links", "int_identity_link_candidates.sql"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -297,7 +297,7 @@ func TestAnalyticsCoreIdentityLinksModelsUseExpectedShape(t *testing.T) {
 		}
 	}
 
-	valueSetsModel, err := os.ReadFile(filepath.Join("..", "..", "..", "analytics-core", "models", "intermediate", "identity", "int_identity_link_deterministic_value_sets.sql"))
+	valueSetsModel, err := os.ReadFile(filepath.Join("..", "..", "..", "analytics-core", "models", "intermediate", "identity", "links", "int_identity_link_deterministic_value_sets.sql"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -311,7 +311,7 @@ func TestAnalyticsCoreIdentityLinksModelsUseExpectedShape(t *testing.T) {
 		}
 	}
 
-	filteredModel, err := os.ReadFile(filepath.Join("..", "..", "..", "analytics-core", "models", "intermediate", "identity", "int_identity_links__filtered.sql"))
+	filteredModel, err := os.ReadFile(filepath.Join("..", "..", "..", "analytics-core", "models", "intermediate", "identity", "links", "int_identity_links__filtered.sql"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -383,7 +383,7 @@ func TestAnalyticsCoreIdentitiesModelsUseExpectedGraphShape(t *testing.T) {
 		}
 	}
 
-	nodesModel, err := os.ReadFile(filepath.Join("..", "..", "..", "analytics-core", "models", "intermediate", "identity", "int_identity_graph_nodes.sql"))
+	nodesModel, err := os.ReadFile(filepath.Join("..", "..", "..", "analytics-core", "models", "intermediate", "identity", "graph", "int_identity_graph_nodes.sql"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -397,7 +397,7 @@ func TestAnalyticsCoreIdentitiesModelsUseExpectedGraphShape(t *testing.T) {
 		}
 	}
 
-	edgesModel, err := os.ReadFile(filepath.Join("..", "..", "..", "analytics-core", "models", "intermediate", "identity", "int_identity_graph_edges.sql"))
+	edgesModel, err := os.ReadFile(filepath.Join("..", "..", "..", "analytics-core", "models", "intermediate", "identity", "graph", "int_identity_graph_edges.sql"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -412,7 +412,7 @@ func TestAnalyticsCoreIdentitiesModelsUseExpectedGraphShape(t *testing.T) {
 		}
 	}
 
-	deterministicComponentsModel, err := os.ReadFile(filepath.Join("..", "..", "..", "analytics-core", "models", "intermediate", "identity", "int_identity_graph_deterministic_components.sql"))
+	deterministicComponentsModel, err := os.ReadFile(filepath.Join("..", "..", "..", "analytics-core", "models", "intermediate", "identity", "graph", "int_identity_graph_deterministic_components.sql"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -428,7 +428,7 @@ func TestAnalyticsCoreIdentitiesModelsUseExpectedGraphShape(t *testing.T) {
 		}
 	}
 
-	allComponentsModel, err := os.ReadFile(filepath.Join("..", "..", "..", "analytics-core", "models", "intermediate", "identity", "int_identity_graph_all_components.sql"))
+	allComponentsModel, err := os.ReadFile(filepath.Join("..", "..", "..", "analytics-core", "models", "intermediate", "identity", "graph", "int_identity_graph_all_components.sql"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -443,7 +443,7 @@ func TestAnalyticsCoreIdentitiesModelsUseExpectedGraphShape(t *testing.T) {
 		}
 	}
 
-	resolvedModel, err := os.ReadFile(filepath.Join("..", "..", "..", "analytics-core", "models", "intermediate", "identity", "int_identities__resolved.sql"))
+	resolvedModel, err := os.ReadFile(filepath.Join("..", "..", "..", "analytics-core", "models", "intermediate", "identity", "graph", "int_identities__resolved.sql"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -507,7 +507,7 @@ func TestAnalyticsCoreIdentitiesModelsUseExpectedGraphShape(t *testing.T) {
 		}
 	}
 
-	intermediateSchema, err := os.ReadFile(filepath.Join("..", "..", "..", "analytics-core", "models", "intermediate", "identity", "schema.yml"))
+	intermediateSchema, err := os.ReadFile(filepath.Join("..", "..", "..", "analytics-core", "models", "intermediate", "identity", "graph", "schema.yml"))
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -1,20 +1,6 @@
 version: 2
 
 models:
-  - name: int_identity_keys__unioned
-    description: Internal union of declared source identity key models before publishing the canonical identity_keys mart.
-    columns:
-      - name: segmentstream_source
-        data_type: string
-      - name: date
-        data_type: date
-      - name: anonymous_id
-        data_type: string
-      - name: key_name
-        data_type: string
-      - name: key_value
-        data_type: string
-
   - name: int_identity_link_key_config
     description: Identity link key rules rendered from the segmentstream_identity_link_keys dbt var.
     columns:
@@ -141,64 +127,4 @@ models:
       - name: source_first_seen_date
         data_type: date
       - name: target_first_seen_date
-        data_type: date
-
-  - name: int_identity_graph_nodes
-    description: Distinct anonymous IDs eligible for identity graph resolution.
-    columns:
-      - name: anonymous_id
-        data_type: string
-      - name: first_seen_date
-        data_type: date
-
-  - name: int_identity_graph_edges
-    description: Normalized undirected identity graph edges derived from published identity links.
-    columns:
-      - name: source_anonymous_id
-        data_type: string
-      - name: target_anonymous_id
-        data_type: string
-      - name: tier
-        data_type: string
-
-  - name: int_identity_graph_deterministic_components
-    description: Connected component assignments from deterministic identity links only.
-    config:
-      tags:
-        - segmentstream_core
-        - segmentstream_unpartitioned
-    columns:
-      - name: anonymous_id
-        data_type: string
-      - name: connected_component_id
-        data_type: string
-      - name: component_size
-        data_type: int64
-      - name: identity_id
-        data_type: string
-
-  - name: int_identity_graph_all_components
-    description: Connected component assignments from all deterministic and probabilistic identity links.
-    config:
-      tags:
-        - segmentstream_core
-        - segmentstream_unpartitioned
-    columns:
-      - name: anonymous_id
-        data_type: string
-      - name: connected_component_id
-        data_type: string
-      - name: component_size
-        data_type: int64
-      - name: identity_id
-        data_type: string
-
-  - name: int_identities__resolved
-    description: Final anonymous ID to identity ID mapping after legacy graph fallback rules.
-    columns:
-      - name: anonymous_id
-        data_type: string
-      - name: identity_id
-        data_type: string
-      - name: first_seen_date
         data_type: date
