@@ -129,7 +129,10 @@ declared sources as dbt packages, and materializes the core ` + "`events`" + ` a
 
 ## Configure Identity Links
 
-Source packages that use the ` + "`identity_keys`" + ` contract emit normalized key rows.
+Source packages that use the ` + "`identity_keys`" + ` contract emit timestamped key
+observation rows with ` + "`date`" + `, ` + "`observed_at`" + `, ` + "`anonymous_id`" + `, ` + "`key_name`" + `, and
+` + "`key_value`" + `. Analytics-core compresses those observations into daily key spans
+before building links.
 Declare which keys may create identity links in ` + "`segmentstream.yml`" + `:
 
 ` + "```yaml" + `

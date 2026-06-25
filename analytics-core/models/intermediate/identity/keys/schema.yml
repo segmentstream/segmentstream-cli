@@ -1,0 +1,36 @@
+version: 2
+
+models:
+  - name: int_identity_keys__unioned
+    description: Internal union of declared source identity key observation models before daily compression.
+    columns:
+      - name: segmentstream_source
+        data_type: string
+      - name: date
+        data_type: date
+      - name: observed_at
+        data_type: timestamp
+      - name: anonymous_id
+        data_type: string
+      - name: key_name
+        data_type: string
+      - name: key_value
+        data_type: string
+
+  - name: int_identity_keys__daily_spans
+    description: Daily identity key spans compressed from source observation rows.
+    columns:
+      - name: segmentstream_source
+        data_type: string
+      - name: date
+        data_type: date
+      - name: anonymous_id
+        data_type: string
+      - name: key_name
+        data_type: string
+      - name: key_value
+        data_type: string
+      - name: daily_first_observed_at
+        data_type: timestamp
+      - name: daily_last_observed_at
+        data_type: timestamp

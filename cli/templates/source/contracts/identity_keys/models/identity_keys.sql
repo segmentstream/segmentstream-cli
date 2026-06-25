@@ -14,9 +14,10 @@
 -- Template query. Replace this example with source-specific SQL.
 -- 1. Declare raw warehouse inputs in models/schema.yml.
 -- 2. Inspect the target contract with: segmentstream source contracts --type identity_keys --json
--- 3. Return the contract columns below, filtered to the SegmentStream date window.
+-- 3. Return one row per observed identity key, filtered to the SegmentStream date window.
 select
   cast(null as date) as date,
+  cast(null as timestamp) as observed_at,
   cast(null as string) as anonymous_id,
   cast(null as string) as key_name,
   cast(null as string) as key_value

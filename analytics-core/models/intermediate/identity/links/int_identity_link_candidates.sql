@@ -35,10 +35,10 @@ select
   source_key_span.tier,
   source_key_span.anonymous_id as anonymous_id_a,
   target_key_span.anonymous_id as anonymous_id_b,
-  source_key_span.first_key_seen_date as first_key_seen_date_a,
-  source_key_span.last_key_seen_date as last_key_seen_date_a,
-  target_key_span.first_key_seen_date as first_key_seen_date_b,
-  target_key_span.last_key_seen_date as last_key_seen_date_b
+  source_key_span.first_key_seen_at as first_key_seen_at_a,
+  source_key_span.last_key_seen_at as last_key_seen_at_a,
+  target_key_span.first_key_seen_at as first_key_seen_at_b,
+  target_key_span.last_key_seen_at as last_key_seen_at_b
 from not_skewed_key_spans as source_key_span
 inner join not_skewed_key_spans as target_key_span
   on source_key_span.scope = target_key_span.scope
@@ -48,8 +48,7 @@ inner join not_skewed_key_spans as target_key_span
   and source_key_span.anonymous_id < target_key_span.anonymous_id
 -- A key can link users when their observation ranges overlap or are close
 -- enough to plausibly represent the same underlying identity signal.
-where date_diff(
-  greatest(source_key_span.first_key_seen_date, target_key_span.first_key_seen_date),
-  least(source_key_span.last_key_seen_date, target_key_span.last_key_seen_date),
-  day
-) <= source_key_span.window_days
+where {{ segmentstream_timestamp_diff_seconds(
+  'greatest(source_key_span.first_key_seen_at, target_key_span.first_key_seen_at)',
+  'least(source_key_span.last_key_seen_at, target_key_span.last_key_seen_at)'
+) }} <= source_key_span.window_days * 86400

@@ -47,7 +47,9 @@ allowed_candidates as (
 allowed_candidates_with_first_seen as (
   select
     allowed_candidates.*,
+    source_first_seen.first_seen_at as first_seen_at_a,
     source_first_seen.first_seen_date as first_seen_date_a,
+    target_first_seen.first_seen_at as first_seen_at_b,
     target_first_seen.first_seen_date as first_seen_date_b
   from allowed_candidates
   inner join anonymous_id_first_seen as source_first_seen
@@ -58,17 +60,18 @@ allowed_candidates_with_first_seen as (
 
 oriented_links as (
   -- Keep edge direction stable for downstream graph consumers: newer anonymous
-  -- IDs point at older ones, with lexical ordering as a deterministic tie-break.
+  -- IDs point at older ones at timestamp precision, with lexical ordering as a
+  -- deterministic tie-break.
   select
     case
-      when first_seen_date_a > first_seen_date_b then anonymous_id_a
-      when first_seen_date_a < first_seen_date_b then anonymous_id_b
+      when first_seen_at_a > first_seen_at_b then anonymous_id_a
+      when first_seen_at_a < first_seen_at_b then anonymous_id_b
       when anonymous_id_a > anonymous_id_b then anonymous_id_a
       else anonymous_id_b
     end as source_anonymous_id,
     case
-      when first_seen_date_a > first_seen_date_b then anonymous_id_b
-      when first_seen_date_a < first_seen_date_b then anonymous_id_a
+      when first_seen_at_a > first_seen_at_b then anonymous_id_b
+      when first_seen_at_a < first_seen_at_b then anonymous_id_a
       when anonymous_id_a > anonymous_id_b then anonymous_id_b
       else anonymous_id_a
     end as target_anonymous_id,
@@ -76,14 +79,26 @@ oriented_links as (
     key_value,
     tier,
     case
-      when first_seen_date_a > first_seen_date_b then first_seen_date_a
-      when first_seen_date_a < first_seen_date_b then first_seen_date_b
+      when first_seen_at_a > first_seen_at_b then first_seen_at_a
+      when first_seen_at_a < first_seen_at_b then first_seen_at_b
+      when anonymous_id_a > anonymous_id_b then first_seen_at_a
+      else first_seen_at_b
+    end as source_first_seen_at,
+    case
+      when first_seen_at_a > first_seen_at_b then first_seen_at_b
+      when first_seen_at_a < first_seen_at_b then first_seen_at_a
+      when anonymous_id_a > anonymous_id_b then first_seen_at_b
+      else first_seen_at_a
+    end as target_first_seen_at,
+    case
+      when first_seen_at_a > first_seen_at_b then first_seen_date_a
+      when first_seen_at_a < first_seen_at_b then first_seen_date_b
       when anonymous_id_a > anonymous_id_b then first_seen_date_a
       else first_seen_date_b
     end as source_first_seen_date,
     case
-      when first_seen_date_a > first_seen_date_b then first_seen_date_b
-      when first_seen_date_a < first_seen_date_b then first_seen_date_a
+      when first_seen_at_a > first_seen_at_b then first_seen_date_b
+      when first_seen_at_a < first_seen_at_b then first_seen_date_a
       when anonymous_id_a > anonymous_id_b then first_seen_date_b
       else first_seen_date_a
     end as target_first_seen_date
@@ -96,6 +111,8 @@ select
   key_name,
   key_value,
   tier,
+  source_first_seen_at,
+  target_first_seen_at,
   source_first_seen_date,
   target_first_seen_date
 from oriented_links

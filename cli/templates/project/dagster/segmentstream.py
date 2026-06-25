@@ -19,6 +19,10 @@ ANALYTICS_CORE_GIT_SUBDIRECTORY = "analytics-core"
 ANALYTICS_CORE_CONTAINER_PATH = "/opt/segmentstream/analytics-core"
 ANALYTICS_CORE_LOCAL_PATH_ENV = "SEGMENTSTREAM_ANALYTICS_CORE_LOCAL_PATH"
 ANALYTICS_CORE_REVISION_ENV = "SEGMENTSTREAM_ANALYTICS_CORE_REVISION"
+SUPPORTED_SOURCE_CONTRACT_SCHEMA_VERSIONS = {
+    "events": 1,
+    "identity_keys": 2,
+}
 
 
 @dataclass(frozen=True)
@@ -321,6 +325,21 @@ def discover_source_contract(name: str, path: Path) -> tuple[str, str]:
 
     contract_type = normalize_required_string(contract.get("type"), f"sources.{name}.contract.type")
     validate_identifier(contract_type, f"sources.{name}.contract.type")
+    schema_version = normalize_contract_schema_version(
+        contract.get("schema_version"), f"sources.{name}.contract.schema_version"
+    )
+    expected_schema_version = SUPPORTED_SOURCE_CONTRACT_SCHEMA_VERSIONS.get(contract_type)
+    if expected_schema_version is None:
+        raise RuntimeError(
+            f'source "{name}" uses unsupported contract type "{contract_type}"'
+        )
+    if schema_version != expected_schema_version:
+        raise RuntimeError(
+            f'source "{name}" uses {contract_type} schema_version {schema_version}, '
+            f"but schema_version {expected_schema_version} is required; "
+            f"run segmentstream source scaffold {name} --type {contract_type} "
+            "and port your source SQL, or update contract.yml and verification tests"
+        )
 
     model = contract.get("model") or {}
     if not isinstance(model, dict):
@@ -334,6 +353,14 @@ def discover_source_contract(name: str, path: Path) -> tuple[str, str]:
     validate_identifier(model_name, f"sources.{name}.contract.model.name")
 
     return contract_type, model_name
+
+
+def normalize_contract_schema_version(value, field: str) -> int:
+    if isinstance(value, bool) or not isinstance(value, int):
+        raise RuntimeError(f"{field} must be a positive integer")
+    if value <= 0:
+        raise RuntimeError(f"{field} must be a positive integer")
+    return value
 
 
 def write_packages_yml(sources: list[SegmentStreamSource]) -> None:

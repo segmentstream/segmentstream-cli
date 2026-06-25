@@ -1,6 +1,6 @@
 type: identity_keys
-schema_version: 1
-description: Normalized identity key stream emitted by a custom source package.
+schema_version: 2
+description: Timestamped identity key observations emitted by a custom source package.
 default: false
 status: supported
 model:
@@ -10,7 +10,11 @@ columns:
   - name: date
     type: DATE
     required: true
-    description: Date partition for this identity key observation.
+    description: UTC date partition for this identity key observation.
+  - name: observed_at
+    type: TIMESTAMP
+    required: true
+    description: UTC timestamp when this identity key was observed.
   - name: anonymous_id
     type: STRING
     required: true

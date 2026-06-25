@@ -2,13 +2,13 @@
 
 This directory is a generated SegmentStream source scaffold. It is the local dbt
 package where the `__SOURCE_NAME__` raw warehouse data is adapted into the
-canonical SegmentStream `identity_keys` model.
+canonical SegmentStream `identity_keys` observation model.
 
 The scaffold exists so source-specific SQL, raw input declarations, and contract
 verification stay close together and separate from the generated SegmentStream
 core project. It is intentionally unfinished: an implementation agent or
-developer owns the source-specific mapping from raw data to normalized identity
-keys.
+developer owns the source-specific mapping from raw data to timestamped identity
+key observations.
 
 ## Output Schema
 
@@ -17,4 +17,6 @@ The expected output schema is defined in `contract.yml`. The same
 document and verify the implemented model.
 
 `models/identity_keys.sql` is the author-editable model that emits rows matching
-that schema.
+that schema. Emit one row per observed identity key with `observed_at` in UTC and
+`date` equal to the UTC date of `observed_at`; analytics-core will compress these
+observations into daily key spans.

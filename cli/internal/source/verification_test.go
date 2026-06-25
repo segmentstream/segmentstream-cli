@@ -70,7 +70,7 @@ func TestCheckReportsContractMismatch(t *testing.T) {
 		t.Fatalf("SavePassing failed: %v", err)
 	}
 
-	writeFile(t, filepath.Join(root, "sources", "ga4", "contract.yml"), `type: events
+	writeFile(t, filepath.Join(root, "sources", "ga4", "contract.yml"), `type: identity_keys
 schema_version: 2
 `)
 
@@ -80,6 +80,20 @@ schema_version: 2
 	}
 	if status.Valid || !strings.Contains(status.Reason, "contract changed") {
 		t.Fatalf("status = %+v, want contract mismatch", status)
+	}
+}
+
+func TestCheckReportsUnsupportedIdentityKeysContractVersion(t *testing.T) {
+	root, source := writeLegacyIdentityKeysSourcePackage(t)
+
+	status, err := Check(root, source)
+	if err != nil {
+		t.Fatalf("Check failed: %v", err)
+	}
+	if status.Valid ||
+		!strings.Contains(status.Reason, "schema_version 1 is unsupported") ||
+		!strings.Contains(status.Reason, "expected schema_version 2") {
+		t.Fatalf("status = %+v, want unsupported identity_keys schema version", status)
 	}
 }
 
@@ -147,6 +161,24 @@ schema_version: 1
 }
 
 func writeIdentityKeysSourcePackage(t *testing.T) (string, project.Source) {
+	t.Helper()
+	root := t.TempDir()
+	sourcePath := filepath.Join(root, "sources", "crm")
+	writeFile(t, filepath.Join(sourcePath, "contract.yml"), `type: identity_keys
+schema_version: 2
+model:
+  name: identity_keys
+  partition: date
+`)
+	writeFile(t, filepath.Join(sourcePath, "dbt_project.yml"), `name: segmentstream_source_crm
+`)
+	writeFile(t, filepath.Join(sourcePath, "models", "identity_keys.sql"), "select current_date() as date\n")
+	writeFile(t, filepath.Join(sourcePath, "tests", "verify_identity_keys_contract.sql"), "{{ config(tags=['segmentstream_source_verify']) }}\nselect 1 where false\n")
+	writeFile(t, filepath.Join(sourcePath, "tests", "verify_identity_keys_non_empty.sql"), "{{ config(tags=['segmentstream_source_verify']) }}\nselect 1 where false\n")
+	return root, project.Source{Name: "crm", Path: "./sources/crm"}
+}
+
+func writeLegacyIdentityKeysSourcePackage(t *testing.T) (string, project.Source) {
 	t.Helper()
 	root := t.TempDir()
 	sourcePath := filepath.Join(root, "sources", "crm")

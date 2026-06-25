@@ -1,0 +1,45 @@
+version: 2
+
+unit_tests:
+  - name: int_identity_graph_deterministic_components__resolves_deterministic_clusters
+    model: int_identity_graph_deterministic_components
+    overrides:
+      vars:
+        segmentstream_identity_graph_max_iterations: 2
+    given:
+      - input: ref('int_identity_graph_nodes')
+        format: sql
+        rows: |
+          select 'anon_a' as anonymous_id, timestamp('2026-01-03 08:00:00+00') as first_seen_at, date '2026-01-03' as first_seen_date
+          union all
+          select 'anon_b' as anonymous_id, timestamp('2026-01-01 09:00:00+00') as first_seen_at, date '2026-01-01' as first_seen_date
+          union all
+          select 'anon_c' as anonymous_id, timestamp('2026-01-02 10:00:00+00') as first_seen_at, date '2026-01-02' as first_seen_date
+          union all
+          select 'anon_z' as anonymous_id, timestamp('2026-01-04 10:00:00+00') as first_seen_at, date '2026-01-04' as first_seen_date
+      - input: ref('int_identity_graph_edges')
+        format: sql
+        rows: |
+          select 'anon_a' as source_anonymous_id, 'anon_b' as target_anonymous_id, 'deterministic' as tier
+          union all
+          select 'anon_b' as source_anonymous_id, 'anon_c' as target_anonymous_id, 'deterministic' as tier
+          union all
+          select 'anon_c' as source_anonymous_id, 'anon_z' as target_anonymous_id, 'probabilistic' as tier
+    expect:
+      rows:
+        - anonymous_id: anon_a
+          connected_component_id: anon_a
+          component_size: 3
+          identity_id: anon_b
+        - anonymous_id: anon_b
+          connected_component_id: anon_a
+          component_size: 3
+          identity_id: anon_b
+        - anonymous_id: anon_c
+          connected_component_id: anon_a
+          component_size: 3
+          identity_id: anon_b
+        - anonymous_id: anon_z
+          connected_component_id: anon_z
+          component_size: 1
+          identity_id: anon_z

@@ -153,6 +153,23 @@ func (contract Contract) Identity() ContractIdentity {
 	}
 }
 
+func ValidateSupportedContractIdentity(contract ContractIdentity) error {
+	embedded, err := ContractByType(contract.Type)
+	if err != nil {
+		return err
+	}
+	if contract.SchemaVersion != embedded.SchemaVersion {
+		return fmt.Errorf(
+			"source contract %s schema_version %d is unsupported; expected schema_version %d. Run segmentstream source scaffold <name> --type %s and port your source SQL, or update contract.yml and verification tests to the latest contract",
+			contract.Type,
+			contract.SchemaVersion,
+			embedded.SchemaVersion,
+			contract.Type,
+		)
+	}
+	return nil
+}
+
 func createWithContract(projectRoot, name string, contract Contract) (Source, error) {
 	name = strings.TrimSpace(name)
 	if err := ValidateName(name); err != nil {

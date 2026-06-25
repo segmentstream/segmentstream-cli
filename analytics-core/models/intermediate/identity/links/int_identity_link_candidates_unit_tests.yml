@@ -1,0 +1,35 @@
+version: 2
+
+unit_tests:
+  - name: int_identity_link_candidates__filters_skew_and_timestamp_gap
+    model: int_identity_link_candidates
+    given:
+      - input: ref('int_identity_link_key_spans')
+        format: sql
+        rows: |
+          select 'source' as scope, 'web' as scope_value, 'ip_address' as key_name, '203.0.113.1' as key_value, 'anon_a' as anonymous_id, 'probabilistic' as tier, 3 as window_days, 100 as max_distinct_anonymous_ids, timestamp('2026-01-01 08:00:00+00') as first_key_seen_at, timestamp('2026-01-01 09:00:00+00') as last_key_seen_at
+          union all
+          select 'source' as scope, 'web' as scope_value, 'ip_address' as key_name, '203.0.113.1' as key_value, 'anon_b' as anonymous_id, 'probabilistic' as tier, 3 as window_days, 100 as max_distinct_anonymous_ids, timestamp('2026-01-04 08:30:00+00') as first_key_seen_at, timestamp('2026-01-04 09:00:00+00') as last_key_seen_at
+          union all
+          select 'source' as scope, 'web' as scope_value, 'ip_address' as key_name, '203.0.113.2' as key_value, 'anon_c' as anonymous_id, 'probabilistic' as tier, 3 as window_days, 100 as max_distinct_anonymous_ids, timestamp('2026-01-01 08:00:00+00') as first_key_seen_at, timestamp('2026-01-01 08:00:00+00') as last_key_seen_at
+          union all
+          select 'source' as scope, 'web' as scope_value, 'ip_address' as key_name, '203.0.113.2' as key_value, 'anon_d' as anonymous_id, 'probabilistic' as tier, 3 as window_days, 100 as max_distinct_anonymous_ids, timestamp('2026-01-04 08:00:01+00') as first_key_seen_at, timestamp('2026-01-04 08:00:01+00') as last_key_seen_at
+          union all
+          select 'source' as scope, 'web' as scope_value, 'ip_address' as key_name, '203.0.113.3' as key_value, 'anon_e' as anonymous_id, 'probabilistic' as tier, 3 as window_days, 2 as max_distinct_anonymous_ids, timestamp('2026-01-01 08:00:00+00') as first_key_seen_at, timestamp('2026-01-01 08:00:00+00') as last_key_seen_at
+          union all
+          select 'source' as scope, 'web' as scope_value, 'ip_address' as key_name, '203.0.113.3' as key_value, 'anon_f' as anonymous_id, 'probabilistic' as tier, 3 as window_days, 2 as max_distinct_anonymous_ids, timestamp('2026-01-01 08:00:00+00') as first_key_seen_at, timestamp('2026-01-01 08:00:00+00') as last_key_seen_at
+          union all
+          select 'source' as scope, 'web' as scope_value, 'ip_address' as key_name, '203.0.113.3' as key_value, 'anon_g' as anonymous_id, 'probabilistic' as tier, 3 as window_days, 2 as max_distinct_anonymous_ids, timestamp('2026-01-01 08:00:00+00') as first_key_seen_at, timestamp('2026-01-01 08:00:00+00') as last_key_seen_at
+    expect:
+      rows:
+        - scope: source
+          scope_value: web
+          key_name: ip_address
+          key_value: 203.0.113.1
+          tier: probabilistic
+          anonymous_id_a: anon_a
+          anonymous_id_b: anon_b
+          first_key_seen_at_a: "2026-01-01 08:00:00+00"
+          last_key_seen_at_a: "2026-01-01 09:00:00+00"
+          first_key_seen_at_b: "2026-01-04 08:30:00+00"
+          last_key_seen_at_b: "2026-01-04 09:00:00+00"

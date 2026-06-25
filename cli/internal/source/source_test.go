@@ -42,11 +42,17 @@ func TestContractsLoadFromEmbeddedTemplates(t *testing.T) {
 	if identityContract.Model.Name != "identity_keys" || identityContract.Model.Partition != "date" {
 		t.Fatalf("identity model = %+v, want identity_keys partitioned by date", identityContract.Model)
 	}
-	if len(identityContract.Columns) != 4 {
-		t.Fatalf("identity columns = %+v, want 4 columns", identityContract.Columns)
+	if identityContract.SchemaVersion != 2 {
+		t.Fatalf("identity schema version = %d, want 2", identityContract.SchemaVersion)
+	}
+	if len(identityContract.Columns) != 5 {
+		t.Fatalf("identity columns = %+v, want 5 columns", identityContract.Columns)
 	}
 	if identityContract.Columns[0].Name != "date" || !identityContract.Columns[0].Required {
 		t.Fatalf("first identity column = %+v, want required date", identityContract.Columns[0])
+	}
+	if identityContract.Columns[1].Name != "observed_at" || !identityContract.Columns[1].Required {
+		t.Fatalf("second identity column = %+v, want required observed_at", identityContract.Columns[1])
 	}
 }
 
@@ -210,8 +216,8 @@ func TestCreateScaffoldsIdentityKeysSourcePackageFromContract(t *testing.T) {
 		t.Fatalf("Create failed: %v", err)
 	}
 
-	if source.Contract.Type != "identity_keys" || source.Contract.SchemaVersion != 1 {
-		t.Fatalf("Contract = %+v, want identity_keys schema version 1", source.Contract)
+	if source.Contract.Type != "identity_keys" || source.Contract.SchemaVersion != 2 {
+		t.Fatalf("Contract = %+v, want identity_keys schema version 2", source.Contract)
 	}
 	if source.ModelName != "identity_keys" {
 		t.Fatalf("ModelName = %q, want identity_keys", source.ModelName)
@@ -257,7 +263,9 @@ func TestCreateScaffoldsIdentityKeysSourcePackageFromContract(t *testing.T) {
 		"name: crm_raw",
 		"identifier: REPLACE_WITH_RAW_IDENTITY_KEYS_TABLE",
 		"type: identity_keys",
+		"schema_version: 2",
 		"name: identity_keys",
+		"observed_at",
 	} {
 		if !strings.Contains(string(schema), want) {
 			t.Fatalf("schema.yml does not contain %q:\n%s", want, string(schema))
@@ -272,6 +280,7 @@ func TestCreateScaffoldsIdentityKeysSourcePackageFromContract(t *testing.T) {
 		"segmentstream_start_date",
 		"segmentstream_end_date",
 		"Implement sources/crm/models/identity_keys.sql",
+		"observed_at",
 		"anonymous_id",
 		"key_name",
 		"where false",
@@ -288,8 +297,11 @@ func TestCreateScaffoldsIdentityKeysSourcePackageFromContract(t *testing.T) {
 	for _, want := range []string{
 		"segmentstream_source_verify",
 		"cast(date as date)",
+		"cast(observed_at as timestamp)",
+		"observed_at is null",
 		"anonymous_id is null",
 		"date >= date('{{ segmentstream_end_date }}')",
+		"date != date(observed_at)",
 	} {
 		if !strings.Contains(string(contractTest), want) {
 			t.Fatalf("contract test does not contain %q:\n%s", want, string(contractTest))

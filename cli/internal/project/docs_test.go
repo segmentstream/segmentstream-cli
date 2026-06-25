@@ -45,6 +45,8 @@ func TestEnsureProjectReadmeCreatesReadme(t *testing.T) {
 		"sources/sdk_identity/models/identity_keys.sql",
 		"Configure Identity Links",
 		"identity_keys",
+		"observed_at",
+		"daily key spans",
 		"tier: deterministic",
 		"tier: probabilistic",
 		"warehouse.auth",
