@@ -3,5 +3,20 @@ version: 2
 models:
   - name: int_events__unioned
     description: Internal union of declared source event models before publishing the canonical events mart.
-  - name: int_identity_keys__unioned
-    description: Internal union of declared source identity key models before publishing the canonical identity_keys mart.
+    columns:
+      - name: segmentstream_source
+        data_type: string
+      - name: event_id
+        data_type: string
+      - name: anonymous_id
+        data_type: string
+      - name: event_name
+        data_type: string
+      - name: page_url
+        data_type: string
+      - name: page_referrer
+        data_type: string
+      - name: event_timestamp
+        data_type: timestamp
+      - name: event_date
+        data_type: date

@@ -12,13 +12,15 @@ DAGSTER_DIR = SEGMENTSTREAM_DIR / "dagster"
 ANALYTICS_CORE_PACKAGE_NAME = "segmentstream_analytics_core"
 sys.path.insert(0, str(DAGSTER_DIR))
 
-from segmentstream import build_ingestion_assets, dbt_partition_vars, prepare_segmentstream_dbt_project
+from segmentstream import build_ingestion_assets, dbt_partition_vars, dbt_project_vars, prepare_segmentstream_dbt_project
 
 
 segmentstream_config = prepare_segmentstream_dbt_project()
 ingestion_assets = build_ingestion_assets(segmentstream_config)
 manifest_path = SEGMENTSTREAM_DIR / "dbt" / "target" / "manifest.json"
 segmentstream_daily_partitions = DailyPartitionsDefinition(start_date="1970-01-01", end_offset=1)
+partitioned_dbt_select = f"package:{ANALYTICS_CORE_PACKAGE_NAME},tag:segmentstream_partitioned"
+unpartitioned_dbt_select = f"package:{ANALYTICS_CORE_PACKAGE_NAME},tag:segmentstream_unpartitioned"
 
 
 def build_dbt_source_assets(path: Path) -> list[SourceAsset]:
@@ -54,12 +56,21 @@ class SegmentStreamDbtTranslator(DagsterDbtTranslator):
 
 @dbt_assets(
     manifest=manifest_path,
-    select=f"package:{ANALYTICS_CORE_PACKAGE_NAME}",
+    select=partitioned_dbt_select,
     partitions_def=segmentstream_daily_partitions,
     dagster_dbt_translator=SegmentStreamDbtTranslator(),
 )
-def segmentstream_dbt_assets(context: AssetExecutionContext, dbt: DbtCliResource):
+def segmentstream_partitioned_dbt_assets(context: AssetExecutionContext, dbt: DbtCliResource):
     yield from dbt.cli(["build", "--vars", dbt_partition_vars(context, segmentstream_config)], context=context).stream()
+
+
+@dbt_assets(
+    manifest=manifest_path,
+    select=unpartitioned_dbt_select,
+    dagster_dbt_translator=SegmentStreamDbtTranslator(),
+)
+def segmentstream_unpartitioned_dbt_assets(context: AssetExecutionContext, dbt: DbtCliResource):
+    yield from dbt.cli(["build", "--vars", dbt_project_vars(segmentstream_config)], context=context).stream()
 
 
 segmentstream_materialize_all = define_asset_job(
@@ -69,7 +80,12 @@ segmentstream_materialize_all = define_asset_job(
 
 
 defs = Definitions(
-    assets=[*ingestion_assets, *build_dbt_source_assets(manifest_path), segmentstream_dbt_assets],
+    assets=[
+        *ingestion_assets,
+        *build_dbt_source_assets(manifest_path),
+        segmentstream_partitioned_dbt_assets,
+        segmentstream_unpartitioned_dbt_assets,
+    ],
     resources={
         "dbt": DbtCliResource(
             project_dir=str(SEGMENTSTREAM_DIR),

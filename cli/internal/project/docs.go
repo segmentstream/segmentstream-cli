@@ -117,6 +117,30 @@ On run, SegmentStream reads ` + "`segmentstream.yml`" + `, installs analytics-co
 declared sources as dbt packages, and materializes the core ` + "`events`" + ` model from
 analytics-core.
 
+## Configure Identity Links
+
+Source packages that use the ` + "`identity_keys`" + ` contract emit normalized key rows.
+Declare which keys may create identity links in ` + "`segmentstream.yml`" + `:
+
+` + "```yaml" + `
+identity:
+  keys:
+    - name: user_id
+      tier: deterministic
+      window_days: 180
+      max_distinct_anonymous_ids: 1000
+      scope: project
+    - name: ip_address
+      tier: probabilistic
+      window_days: 3
+      max_distinct_anonymous_ids: 100
+      scope: source
+` + "```" + `
+
+` + "`deterministic`" + ` keys also prevent links between anonymous IDs that have
+conflicting deterministic values. Source SQL owns key extraction, normalization,
+and filtering.
+
 ## Commands
 
 Pass ` + "`--json`" + ` to any command for a structured response object on stdout.

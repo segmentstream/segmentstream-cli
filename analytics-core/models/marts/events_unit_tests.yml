@@ -1,0 +1,28 @@
+version: 2
+
+unit_tests:
+  - name: events__publishes_unioned_events
+    model: events
+    given:
+      - input: ref('int_events__unioned')
+        format: sql
+        rows: |
+          select
+            'web' as segmentstream_source,
+            'evt_1' as event_id,
+            'anon_1' as anonymous_id,
+            'Page Viewed' as event_name,
+            'https://example.com/' as page_url,
+            cast(null as string) as page_referrer,
+            timestamp('2026-01-01 00:00:00+00') as event_timestamp,
+            date '2026-01-01' as event_date
+    expect:
+      rows:
+        - segmentstream_source: web
+          event_id: evt_1
+          anonymous_id: anon_1
+          event_name: Page Viewed
+          page_url: https://example.com/
+          page_referrer: null
+          event_timestamp: "2026-01-01 00:00:00+00"
+          event_date: "2026-01-01"

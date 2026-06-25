@@ -1,0 +1,35 @@
+version: 2
+
+unit_tests:
+  - name: identity_links__deduplicates_filtered_links
+    model: identity_links
+    given:
+      - input: ref('int_identity_links__filtered')
+        format: sql
+        rows: |
+          select
+            'anon_b' as source_anonymous_id,
+            'anon_a' as target_anonymous_id,
+            'ip_address' as key_name,
+            '203.0.113.1' as key_value,
+            'probabilistic' as tier,
+            date '2026-01-02' as source_first_seen_date,
+            date '2026-01-01' as target_first_seen_date
+          union all
+          select
+            'anon_b' as source_anonymous_id,
+            'anon_a' as target_anonymous_id,
+            'ip_address' as key_name,
+            '203.0.113.1' as key_value,
+            'probabilistic' as tier,
+            date '2026-01-02' as source_first_seen_date,
+            date '2026-01-01' as target_first_seen_date
+    expect:
+      rows:
+        - source_anonymous_id: anon_b
+          target_anonymous_id: anon_a
+          key_name: ip_address
+          key_value: 203.0.113.1
+          tier: probabilistic
+          source_first_seen_date: "2026-01-02"
+          target_first_seen_date: "2026-01-01"

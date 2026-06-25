@@ -163,3 +163,158 @@ sources:
 		t.Fatalf("Sources[0] = %+v, want ga4 source", config.Sources[0])
 	}
 }
+
+func TestParseConfigParsesIdentityKeys(t *testing.T) {
+	config, err := ParseConfig([]byte(`version: 1
+warehouse:
+  type: bigquery
+  auth: production-bigquery
+  project: example-project
+  dataset: segmentstream
+identity:
+  keys:
+    - name: " user_id "
+      tier: " deterministic "
+      window_days: 180
+      max_distinct_anonymous_ids: 1000
+      scope: " project "
+    - name: ip_address
+      tier: probabilistic
+      window_days: 3
+      max_distinct_anonymous_ids: 100
+      scope: source
+`))
+	if err != nil {
+		t.Fatalf("ParseConfig failed: %v", err)
+	}
+	if config.Identity == nil || len(config.Identity.Keys) != 2 {
+		t.Fatalf("Identity = %+v, want two keys", config.Identity)
+	}
+	first := config.Identity.Keys[0]
+	if first.Name != "user_id" || first.Tier != "deterministic" || first.WindowDays != 180 ||
+		first.MaxDistinctAnonymousIDs != 1000 || first.Scope != "project" {
+		t.Fatalf("first identity key = %+v, want normalized deterministic user_id", first)
+	}
+}
+
+func TestParseConfigAllowsAbsentAndEmptyIdentityConfig(t *testing.T) {
+	for _, data := range []string{
+		`version: 1
+warehouse:
+  type: bigquery
+  auth: production-bigquery
+  project: example-project
+  dataset: segmentstream
+`,
+		`version: 1
+warehouse:
+  type: bigquery
+  auth: production-bigquery
+  project: example-project
+  dataset: segmentstream
+identity:
+  keys: []
+`,
+	} {
+		config, err := ParseConfig([]byte(data))
+		if err != nil {
+			t.Fatalf("ParseConfig failed for %q: %v", data, err)
+		}
+		if config.Identity != nil {
+			t.Fatalf("Identity = %+v, want nil for absent or empty identity config", config.Identity)
+		}
+	}
+}
+
+func TestParseConfigRejectsInvalidIdentityKeys(t *testing.T) {
+	tests := []struct {
+		name    string
+		patch   string
+		wantErr string
+	}{
+		{
+			name: "missing name",
+			patch: `    - tier: deterministic
+      window_days: 180
+      max_distinct_anonymous_ids: 100
+      scope: project
+`,
+			wantErr: "missing required field identity.keys[0].name",
+		},
+		{
+			name: "invalid tier",
+			patch: `    - name: user_id
+      tier: strong
+      window_days: 180
+      max_distinct_anonymous_ids: 100
+      scope: project
+`,
+			wantErr: "identity.keys[0].tier must be deterministic or probabilistic",
+		},
+		{
+			name: "non-positive window",
+			patch: `    - name: user_id
+      tier: deterministic
+      window_days: 0
+      max_distinct_anonymous_ids: 100
+      scope: project
+`,
+			wantErr: "identity.keys[0].window_days must be a positive integer",
+		},
+		{
+			name: "non-positive max",
+			patch: `    - name: user_id
+      tier: deterministic
+      window_days: 180
+      max_distinct_anonymous_ids: -1
+      scope: project
+`,
+			wantErr: "identity.keys[0].max_distinct_anonymous_ids must be a positive integer",
+		},
+		{
+			name: "invalid scope",
+			patch: `    - name: user_id
+      tier: deterministic
+      window_days: 180
+      max_distinct_anonymous_ids: 100
+      scope: global
+`,
+			wantErr: "identity.keys[0].scope must be project or source",
+		},
+		{
+			name: "duplicate name",
+			patch: `    - name: user_id
+      tier: deterministic
+      window_days: 180
+      max_distinct_anonymous_ids: 100
+      scope: project
+    - name: user_id
+      tier: probabilistic
+      window_days: 30
+      max_distinct_anonymous_ids: 100
+      scope: source
+`,
+			wantErr: `duplicate identity key "user_id"`,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := ParseConfig([]byte(`version: 1
+warehouse:
+  type: bigquery
+  auth: production-bigquery
+  project: example-project
+  dataset: segmentstream
+identity:
+  keys:
+` + tt.patch))
+			if err == nil {
+				t.Fatal("expected identity validation error")
+			}
+			if !strings.Contains(err.Error(), tt.wantErr) {
+				t.Fatalf("error = %v, want %q", err, tt.wantErr)
+			}
+		})
+	}
+}

@@ -1,0 +1,44 @@
+version: 2
+
+unit_tests:
+  - name: int_identity_link_key_observations__applies_configured_scope
+    model: int_identity_link_key_observations
+    given:
+      - input: ref('int_identity_link_key_config')
+        format: sql
+        rows: |
+          select 'user_id' as key_name, 'deterministic' as tier, 180 as window_days, 1000 as max_distinct_anonymous_ids, 'project' as scope
+          union all
+          select 'ip_address' as key_name, 'probabilistic' as tier, 3 as window_days, 100 as max_distinct_anonymous_ids, 'source' as scope
+      - input: ref('segmentstream_analytics_core', 'identity_keys')
+        format: sql
+        rows: |
+          select 'web' as segmentstream_source, date '2026-01-01' as date, 'anon_1' as anonymous_id, 'user_id' as key_name, 'user_1' as key_value
+          union all
+          select 'web' as segmentstream_source, date '2026-01-01' as date, 'anon_1' as anonymous_id, 'ip_address' as key_name, '203.0.113.1' as key_value
+          union all
+          select 'web' as segmentstream_source, date '2026-01-01' as date, 'anon_1' as anonymous_id, 'ignored_key' as key_name, 'ignored' as key_value
+          union all
+          select 'web' as segmentstream_source, cast(null as date) as date, 'anon_2' as anonymous_id, 'user_id' as key_name, 'user_2' as key_value
+    expect:
+      rows:
+        - segmentstream_source: web
+          scope_value: __segmentstream_project__
+          scope: project
+          anonymous_id: anon_1
+          date: "2026-01-01"
+          key_name: user_id
+          key_value: user_1
+          tier: deterministic
+          window_days: 180
+          max_distinct_anonymous_ids: 1000
+        - segmentstream_source: web
+          scope_value: web
+          scope: source
+          anonymous_id: anon_1
+          date: "2026-01-01"
+          key_name: ip_address
+          key_value: 203.0.113.1
+          tier: probabilistic
+          window_days: 3
+          max_distinct_anonymous_ids: 100

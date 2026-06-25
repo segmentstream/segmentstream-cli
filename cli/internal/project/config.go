@@ -19,6 +19,7 @@ type Config struct {
 	Requires  Requires  `yaml:"requires,omitempty"`
 	Warehouse Warehouse `yaml:"warehouse"`
 	Sources   []Source  `yaml:"sources,omitempty"`
+	Identity  *Identity `yaml:"identity,omitempty"`
 }
 
 type Requires struct {
@@ -39,11 +40,24 @@ type Source struct {
 	PackageName string `yaml:"package_name,omitempty"`
 }
 
+type Identity struct {
+	Keys []IdentityKey `yaml:"keys,omitempty"`
+}
+
+type IdentityKey struct {
+	Name                    string `yaml:"name"`
+	Tier                    string `yaml:"tier"`
+	WindowDays              int    `yaml:"window_days"`
+	MaxDistinctAnonymousIDs int    `yaml:"max_distinct_anonymous_ids"`
+	Scope                   string `yaml:"scope"`
+}
+
 type rawConfig struct {
 	Version   *int      `yaml:"version"`
 	Requires  Requires  `yaml:"requires"`
 	Warehouse Warehouse `yaml:"warehouse"`
 	Sources   []Source  `yaml:"sources"`
+	Identity  *Identity `yaml:"identity"`
 }
 
 func DefaultConfigYAML() string {
@@ -78,7 +92,8 @@ func ParsePartialConfig(data []byte) (Config, error) {
 			Dataset:  strings.TrimSpace(raw.Warehouse.Dataset),
 			Location: strings.TrimSpace(raw.Warehouse.Location),
 		},
-		Sources: normalizeSources(raw.Sources),
+		Sources:  normalizeSources(raw.Sources),
+		Identity: normalizeIdentity(raw.Identity),
 	}
 	if raw.Version != nil {
 		config.Version = *raw.Version
@@ -105,7 +120,8 @@ func ParseConfig(data []byte) (Config, error) {
 			Dataset:  strings.TrimSpace(raw.Warehouse.Dataset),
 			Location: strings.TrimSpace(raw.Warehouse.Location),
 		},
-		Sources: normalizeSources(raw.Sources),
+		Sources:  normalizeSources(raw.Sources),
+		Identity: normalizeIdentity(raw.Identity),
 	}
 	if config.Warehouse.Location == "" {
 		config.Warehouse.Location = DefaultLocation
@@ -142,6 +158,10 @@ func ValidateConfig(config Config) error {
 		return errors.New("warehouse.project still contains placeholder value your-gcp-project")
 	}
 
+	if err := validateIdentity(config.Identity); err != nil {
+		return err
+	}
+
 	return nil
 }
 
@@ -165,4 +185,68 @@ func normalizeSources(sources []Source) []Source {
 		})
 	}
 	return normalized
+}
+
+func normalizeIdentity(identity *Identity) *Identity {
+	if identity == nil || len(identity.Keys) == 0 {
+		return nil
+	}
+
+	keys := make([]IdentityKey, 0, len(identity.Keys))
+	for _, key := range identity.Keys {
+		keys = append(keys, IdentityKey{
+			Name:                    strings.TrimSpace(key.Name),
+			Tier:                    strings.TrimSpace(key.Tier),
+			WindowDays:              key.WindowDays,
+			MaxDistinctAnonymousIDs: key.MaxDistinctAnonymousIDs,
+			Scope:                   strings.TrimSpace(key.Scope),
+		})
+	}
+	return &Identity{Keys: keys}
+}
+
+func validateIdentity(identity *Identity) error {
+	if identity == nil {
+		return nil
+	}
+
+	seen := map[string]struct{}{}
+	for index, key := range identity.Keys {
+		field := fmt.Sprintf("identity.keys[%d]", index)
+		if key.Name == "" {
+			return fmt.Errorf("missing required field %s.name", field)
+		}
+		if strings.ContainsAny(key.Name, "\n\r") {
+			return fmt.Errorf("%s.name must not contain newlines", field)
+		}
+		if _, exists := seen[key.Name]; exists {
+			return fmt.Errorf("duplicate identity key %q", key.Name)
+		}
+		seen[key.Name] = struct{}{}
+
+		switch key.Tier {
+		case "deterministic", "probabilistic":
+		case "":
+			return fmt.Errorf("missing required field %s.tier", field)
+		default:
+			return fmt.Errorf("%s.tier must be deterministic or probabilistic", field)
+		}
+
+		if key.WindowDays <= 0 {
+			return fmt.Errorf("%s.window_days must be a positive integer", field)
+		}
+		if key.MaxDistinctAnonymousIDs <= 0 {
+			return fmt.Errorf("%s.max_distinct_anonymous_ids must be a positive integer", field)
+		}
+
+		switch key.Scope {
+		case "project", "source":
+		case "":
+			return fmt.Errorf("missing required field %s.scope", field)
+		default:
+			return fmt.Errorf("%s.scope must be project or source", field)
+		}
+	}
+
+	return nil
 }
