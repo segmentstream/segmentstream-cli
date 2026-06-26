@@ -5,8 +5,6 @@ with identity_link_key_observations as (
 -- Collapse repeated daily key spans so link eligibility is about whether two
 -- users' key histories are close, not how often they emitted.
 select
-  scope,
-  scope_value,
   key_name,
   key_value,
   anonymous_id,
@@ -16,4 +14,4 @@ select
   min(daily_first_observed_at) as first_key_seen_at,
   max(daily_last_observed_at) as last_key_seen_at
 from identity_link_key_observations
-group by 1, 2, 3, 4, 5, 6, 7, 8
+group by 1, 2, 3, 4, 5, 6

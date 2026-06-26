@@ -14,7 +14,10 @@ import (
 	"github.com/segmentstream/segmentstream-cli/cli/internal/cliresult"
 	"github.com/segmentstream/segmentstream-cli/cli/internal/credentials"
 	"github.com/segmentstream/segmentstream-cli/cli/internal/dagster"
+	"github.com/segmentstream/segmentstream-cli/cli/internal/project"
 	"github.com/segmentstream/segmentstream-cli/cli/internal/projectruntime"
+	sourcepkg "github.com/segmentstream/segmentstream-cli/cli/internal/source"
+	"github.com/segmentstream/segmentstream-cli/cli/internal/warehouse/bigquery"
 )
 
 func TestRunFailsWhenConfigIsMissing(t *testing.T) {
@@ -31,8 +34,14 @@ func TestRunFailsWhenConfigIsMissing(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected run to fail")
 	}
-	if !strings.Contains(err.Error(), "segmentstream.yml was not found") {
-		t.Fatalf("error = %v, want missing config message", err)
+	for _, want := range []string{
+		"SegmentStream project is not ready",
+		"Select the warehouse SegmentStream should use",
+		"segmentstream init --warehouse bigquery",
+	} {
+		if !strings.Contains(err.Error(), want) {
+			t.Fatalf("error = %v, want %q", err, want)
+		}
 	}
 	if len(runner.lookups) != 0 || len(runner.calls) != 0 {
 		t.Fatalf("docker was called before config was loaded: lookups=%v calls=%v", runner.lookups, runner.calls)
@@ -42,7 +51,7 @@ func TestRunFailsWhenConfigIsMissing(t *testing.T) {
 func TestRunChecksDockerBeforeRecreatingRuntime(t *testing.T) {
 	root := t.TempDir()
 	withWorkingDirectory(t, root)
-	writeValidConfig(t, root)
+	writeReadyRunConfig(t, root)
 
 	stale := filepath.Join(root, ".segmentstream", "stale.txt")
 	if err := os.MkdirAll(filepath.Dir(stale), 0o755); err != nil {
@@ -75,7 +84,7 @@ func TestRunChecksDockerBeforeRecreatingRuntime(t *testing.T) {
 func TestRunFailsWhenDockerCLIIsMissing(t *testing.T) {
 	root := t.TempDir()
 	withWorkingDirectory(t, root)
-	writeValidConfig(t, root)
+	writeReadyRunConfig(t, root)
 
 	runner := &stubCommandRunner{lookPathErr: exec.ErrNotFound}
 	var out bytes.Buffer
@@ -99,7 +108,7 @@ func TestRunFailsWhenDockerCLIIsMissing(t *testing.T) {
 func TestRunFailsWhenDockerEngineIsUnavailable(t *testing.T) {
 	root := t.TempDir()
 	withWorkingDirectory(t, root)
-	writeValidConfig(t, root)
+	writeReadyRunConfig(t, root)
 
 	runner := &stubCommandRunner{
 		results: []stubCommandResult{
@@ -138,7 +147,7 @@ func TestRunFailsWhenDockerEngineIsUnavailable(t *testing.T) {
 func TestRunFailsWhenDockerComposeV2IsUnavailable(t *testing.T) {
 	root := t.TempDir()
 	withWorkingDirectory(t, root)
-	writeValidConfig(t, root)
+	writeReadyRunConfig(t, root)
 
 	runner := &stubCommandRunner{
 		results: []stubCommandResult{
@@ -169,7 +178,7 @@ func TestRunFailsWhenDockerComposeV2IsUnavailable(t *testing.T) {
 func TestRunPreparesRuntimeStartsDockerComposeAndRunsMaterialization(t *testing.T) {
 	root := t.TempDir()
 	withWorkingDirectory(t, root)
-	writeValidConfig(t, root)
+	writeReadyRunConfig(t, root)
 	withCurrentTime(t, time.Date(2026, 6, 17, 10, 30, 0, 0, time.UTC))
 	client := withDagsterClient(t, &stubDagsterClient{
 		assets: []dagster.AssetNode{
@@ -249,7 +258,7 @@ func TestRunPreparesRuntimeStartsDockerComposeAndRunsMaterialization(t *testing.
 func TestRunJSONWritesProgressToStderrAndResultToStdout(t *testing.T) {
 	root := t.TempDir()
 	withWorkingDirectory(t, root)
-	writeValidConfig(t, root)
+	writeReadyRunConfig(t, root)
 	withCurrentTime(t, time.Date(2026, 6, 17, 10, 30, 0, 0, time.UTC))
 	client := withDagsterClient(t, &stubDagsterClient{
 		assets: []dagster.AssetNode{
@@ -294,7 +303,7 @@ func TestRunJSONWritesProgressToStderrAndResultToStdout(t *testing.T) {
 func TestRunAcceptsStartDate(t *testing.T) {
 	root := t.TempDir()
 	withWorkingDirectory(t, root)
-	writeValidConfig(t, root)
+	writeReadyRunConfig(t, root)
 	withCurrentTime(t, time.Date(2026, 6, 17, 10, 30, 0, 0, time.UTC))
 	client := withDagsterClient(t, &stubDagsterClient{
 		assets: []dagster.AssetNode{
@@ -330,7 +339,7 @@ func TestRunAcceptsStartDate(t *testing.T) {
 func TestRunRejectsInvalidStartDateBeforeDocker(t *testing.T) {
 	root := t.TempDir()
 	withWorkingDirectory(t, root)
-	writeValidConfig(t, root)
+	writeReadyRunConfig(t, root)
 
 	runner := &stubCommandRunner{}
 	var out bytes.Buffer
@@ -353,7 +362,7 @@ func TestRunRejectsInvalidStartDateBeforeDocker(t *testing.T) {
 func TestRunRejectsFutureStartDateBeforeDocker(t *testing.T) {
 	root := t.TempDir()
 	withWorkingDirectory(t, root)
-	writeValidConfig(t, root)
+	writeReadyRunConfig(t, root)
 	withCurrentTime(t, time.Date(2026, 6, 17, 10, 30, 0, 0, time.UTC))
 
 	runner := &stubCommandRunner{}
@@ -383,6 +392,7 @@ warehouse:
   auth: production-bigquery
   project: example-project
   dataset: segmentstream
+  location: US
 sources:
   - name: ga4
     path: ./sources/ga4
@@ -400,9 +410,10 @@ sources:
 		t.Fatal("expected run to fail")
 	}
 	for _, want := range []string{
-		"SegmentStream run sanity check failed",
-		"BigQuery authentication",
-		"segmentstream warehouse auth --service-account-key",
+		"SegmentStream project is not ready",
+		"No BigQuery credential is configured",
+		"segmentstream warehouse auth login",
+		"segmentstream warehouse auth",
 	} {
 		if !strings.Contains(err.Error(), want) {
 			t.Fatalf("error = %v, want %q", err, want)
@@ -423,6 +434,67 @@ warehouse:
   auth: production-bigquery
   project: example-project
   dataset: segmentstream
+  location: US
+`)
+	home := filepath.Join(root, "home")
+	withRunAuthHome(t, home)
+	writeBigQueryAuth(t, home)
+	if err := bigquery.NewConnector().SaveAccessMarker(credentials.Store{HomeDir: home}, "production-bigquery", project.Warehouse{
+		Type:     "bigquery",
+		Auth:     "production-bigquery",
+		Project:  "example-project",
+		Dataset:  "segmentstream",
+		Location: project.DefaultLocation,
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	runner := &stubCommandRunner{}
+	var out bytes.Buffer
+	var errOut bytes.Buffer
+	cmd := newRootCommand(&out, &errOut, cliOptions{CommandRunner: runner})
+	cmd.SetArgs([]string{"run"})
+
+	err := cmd.Execute()
+	if err == nil {
+		t.Fatal("expected run to fail")
+	}
+	for _, want := range []string{
+		"SegmentStream project is not ready",
+		"segmentstream.yml does not declare any sources",
+		"segmentstream source contracts",
+	} {
+		if !strings.Contains(err.Error(), want) {
+			t.Fatalf("error = %v, want %q", err, want)
+		}
+	}
+	if len(runner.lookups) != 0 || len(runner.calls) != 0 {
+		t.Fatalf("docker was called before sources were checked: lookups=%v calls=%v", runner.lookups, runner.calls)
+	}
+	assertFileMissing(t, filepath.Join(root, ".segmentstream"))
+}
+
+func TestRunFailsWhenWarehouseAccessIsUntestedBeforeDocker(t *testing.T) {
+	root := t.TempDir()
+	withWorkingDirectory(t, root)
+	writeConfig(t, root, `version: 1
+warehouse:
+  type: bigquery
+  auth: production-bigquery
+  project: example-project
+  dataset: segmentstream
+  location: US
+sources:
+  - name: ga4
+    path: ./sources/ga4
+  - name: sdk_identity
+    path: ./sources/sdk_identity
+identity:
+  keys:
+    - name: user_id
+      tier: deterministic
+      window_days: 180
+      max_distinct_anonymous_ids: 1000
 `)
 	home := filepath.Join(root, "home")
 	withRunAuthHome(t, home)
@@ -439,16 +511,216 @@ warehouse:
 		t.Fatal("expected run to fail")
 	}
 	for _, want := range []string{
-		"SegmentStream run sanity check failed",
-		"at least one events source, one identity_keys source, and one conversion_events source",
-		"segmentstream source contracts",
+		"SegmentStream project is not ready",
+		"Warehouse access has not been verified",
+		"segmentstream warehouse test --json",
 	} {
 		if !strings.Contains(err.Error(), want) {
 			t.Fatalf("error = %v, want %q", err, want)
 		}
 	}
 	if len(runner.lookups) != 0 || len(runner.calls) != 0 {
-		t.Fatalf("docker was called before sources were checked: lookups=%v calls=%v", runner.lookups, runner.calls)
+		t.Fatalf("docker was called before warehouse access was checked: lookups=%v calls=%v", runner.lookups, runner.calls)
+	}
+	assertFileMissing(t, filepath.Join(root, ".segmentstream"))
+}
+
+func TestRunFailsWhenSourceVerificationIsMissingBeforeDocker(t *testing.T) {
+	root := t.TempDir()
+	withWorkingDirectory(t, root)
+	writeConfig(t, root, `version: 1
+warehouse:
+  type: bigquery
+  auth: production-bigquery
+  project: example-project
+  dataset: segmentstream
+  location: US
+sources:
+  - name: ga4
+    path: ./sources/ga4
+  - name: sdk_identity
+    path: ./sources/sdk_identity
+identity:
+  keys:
+    - name: user_id
+      tier: deterministic
+      window_days: 180
+      max_distinct_anonymous_ids: 1000
+`)
+	writeRunAccessMarker(t, root)
+	if _, err := sourcepkg.Create(root, "ga4", "events"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := sourcepkg.Create(root, "sdk_identity", "identity_keys"); err != nil {
+		t.Fatal(err)
+	}
+
+	runner := &stubCommandRunner{}
+	var out bytes.Buffer
+	var errOut bytes.Buffer
+	cmd := newRootCommand(&out, &errOut, cliOptions{CommandRunner: runner})
+	cmd.SetArgs([]string{"run"})
+
+	err := cmd.Execute()
+	if err == nil {
+		t.Fatal("expected run to fail")
+	}
+	for _, want := range []string{
+		"SegmentStream project is not ready",
+		"Source \"ga4\" must pass verification",
+		"source has not passed verification",
+		"segmentstream source verify ga4",
+	} {
+		if !strings.Contains(err.Error(), want) {
+			t.Fatalf("error = %v, want %q", err, want)
+		}
+	}
+	if len(runner.lookups) != 0 || len(runner.calls) != 0 {
+		t.Fatalf("docker was called before source verification was checked: lookups=%v calls=%v", runner.lookups, runner.calls)
+	}
+	assertFileMissing(t, filepath.Join(root, ".segmentstream"))
+}
+
+func TestRunFailsWhenIdentitySourceIsMissingBeforeDocker(t *testing.T) {
+	root := t.TempDir()
+	withWorkingDirectory(t, root)
+	writeConfig(t, root, `version: 1
+warehouse:
+  type: bigquery
+  auth: production-bigquery
+  project: example-project
+  dataset: segmentstream
+  location: US
+sources:
+  - name: ga4
+    path: ./sources/ga4
+identity:
+  keys:
+    - name: user_id
+      tier: deterministic
+      window_days: 180
+      max_distinct_anonymous_ids: 1000
+`)
+	writeRunAccessMarker(t, root)
+	writeVerifiedSource(t, root, "ga4", "events")
+
+	runner := &stubCommandRunner{}
+	var out bytes.Buffer
+	var errOut bytes.Buffer
+	cmd := newRootCommand(&out, &errOut, cliOptions{CommandRunner: runner})
+	cmd.SetArgs([]string{"run"})
+
+	err := cmd.Execute()
+	if err == nil {
+		t.Fatal("expected run to fail")
+	}
+	for _, want := range []string{
+		"SegmentStream project is not ready",
+		"at least one identity_keys source",
+		"segmentstream source contracts --type identity_keys",
+	} {
+		if !strings.Contains(err.Error(), want) {
+			t.Fatalf("error = %v, want %q", err, want)
+		}
+	}
+	if len(runner.lookups) != 0 || len(runner.calls) != 0 {
+		t.Fatalf("docker was called before source coverage was checked: lookups=%v calls=%v", runner.lookups, runner.calls)
+	}
+	assertFileMissing(t, filepath.Join(root, ".segmentstream"))
+}
+
+func TestRunFailsWhenEventSourceIsMissingBeforeDocker(t *testing.T) {
+	root := t.TempDir()
+	withWorkingDirectory(t, root)
+	writeConfig(t, root, `version: 1
+warehouse:
+  type: bigquery
+  auth: production-bigquery
+  project: example-project
+  dataset: segmentstream
+  location: US
+sources:
+  - name: sdk_identity
+    path: ./sources/sdk_identity
+identity:
+  keys:
+    - name: user_id
+      tier: deterministic
+      window_days: 180
+      max_distinct_anonymous_ids: 1000
+`)
+	writeRunAccessMarker(t, root)
+	writeVerifiedSource(t, root, "sdk_identity", "identity_keys")
+
+	runner := &stubCommandRunner{}
+	var out bytes.Buffer
+	var errOut bytes.Buffer
+	cmd := newRootCommand(&out, &errOut, cliOptions{CommandRunner: runner})
+	cmd.SetArgs([]string{"run"})
+
+	err := cmd.Execute()
+	if err == nil {
+		t.Fatal("expected run to fail")
+	}
+	for _, want := range []string{
+		"SegmentStream project is not ready",
+		"at least one events source",
+		"segmentstream source contracts --type events",
+	} {
+		if !strings.Contains(err.Error(), want) {
+			t.Fatalf("error = %v, want %q", err, want)
+		}
+	}
+	if len(runner.lookups) != 0 || len(runner.calls) != 0 {
+		t.Fatalf("docker was called before source coverage was checked: lookups=%v calls=%v", runner.lookups, runner.calls)
+	}
+	assertFileMissing(t, filepath.Join(root, ".segmentstream"))
+}
+
+func TestRunFailsWhenIdentityConfigIsMissingBeforeDocker(t *testing.T) {
+	root := t.TempDir()
+	withWorkingDirectory(t, root)
+	writeConfig(t, root, `version: 1
+warehouse:
+  type: bigquery
+  auth: production-bigquery
+  project: example-project
+  dataset: segmentstream
+  location: US
+sources:
+  - name: ga4
+    path: ./sources/ga4
+  - name: crm_conversion_events
+    path: ./sources/crm_conversion_events
+  - name: sdk_identity
+    path: ./sources/sdk_identity
+`)
+	writeRunAccessMarker(t, root)
+	writeVerifiedSource(t, root, "ga4", "events")
+	writeVerifiedSource(t, root, "crm_conversion_events", "conversion_events")
+	writeVerifiedSource(t, root, "sdk_identity", "identity_keys")
+
+	runner := &stubCommandRunner{}
+	var out bytes.Buffer
+	var errOut bytes.Buffer
+	cmd := newRootCommand(&out, &errOut, cliOptions{CommandRunner: runner})
+	cmd.SetArgs([]string{"run"})
+
+	err := cmd.Execute()
+	if err == nil {
+		t.Fatal("expected run to fail")
+	}
+	for _, want := range []string{
+		"SegmentStream project is not ready",
+		"identity.keys",
+		"Add at least one key emitted by an identity_keys source",
+	} {
+		if !strings.Contains(err.Error(), want) {
+			t.Fatalf("error = %v, want %q", err, want)
+		}
+	}
+	if len(runner.lookups) != 0 || len(runner.calls) != 0 {
+		t.Fatalf("docker was called before identity config was checked: lookups=%v calls=%v", runner.lookups, runner.calls)
 	}
 	assertFileMissing(t, filepath.Join(root, ".segmentstream"))
 }
@@ -456,7 +728,7 @@ warehouse:
 func TestRunShowsProgressWhileDockerComposeRuns(t *testing.T) {
 	root := t.TempDir()
 	withWorkingDirectory(t, root)
-	writeValidConfig(t, root)
+	writeReadyRunConfig(t, root)
 	withDagsterClient(t, &stubDagsterClient{
 		assets: []dagster.AssetNode{
 			{Key: []string{"events"}, IsPartitioned: true},
@@ -494,7 +766,7 @@ func TestRunShowsProgressWhileDockerComposeRuns(t *testing.T) {
 func TestRunShowsProgressWhilePipelineRuns(t *testing.T) {
 	root := t.TempDir()
 	withWorkingDirectory(t, root)
-	writeValidConfig(t, root)
+	writeReadyRunConfig(t, root)
 	withDagsterClient(t, &stubDagsterClient{
 		assets: []dagster.AssetNode{
 			{Key: []string{"events"}, IsPartitioned: true},
@@ -533,7 +805,7 @@ func TestRunShowsProgressWhilePipelineRuns(t *testing.T) {
 func TestRunIncludesComposeOutputOnFailure(t *testing.T) {
 	root := t.TempDir()
 	withWorkingDirectory(t, root)
-	writeValidConfig(t, root)
+	writeReadyRunConfig(t, root)
 
 	runner := &stubCommandRunner{
 		results: []stubCommandResult{
@@ -564,7 +836,7 @@ func TestRunIncludesComposeOutputOnFailure(t *testing.T) {
 func TestRunFailsClearlyWhenSegmentStreamIsNotReady(t *testing.T) {
 	root := t.TempDir()
 	withWorkingDirectory(t, root)
-	writeValidConfig(t, root)
+	writeReadyRunConfig(t, root)
 	withDagsterClient(t, &stubDagsterClient{
 		waitReadyErr: errors.New("service did not answer before timeout"),
 	})
@@ -598,7 +870,7 @@ func TestRunFailsClearlyWhenSegmentStreamIsNotReady(t *testing.T) {
 func TestRunFailsClearlyWhenBackfillLaunchFails(t *testing.T) {
 	root := t.TempDir()
 	withWorkingDirectory(t, root)
-	writeValidConfig(t, root)
+	writeReadyRunConfig(t, root)
 	withDagsterClient(t, &stubDagsterClient{
 		assets: []dagster.AssetNode{
 			{Key: []string{"events"}, IsPartitioned: true},
@@ -635,7 +907,7 @@ func TestRunFailsClearlyWhenBackfillLaunchFails(t *testing.T) {
 func TestRunSucceedsWhenThereAreNoMaterializableAssets(t *testing.T) {
 	root := t.TempDir()
 	withWorkingDirectory(t, root)
-	writeValidConfig(t, root)
+	writeReadyRunConfig(t, root)
 	client := withDagsterClient(t, &stubDagsterClient{})
 
 	runner := &stubCommandRunner{
@@ -662,7 +934,7 @@ func TestRunSucceedsWhenThereAreNoMaterializableAssets(t *testing.T) {
 func TestRunIncludesPipelineFailureDetail(t *testing.T) {
 	root := t.TempDir()
 	withWorkingDirectory(t, root)
-	writeValidConfig(t, root)
+	writeReadyRunConfig(t, root)
 	withDagsterClient(t, &stubDagsterClient{
 		assets: []dagster.AssetNode{
 			{Key: []string{"events"}, IsPartitioned: true},
@@ -833,6 +1105,89 @@ sources:
 	withRunAuthHome(t, home)
 	writeBigQueryAuth(t, home)
 	withRunAnalyticsCore(t, root)
+}
+
+func writeReadyRunConfig(t *testing.T, root string) {
+	t.Helper()
+	writeConfig(t, root, `version: 1
+warehouse:
+  type: bigquery
+  auth: production-bigquery
+  project: example-project
+  dataset: segmentstream
+  location: US
+sources:
+  - name: ga4
+    path: ./sources/ga4
+  - name: crm_conversion_events
+    path: ./sources/crm_conversion_events
+  - name: sdk_identity
+    path: ./sources/sdk_identity
+identity:
+  keys:
+    - name: user_id
+      tier: deterministic
+      window_days: 180
+      max_distinct_anonymous_ids: 1000
+`)
+	if _, err := sourcepkg.Create(root, "ga4", "events"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := sourcepkg.Create(root, "crm_conversion_events", "conversion_events"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := sourcepkg.Create(root, "sdk_identity", "identity_keys"); err != nil {
+		t.Fatal(err)
+	}
+	verifiedAt := time.Date(2026, 6, 22, 12, 0, 0, 0, time.UTC)
+	if _, _, err := sourcepkg.SavePassing(root, project.Source{Name: "ga4", Path: "./sources/ga4"}, "2026-06-16", "2026-06-23", verifiedAt); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := sourcepkg.SavePassing(root, project.Source{Name: "crm_conversion_events", Path: "./sources/crm_conversion_events"}, "2026-06-16", "2026-06-23", verifiedAt); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := sourcepkg.SavePassing(root, project.Source{Name: "sdk_identity", Path: "./sources/sdk_identity"}, "2026-06-16", "2026-06-23", verifiedAt); err != nil {
+		t.Fatal(err)
+	}
+	home := filepath.Join(root, "home")
+	withRunAuthHome(t, home)
+	writeBigQueryAuth(t, home)
+	if err := bigquery.NewConnector().SaveAccessMarker(credentials.Store{HomeDir: home}, "production-bigquery", project.Warehouse{
+		Type:     "bigquery",
+		Auth:     "production-bigquery",
+		Project:  "example-project",
+		Dataset:  "segmentstream",
+		Location: project.DefaultLocation,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	withRunAnalyticsCore(t, root)
+}
+
+func writeRunAccessMarker(t *testing.T, root string) {
+	t.Helper()
+	home := filepath.Join(root, "home")
+	withRunAuthHome(t, home)
+	writeBigQueryAuth(t, home)
+	if err := bigquery.NewConnector().SaveAccessMarker(credentials.Store{HomeDir: home}, "production-bigquery", project.Warehouse{
+		Type:     "bigquery",
+		Auth:     "production-bigquery",
+		Project:  "example-project",
+		Dataset:  "segmentstream",
+		Location: project.DefaultLocation,
+	}); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func writeVerifiedSource(t *testing.T, root, name, contractType string) {
+	t.Helper()
+	if _, err := sourcepkg.Create(root, name, contractType); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := sourcepkg.SavePassing(root, project.Source{Name: name, Path: "./sources/" + name}, "2026-06-16", "2026-06-23", time.Date(2026, 6, 22, 12, 0, 0, 0, time.UTC)); err != nil {
+		t.Fatal(err)
+	}
 }
 
 func writeConfig(t *testing.T, root string, config string) {

@@ -49,7 +49,6 @@ type IdentityKey struct {
 	Tier                    string `yaml:"tier"`
 	WindowDays              int    `yaml:"window_days"`
 	MaxDistinctAnonymousIDs int    `yaml:"max_distinct_anonymous_ids"`
-	Scope                   string `yaml:"scope"`
 }
 
 type rawConfig struct {
@@ -61,28 +60,26 @@ type rawConfig struct {
 }
 
 func DefaultConfigYAML() string {
-	return `version: 1
-
-warehouse:
-  type: bigquery
-  auth: default-bigquery
-
-# sources:
-#   - name: ga4
-#     path: ./sources/ga4
-#   - name: crm_conversion_events
-#     path: ./sources/crm_conversion_events
-#   - name: sdk_identity
-#     path: ./sources/sdk_identity
-#
-# identity:
-#   keys:
-#     - name: user_id
-#       tier: deterministic
-#       window_days: 180
-#       max_distinct_anonymous_ids: 1000
-#       scope: project
-`
+	return "version: 1\n" +
+		"\n" +
+		"warehouse:\n" +
+		"  type: bigquery\n" +
+		"  auth: default-bigquery\n" +
+		"\n" +
+		"# sources:\n" +
+		"#   - name: ga4\n" +
+		"#     path: ./sources/ga4\n" +
+		"#   - name: crm_conversion_events\n" +
+		"#     path: ./sources/crm_conversion_events\n" +
+		"#   - name: sdk_identity\n" +
+		"#     path: ./sources/sdk_identity\n" +
+		"#\n" +
+		"# identity:\n" +
+		"#   keys:\n" +
+		"#     - name: user_id\n" +
+		"#       tier: deterministic\n" +
+		"#       window_days: 180\n" +
+		"#       max_distinct_anonymous_ids: 1000\n"
 }
 
 func LoadConfig(projectRoot string) (Config, error) {
@@ -90,8 +87,8 @@ func LoadConfig(projectRoot string) (Config, error) {
 }
 
 func ParsePartialConfig(data []byte) (Config, error) {
-	var raw rawConfig
-	if err := yaml.Unmarshal(data, &raw); err != nil {
+	raw, err := decodeRawConfig(data)
+	if err != nil {
 		return Config{}, err
 	}
 
@@ -114,8 +111,8 @@ func ParsePartialConfig(data []byte) (Config, error) {
 }
 
 func ParseConfig(data []byte) (Config, error) {
-	var raw rawConfig
-	if err := yaml.Unmarshal(data, &raw); err != nil {
+	raw, err := decodeRawConfig(data)
+	if err != nil {
 		return Config{}, err
 	}
 	if raw.Version == nil {
@@ -143,6 +140,62 @@ func ParseConfig(data []byte) (Config, error) {
 		return Config{}, err
 	}
 	return config, nil
+}
+
+func decodeRawConfig(data []byte) (rawConfig, error) {
+	var root yaml.Node
+	if err := yaml.Unmarshal(data, &root); err != nil {
+		return rawConfig{}, err
+	}
+	if err := rejectUnsupportedIdentityScope(root); err != nil {
+		return rawConfig{}, err
+	}
+
+	var raw rawConfig
+	if err := root.Decode(&raw); err != nil {
+		return rawConfig{}, err
+	}
+	return raw, nil
+}
+
+func rejectUnsupportedIdentityScope(root yaml.Node) error {
+	if root.Kind == yaml.DocumentNode && len(root.Content) > 0 {
+		root = *root.Content[0]
+	}
+	if root.Kind != yaml.MappingNode {
+		return nil
+	}
+
+	identity := yamlMappingValue(&root, "identity")
+	if identity == nil || identity.Kind != yaml.MappingNode {
+		return nil
+	}
+	keys := yamlMappingValue(identity, "keys")
+	if keys == nil || keys.Kind != yaml.SequenceNode {
+		return nil
+	}
+
+	for index, key := range keys.Content {
+		if key.Kind != yaml.MappingNode {
+			continue
+		}
+		if yamlMappingValue(key, "scope") != nil {
+			return fmt.Errorf("identity.keys[%d].scope is no longer supported; identity keys are matched globally", index)
+		}
+	}
+	return nil
+}
+
+func yamlMappingValue(node *yaml.Node, key string) *yaml.Node {
+	if node == nil || node.Kind != yaml.MappingNode {
+		return nil
+	}
+	for index := 0; index+1 < len(node.Content); index += 2 {
+		if node.Content[index].Value == key {
+			return node.Content[index+1]
+		}
+	}
+	return nil
 }
 
 func ValidateConfig(config Config) error {
@@ -211,7 +264,6 @@ func normalizeIdentity(identity *Identity) *Identity {
 			Tier:                    strings.TrimSpace(key.Tier),
 			WindowDays:              key.WindowDays,
 			MaxDistinctAnonymousIDs: key.MaxDistinctAnonymousIDs,
-			Scope:                   strings.TrimSpace(key.Scope),
 		})
 	}
 	return &Identity{Keys: keys}
@@ -249,14 +301,6 @@ func validateIdentity(identity *Identity) error {
 		}
 		if key.MaxDistinctAnonymousIDs <= 0 {
 			return fmt.Errorf("%s.max_distinct_anonymous_ids must be a positive integer", field)
-		}
-
-		switch key.Scope {
-		case "project", "source":
-		case "":
-			return fmt.Errorf("missing required field %s.scope", field)
-		default:
-			return fmt.Errorf("%s.scope must be project or source", field)
 		}
 	}
 

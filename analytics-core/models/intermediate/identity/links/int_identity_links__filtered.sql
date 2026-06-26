@@ -14,8 +14,6 @@ deterministic_conflicts as (
   -- Deterministic disagreements are vetoes even when the candidate edge came
   -- from a different, weaker key such as IP address.
   select distinct
-    identity_link_candidates.scope,
-    identity_link_candidates.scope_value,
     identity_link_candidates.key_name,
     identity_link_candidates.key_value,
     identity_link_candidates.anonymous_id_a,
@@ -25,8 +23,6 @@ deterministic_conflicts as (
     on identity_link_candidates.anonymous_id_a = source_value_sets.anonymous_id
   inner join deterministic_value_sets as target_value_sets
     on identity_link_candidates.anonymous_id_b = target_value_sets.anonymous_id
-    and source_value_sets.scope = target_value_sets.scope
-    and source_value_sets.scope_value = target_value_sets.scope_value
     and source_value_sets.key_name = target_value_sets.key_name
   where source_value_sets.key_value_set != target_value_sets.key_value_set
 ),
@@ -35,9 +31,7 @@ allowed_candidates as (
   select identity_link_candidates.*
   from identity_link_candidates
   left join deterministic_conflicts
-    on identity_link_candidates.scope = deterministic_conflicts.scope
-    and identity_link_candidates.scope_value = deterministic_conflicts.scope_value
-    and identity_link_candidates.key_name = deterministic_conflicts.key_name
+    on identity_link_candidates.key_name = deterministic_conflicts.key_name
     and identity_link_candidates.key_value = deterministic_conflicts.key_value
     and identity_link_candidates.anonymous_id_a = deterministic_conflicts.anonymous_id_a
     and identity_link_candidates.anonymous_id_b = deterministic_conflicts.anonymous_id_b

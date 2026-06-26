@@ -167,9 +167,10 @@ def parse_identity_link_keys(config: dict) -> list[dict]:
         if tier not in {"deterministic", "probabilistic"}:
             raise RuntimeError(f"{field}.tier must be deterministic or probabilistic")
 
-        scope = normalize_required_identity_string(raw_key.get("scope"), f"{field}.scope")
-        if scope not in {"project", "source"}:
-            raise RuntimeError(f"{field}.scope must be project or source")
+        if "scope" in raw_key:
+            raise RuntimeError(
+                f"{field}.scope is no longer supported; identity keys are matched globally"
+            )
 
         keys.append(
             {
@@ -182,7 +183,6 @@ def parse_identity_link_keys(config: dict) -> list[dict]:
                     raw_key.get("max_distinct_anonymous_ids"),
                     f"{field}.max_distinct_anonymous_ids",
                 ),
-                "scope": scope,
             }
         )
     return keys
@@ -354,8 +354,8 @@ def discover_source_contract(name: str, path: Path) -> tuple[str, str]:
         raise RuntimeError(
             f'source "{name}" uses {contract_type} schema_version {schema_version}, '
             f"but schema_version {expected_schema_version} is required; "
-            f"run segmentstream source scaffold {name} --type {contract_type} "
-            "and port your source SQL, or update contract.yml and verification tests"
+            f"run segmentstream source verify {name} outside the runtime to print the "
+            "embedded migration guide with the exact source files to edit"
         )
 
     model = contract.get("model") or {}

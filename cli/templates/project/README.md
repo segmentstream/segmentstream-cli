@@ -39,12 +39,10 @@ identity:
       tier: deterministic
       window_days: 180
       max_distinct_anonymous_ids: 1000
-      scope: project
     - name: ip_address
       tier: probabilistic
       window_days: 3
       max_distinct_anonymous_ids: 100
-      scope: source
 ```
 
 Scaffold and verify source packages from the project root:
