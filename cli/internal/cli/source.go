@@ -65,6 +65,7 @@ type sourceScaffoldResult struct {
 	Directory     string                       `json:"directory"`
 	CreatedFiles  []string                     `json:"created_files"`
 	Contract      sourceScaffoldResultContract `json:"contract"`
+	Readme        sourceScaffoldReadme         `json:"readme"`
 	Unresolved    []sourceScaffoldUnresolved   `json:"unresolved"`
 	Verify        sourceScaffoldVerify         `json:"verify"`
 }
@@ -81,6 +82,11 @@ type sourceScaffoldResultContract struct {
 	Partition       string                     `json:"partition"`
 	RequiredColumns []string                   `json:"required_columns"`
 	Columns         []sourcepkg.ContractColumn `json:"columns"`
+}
+
+type sourceScaffoldReadme struct {
+	Path    string `json:"path"`
+	Message string `json:"message"`
 }
 
 type sourceScaffoldUnresolved struct {
@@ -312,6 +318,10 @@ func sourceScaffoldJSON(source sourcepkg.Source) sourceScaffoldResult {
 			RequiredColumns: requiredContractColumns(source.Columns),
 			Columns:         append([]sourcepkg.ContractColumn(nil), source.Columns...),
 		},
+		Readme: sourceScaffoldReadme{
+			Path:    sourceReadmePath(source),
+			Message: "Generated source implementation guide. Use unresolved items as the machine-readable checklist.",
+		},
 		Unresolved: []sourceScaffoldUnresolved{
 			{
 				ID:      "raw_source_binding",
@@ -396,6 +406,9 @@ func (result sourceScaffoldResult) HumanDocument() cliresult.Document {
 	return textDocument(func(out io.Writer) {
 		fmt.Fprintf(out, "Scaffolded source template %q at %s\n", result.Source.Name, result.Directory)
 		fmt.Fprintf(out, "Contract: %s (schema_version: %d)\n", result.Contract.Type, result.Contract.SchemaVersion)
+		if result.Readme.Path != "" {
+			fmt.Fprintf(out, "Guide: %s\n", result.Readme.Path)
+		}
 		fmt.Fprintln(out)
 		fmt.Fprintln(out, "Unresolved:")
 		for _, unresolved := range result.Unresolved {
@@ -415,6 +428,10 @@ func (result sourceVerifyResult) HumanDocument() cliresult.Document {
 
 func sourceRelativePath(source sourcepkg.Source) string {
 	return filepath.ToSlash(filepath.Join(sourcepkg.SourcesDirName, source.Name))
+}
+
+func sourceReadmePath(source sourcepkg.Source) string {
+	return filepath.ToSlash(filepath.Join(sourceRelativePath(source), "README.md"))
 }
 
 func sourceModelSchemaPath(source sourcepkg.Source) string {

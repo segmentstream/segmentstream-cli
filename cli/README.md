@@ -79,15 +79,17 @@ segmentstream source scaffold sdk_identity --type identity_keys
 ```
 
 This scaffolds project-owned source templates with pinned `contract.yml`
-snapshots, dbt verification tests, and author-editable contract models:
+snapshots, generated `README.md` guides, dbt verification tests, and
+author-editable contract models:
 
 - `sources/ga4/models/events.sql`
 - `sources/crm_conversion_events/models/conversion_events.sql`
 - `sources/sdk_identity/models/identity_keys.sql`
 
 The scaffolds are not implemented yet. Use `--json` to inspect unresolved
-implementation items, then edit the generated files at their
-`SEGMENTSTREAM_TODO(...)` markers to map raw warehouse data to the contract.
+implementation items, read the generated `README.md` for source-specific
+context, then edit the generated files at their `SEGMENTSTREAM_TODO(...)`
+markers to map raw warehouse data to the contract.
 
 Declare the sources in `segmentstream.yml`:
 

@@ -75,7 +75,7 @@ func TestSourceScaffoldReturnsActionableJSON(t *testing.T) {
 		t.Fatalf("source scaffold failed: %v", err)
 	}
 
-	assertFileMissing(t, filepath.Join(root, "sources", "ga4", "README.md"))
+	assertFileExists(t, filepath.Join(root, "sources", "ga4", "README.md"))
 
 	var result sourceScaffoldResult
 	response := decodeJSONResponseData(t, out.Bytes(), &result)
@@ -83,8 +83,12 @@ func TestSourceScaffoldReturnsActionableJSON(t *testing.T) {
 		t.Fatalf("command = %q, want source.scaffold", response.Command)
 	}
 	if !containsString(result.CreatedFiles, "sources/ga4/models/events.sql") ||
-		containsString(result.CreatedFiles, "sources/ga4/README.md") {
-		t.Fatalf("created files = %+v, want template-derived files without README", result.CreatedFiles)
+		!containsString(result.CreatedFiles, "sources/ga4/README.md") {
+		t.Fatalf("created files = %+v, want template-derived files including README", result.CreatedFiles)
+	}
+	if result.Readme.Path != "sources/ga4/README.md" ||
+		!strings.Contains(result.Readme.Message, "implementation guide") {
+		t.Fatalf("readme = %+v, want README guide path and message", result.Readme)
 	}
 	if result.Contract.Type != "events" ||
 		result.Contract.SchemaVersion != 1 ||
