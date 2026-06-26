@@ -92,7 +92,11 @@ func TestCheckReportsUnsupportedIdentityKeysContractVersion(t *testing.T) {
 	}
 	if status.Valid ||
 		!strings.Contains(status.Reason, "schema_version 1 is unsupported") ||
-		!strings.Contains(status.Reason, "expected schema_version 2") {
+		!strings.Contains(status.Reason, "expected schema_version 2") ||
+		!strings.Contains(status.Reason, "Migration guide") ||
+		!strings.Contains(status.Reason, "observed_at") ||
+		!strings.Contains(status.Reason, "sources/crm/models/identity_keys.sql") ||
+		!strings.Contains(status.Reason, "segmentstream source verify crm") {
 		t.Fatalf("status = %+v, want unsupported identity_keys schema version", status)
 	}
 }

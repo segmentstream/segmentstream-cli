@@ -1,6 +1,7 @@
 package source
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -53,6 +54,12 @@ func TestContractsLoadFromEmbeddedTemplates(t *testing.T) {
 	}
 	if identityContract.Columns[1].Name != "observed_at" || !identityContract.Columns[1].Required {
 		t.Fatalf("second identity column = %+v, want required observed_at", identityContract.Columns[1])
+	}
+	if len(identityContract.Migrations) != 1 ||
+		identityContract.Migrations[0].From != 1 ||
+		identityContract.Migrations[0].To != 2 ||
+		identityContract.Migrations[0].Guide != "migrations/1_to_2.md" {
+		t.Fatalf("identity migrations = %+v, want v1 to v2 guide", identityContract.Migrations)
 	}
 }
 
@@ -108,6 +115,7 @@ func TestCreateScaffoldsSourcePackageFromContract(t *testing.T) {
 	}
 	for _, relative := range []string{
 		"IMPLEMENTATION_GUIDE.md",
+		"migrations",
 		"macros",
 		"seeds",
 		"snapshots",
@@ -240,6 +248,7 @@ func TestCreateScaffoldsIdentityKeysSourcePackageFromContract(t *testing.T) {
 			t.Fatalf("CreatedFiles = %v, want %s", source.CreatedFiles, relative)
 		}
 	}
+	assertMissing(t, filepath.Join(source.Path, "migrations"))
 
 	readme, err := os.ReadFile(filepath.Join(source.Path, "README.md"))
 	if err != nil {
@@ -306,6 +315,49 @@ func TestCreateScaffoldsIdentityKeysSourcePackageFromContract(t *testing.T) {
 		if !strings.Contains(string(contractTest), want) {
 			t.Fatalf("contract test does not contain %q:\n%s", want, string(contractTest))
 		}
+	}
+}
+
+func TestValidateSupportedContractIdentityReturnsMigrationGuide(t *testing.T) {
+	err := ValidateSupportedContractIdentityForSource(
+		ContractIdentity{Type: "identity_keys", SchemaVersion: 1},
+		ContractValidationContext{
+			SourceName: "sdk_identity",
+			SourcePath: filepath.Join("sources", "sdk_identity"),
+		},
+	)
+	if err == nil {
+		t.Fatal("expected migration-required error")
+	}
+
+	migrationErr, ok := AsContractMigrationRequired(err)
+	if !ok {
+		t.Fatalf("error = %T %v, want ContractMigrationRequiredError", err, err)
+	}
+	if !errors.As(err, &migrationErr) {
+		t.Fatalf("errors.As did not match migration error")
+	}
+	if migrationErr.ContractType != "identity_keys" ||
+		migrationErr.FromSchemaVersion != 1 ||
+		migrationErr.ToSchemaVersion != 2 ||
+		migrationErr.SourceName != "sdk_identity" ||
+		migrationErr.NextCommand != "segmentstream source verify sdk_identity" {
+		t.Fatalf("migration error = %+v, want populated identity migration", migrationErr)
+	}
+	for _, want := range []string{
+		"Migration guide",
+		"schema_version: 2",
+		"sources/sdk_identity/models/identity_keys.sql",
+		"observed_at",
+		"analytics-core now performs that",
+		"segmentstream source verify sdk_identity",
+	} {
+		if !strings.Contains(err.Error(), want) {
+			t.Fatalf("error = %v, want %q", err, want)
+		}
+	}
+	if strings.Contains(err.Error(), "__SOURCE_NAME__") || strings.Contains(err.Error(), "__SOURCE_PATH__") {
+		t.Fatalf("error still contains template placeholders:\n%v", err)
 	}
 }
 

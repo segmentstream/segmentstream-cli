@@ -27,3 +27,7 @@ columns:
     type: STRING
     required: true
     description: Normalized identity key value.
+migrations:
+  - from: 1
+    to: 2
+    guide: migrations/1_to_2.md

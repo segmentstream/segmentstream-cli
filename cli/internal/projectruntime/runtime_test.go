@@ -377,6 +377,7 @@ func TestAnalyticsCoreIdentityLinksModelsUseExpectedShape(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, want := range []string{
+		"+on_schema_change: append_new_columns",
 		"identity_links:",
 		"+materialized: table",
 		"+cluster_by:",
