@@ -32,6 +32,32 @@ func TestSourceContractsJSONOutput(t *testing.T) {
 	}
 }
 
+func TestSourceContractsConversionsJSONOutput(t *testing.T) {
+	var out bytes.Buffer
+	var errOut bytes.Buffer
+	cmd := NewRootCommand(&out, &errOut)
+	cmd.SetArgs([]string{"source", "contracts", "--type", "conversions", "--json"})
+
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("source contracts failed: %v", err)
+	}
+
+	var result sourceContractDetailResult
+	response := decodeJSONResponseData(t, out.Bytes(), &result)
+	if response.Command != "source.contracts" {
+		t.Fatalf("command = %q, want source.contracts", response.Command)
+	}
+	if result.SchemaVersion != cliresult.SchemaVersion ||
+		result.Contract.Type != "conversions" ||
+		result.Model.Name != "conversions" ||
+		len(result.Columns) != 5 {
+		t.Fatalf("result = %+v, want conversions contract with columns", result)
+	}
+	if result.Columns[4].Name != "conversion_value" || result.Columns[4].Required {
+		t.Fatalf("conversion value column = %+v, want optional conversion_value", result.Columns[4])
+	}
+}
+
 func TestSourceScaffoldPointsToReadme(t *testing.T) {
 	root := t.TempDir()
 	withWorkingDirectory(t, root)

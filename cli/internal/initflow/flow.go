@@ -14,6 +14,7 @@ const (
 	testWarehouseCommand             = "segmentstream warehouse test --json"
 	sourceContractsCommand           = "segmentstream source contracts"
 	eventSourceContractCommand       = "segmentstream source contracts --type events"
+	conversionSourceContractCommand  = "segmentstream source contracts --type conversions"
 	identityKeySourceContractCommand = "segmentstream source contracts --type identity_keys"
 	initVerifyCommand                = "segmentstream init --json"
 	runCommand                       = "segmentstream run"
@@ -389,7 +390,7 @@ func selectSourceAction() cliresult.NextAction {
 		Type:    actionRunCommand,
 		Stage:   string(stageSources),
 		Command: sourceContractsCommand,
-		Reason:  "No sources are configured. Inspect supported source contracts, then configure at least one events source and one identity_keys source.",
+		Reason:  "No sources are configured. Inspect supported source contracts, then configure at least one events source, one identity_keys source, and one conversions source.",
 	}
 }
 
@@ -444,6 +445,7 @@ func configureIdentityAction() cliresult.NextAction {
 
 type sourceContractCoverage struct {
 	hasEvents       bool
+	hasConversions  bool
 	hasIdentityKeys bool
 }
 
@@ -451,23 +453,25 @@ func (coverage *sourceContractCoverage) record(contractType string) {
 	switch contractType {
 	case "events":
 		coverage.hasEvents = true
+	case "conversions":
+		coverage.hasConversions = true
 	case "identity_keys":
 		coverage.hasIdentityKeys = true
 	}
 }
 
 func (coverage sourceContractCoverage) satisfied() bool {
-	return coverage.hasEvents && coverage.hasIdentityKeys
+	return coverage.hasEvents && coverage.hasConversions && coverage.hasIdentityKeys
 }
 
 func sourceCoverageBlocker(coverage sourceContractCoverage) blocker {
 	switch {
-	case !coverage.hasEvents && !coverage.hasIdentityKeys:
+	case !coverage.hasEvents && !coverage.hasConversions && !coverage.hasIdentityKeys:
 		return requiredSourceBlocker(
 			"missing_required_source_contracts",
 			sourceContractsCommand,
-			"segmentstream.yml must declare at least one events source and one identity_keys source.",
-			"Configure one events source and one identity_keys source under sources.",
+			"segmentstream.yml must declare at least one events source, one identity_keys source, and one conversions source.",
+			"Configure one events source, one identity_keys source, and one conversions source under sources.",
 		)
 	case !coverage.hasEvents:
 		return requiredSourceBlocker(
@@ -476,12 +480,19 @@ func sourceCoverageBlocker(coverage sourceContractCoverage) blocker {
 			"segmentstream.yml must declare at least one events source.",
 			"Run segmentstream source scaffold <name> --type events, implement it, add it under sources, then verify it.",
 		)
-	default:
+	case !coverage.hasIdentityKeys:
 		return requiredSourceBlocker(
 			"missing_identity_keys_source",
 			identityKeySourceContractCommand,
 			"segmentstream.yml must declare at least one identity_keys source.",
 			"Run segmentstream source scaffold <name> --type identity_keys, implement it, add it under sources, then verify it.",
+		)
+	default:
+		return requiredSourceBlocker(
+			"missing_conversions_source",
+			conversionSourceContractCommand,
+			"segmentstream.yml must declare at least one conversions source.",
+			"Run segmentstream source scaffold <name> --type conversions, implement it, add it under sources, then verify it.",
 		)
 	}
 }

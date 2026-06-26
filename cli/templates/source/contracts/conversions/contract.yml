@@ -1,0 +1,29 @@
+type: conversions
+schema_version: 1
+description: Canonical conversion stream emitted by a custom source package.
+default: false
+status: supported
+model:
+  name: conversions
+  partition: date
+columns:
+  - name: date
+    type: DATE
+    required: true
+    description: UTC date partition for this conversion row.
+  - name: conversion_time
+    type: TIMESTAMP
+    required: true
+    description: UTC timestamp when the conversion occurred.
+  - name: conversion_name
+    type: STRING
+    required: true
+    description: Conversion name emitted by the source.
+  - name: conversion_id
+    type: STRING
+    required: true
+    description: Stable conversion identifier from the upstream source.
+  - name: conversion_value
+    type: FLOAT
+    required: false
+    description: Optional floating point conversion value.

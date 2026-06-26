@@ -70,6 +70,8 @@ warehouse:
 # sources:
 #   - name: ga4
 #     path: ./sources/ga4
+#   - name: crm_conversions
+#     path: ./sources/crm_conversions
 #   - name: sdk_identity
 #     path: ./sources/sdk_identity
 #

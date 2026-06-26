@@ -95,7 +95,7 @@ on the [public roadmap board](#).
 | ------------------ | ----------- | ---------------------------------------------- |
 | Event sources      | ✅ Live      | Typed contract + dbt scaffold, contract-verified |
 | Cost sources       | 📋 Planned  | Same contract rails                            |
-| Conversion sources | 📋 Planned  | Simple / custom / combined / lead-scoring      |
+| Conversion sources | ✅ Live      | Typed contract + dbt scaffold, contract-verified |
 
 ### Identity graph (deterministic — no fingerprinting)
 

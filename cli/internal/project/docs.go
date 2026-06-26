@@ -89,10 +89,13 @@ Sources are project-owned dbt packages for source-specific transformations.
 ` + "```sh" + `
 segmentstream source contracts --json
 segmentstream source contracts --type events --json
+segmentstream source contracts --type conversions --json
 segmentstream source contracts --type identity_keys --json
 segmentstream source scaffold ga4 --type events
+segmentstream source scaffold crm_conversions --type conversions
 segmentstream source scaffold sdk_identity --type identity_keys
 segmentstream source verify ga4
+segmentstream source verify crm_conversions
 segmentstream source verify sdk_identity
 ` + "```" + `
 
@@ -101,6 +104,7 @@ snapshots, ` + "`README.md`" + ` files, dbt verification tests, and author-edita
 contract models:
 
 - ` + "`sources/ga4/models/events.sql`" + `
+- ` + "`sources/crm_conversions/models/conversions.sql`" + `
 - ` + "`sources/sdk_identity/models/identity_keys.sql`" + `
 
 The scaffolds are not implemented yet; read each README to understand the
@@ -112,6 +116,8 @@ Declare the sources in ` + "`segmentstream.yml`" + `:
 sources:
   - name: ga4
     path: ./sources/ga4
+  - name: crm_conversions
+    path: ./sources/crm_conversions
   - name: sdk_identity
     path: ./sources/sdk_identity
 ` + "```" + `
@@ -120,12 +126,17 @@ Verify implemented sources before running the pipeline:
 
 ` + "```sh" + `
 segmentstream source verify ga4
+segmentstream source verify crm_conversions
 segmentstream source verify sdk_identity
 ` + "```" + `
 
 On run, SegmentStream reads ` + "`segmentstream.yml`" + `, installs analytics-core and
-declared sources as dbt packages, and materializes the core ` + "`events`" + ` and
-` + "`identity_keys`" + ` models from analytics-core.
+declared sources as dbt packages, and materializes the core ` + "`events`" + `,
+` + "`conversions`" + `, and ` + "`identity_keys`" + ` models from analytics-core.
+
+Source packages that use the ` + "`conversions`" + ` contract emit conversion rows
+with ` + "`date`" + `, ` + "`conversion_time`" + `, ` + "`conversion_name`" + `, ` + "`conversion_id`" + `, and
+nullable ` + "`conversion_value`" + `.
 
 ## Configure Identity Links
 
@@ -198,10 +209,10 @@ and query permissions.
 to the configured warehouse. It runs the last 30 UTC daily partitions by default;
 use ` + "`segmentstream run --start-date YYYY-MM-DD`" + ` to start earlier or later.
 
-` + "`segmentstream source contracts [--type events|identity_keys] [--json]`" + ` lists
+` + "`segmentstream source contracts [--type events|conversions|identity_keys] [--json]`" + ` lists
 supported source contracts and returns their schemas.
 
-` + "`segmentstream source scaffold <name> --type events|identity_keys [--json]`" + ` scaffolds
+` + "`segmentstream source scaffold <name> --type events|conversions|identity_keys [--json]`" + ` scaffolds
 a local source template under ` + "`sources/<name>/`" + `. The template must be
 implemented next.
 
@@ -242,7 +253,7 @@ Before editing SegmentStream project files, read ` + "`README.md`" + ` in this d
 - Use ` + "`segmentstream init`" + ` to initialize the project.
 - Use ` + "`segmentstream run`" + ` to run the pipeline and produce tables in the configured warehouse.
 - Use ` + "`segmentstream source contracts`" + ` to inspect supported source contracts.
-- Use ` + "`segmentstream source scaffold <name> --type events|identity_keys`" + ` to scaffold local source templates outside the generated environment.
+- Use ` + "`segmentstream source scaffold <name> --type events|conversions|identity_keys`" + ` to scaffold local source templates outside the generated environment.
 - Use ` + "`segmentstream warehouse browse`" + ` and ` + "`segmentstream warehouse query`" + ` to inspect warehouse tables before implementing sources.
 - Do not put secrets, credentials, private keys, tokens, or SQL in ` + "`segmentstream.yml`" + `.
 - For BigQuery warehouse configuration, use the guidance in ` + "`README.md`" + `.

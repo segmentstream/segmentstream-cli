@@ -20,6 +20,7 @@ ANALYTICS_CORE_CONTAINER_PATH = "/opt/segmentstream/analytics-core"
 ANALYTICS_CORE_LOCAL_PATH_ENV = "SEGMENTSTREAM_ANALYTICS_CORE_LOCAL_PATH"
 ANALYTICS_CORE_REVISION_ENV = "SEGMENTSTREAM_ANALYTICS_CORE_REVISION"
 SUPPORTED_SOURCE_CONTRACT_SCHEMA_VERSIONS = {
+    "conversions": 1,
     "events": 1,
     "identity_keys": 2,
 }
@@ -33,6 +34,7 @@ class SegmentStreamSource:
     contract_type: str
     model_name: str
     events_model_name: str
+    conversions_model_name: str
     identity_keys_model_name: str
 
 
@@ -89,6 +91,7 @@ def dbt_vars(
 ) -> str:
     data = {
         "segmentstream_sources": event_source_vars(sources),
+        "segmentstream_conversion_sources": conversion_source_vars(sources),
         "segmentstream_identity_key_sources": identity_key_source_vars(sources),
         "segmentstream_identity_link_keys": identity_link_keys,
     }
@@ -108,6 +111,18 @@ def event_source_vars(sources: list[SegmentStreamSource]) -> list[dict[str, str]
         }
         for source in sources
         if source.contract_type == "events"
+    ]
+
+
+def conversion_source_vars(sources: list[SegmentStreamSource]) -> list[dict[str, str]]:
+    return [
+        {
+            "name": source.name,
+            "package_name": source.package_name,
+            "conversions_model_name": source.conversions_model_name,
+        }
+        for source in sources
+        if source.contract_type == "conversions"
     ]
 
 
@@ -234,13 +249,14 @@ def parse_sources(config: dict) -> list[SegmentStreamSource]:
 
         path = resolve_source_path(name, path_value)
         contract_type, model_name = discover_source_contract(name, path)
-        if contract_type not in {"events", "identity_keys"}:
+        if contract_type not in {"events", "conversions", "identity_keys"}:
             raise RuntimeError(
                 f'source "{name}" uses unsupported contract type "{contract_type}"'
             )
         events_model_name = (
             model_name if contract_type == "events" else discover_events_model_name(name, path)
         )
+        conversions_model_name = model_name if contract_type == "conversions" else "conversions"
         identity_keys_model_name = model_name if contract_type == "identity_keys" else "identity_keys"
         sources.append(
             SegmentStreamSource(
@@ -250,6 +266,7 @@ def parse_sources(config: dict) -> list[SegmentStreamSource]:
                 contract_type=contract_type,
                 model_name=model_name,
                 events_model_name=events_model_name,
+                conversions_model_name=conversions_model_name,
                 identity_keys_model_name=identity_keys_model_name,
             )
         )

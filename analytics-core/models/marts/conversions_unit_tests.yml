@@ -1,0 +1,22 @@
+version: 2
+
+unit_tests:
+  - name: conversions__publishes_unioned_conversions
+    model: conversions
+    given:
+      - input: ref('int_conversions__unioned')
+        format: sql
+        rows: |
+          select
+            date '2026-01-01' as date,
+            timestamp('2026-01-01 00:00:00+00') as conversion_time,
+            'purchase' as conversion_name,
+            'conv_1' as conversion_id,
+            cast(null as float64) as conversion_value
+    expect:
+      rows:
+        - date: "2026-01-01"
+          conversion_time: "2026-01-01 00:00:00+00"
+          conversion_name: purchase
+          conversion_id: conv_1
+          conversion_value: null

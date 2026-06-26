@@ -1,0 +1,40 @@
+version: 2
+
+# Example raw input declaration for this source package.
+# Replace these placeholders with the warehouse tables this source reads from.
+# For BigQuery, database is the project, schema is the dataset, and identifier
+# is the physical table name. Add or remove tables as needed, then reference
+# them from models/conversions.sql.
+sources:
+  - name: __SOURCE_NAME___raw
+    description: REPLACE_WITH_RAW_INPUT_DESCRIPTION
+    database: REPLACE_WITH_RAW_BIGQUERY_PROJECT
+    schema: REPLACE_WITH_RAW_BIGQUERY_DATASET
+    tables:
+      - name: conversions
+        identifier: REPLACE_WITH_RAW_CONVERSIONS_TABLE
+        description: REPLACE_WITH_RAW_TABLE_DESCRIPTION
+
+models:
+  - name: conversions
+    description: Canonical conversion stream emitted by the __SOURCE_NAME__ source.
+    config:
+      tags:
+        - segmentstream_source
+      meta:
+        segmentstream:
+          source_name: __SOURCE_NAME__
+          contract:
+            type: conversions
+            schema_version: 1
+    columns:
+      - name: date
+        description: UTC date partition for this conversion row.
+      - name: conversion_time
+        description: UTC timestamp when the conversion occurred.
+      - name: conversion_name
+        description: Conversion name emitted by the source.
+      - name: conversion_id
+        description: Stable conversion identifier from the upstream source.
+      - name: conversion_value
+        description: Optional floating point conversion value.

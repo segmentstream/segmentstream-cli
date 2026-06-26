@@ -440,7 +440,7 @@ warehouse:
 	}
 	for _, want := range []string{
 		"SegmentStream run sanity check failed",
-		"at least one events source and one identity_keys source",
+		"at least one events source, one identity_keys source, and one conversions source",
 		"segmentstream source contracts",
 	} {
 		if !strings.Contains(err.Error(), want) {

@@ -34,6 +34,39 @@ models:
       - name: event_date
         description: Date partition for this event row.
 
+  - name: conversions
+    description: Canonical SegmentStream conversion stream composed from declared sources.
+    config:
+      tags:
+        - segmentstream_core
+        - segmentstream_mart
+        - segmentstream_partitioned
+      meta:
+        segmentstream:
+          export_name: conversions
+          contract:
+            type: conversions
+            schema_version: 1
+    columns:
+      - name: date
+        description: Date partition for this conversion row.
+        data_tests:
+          - not_null
+      - name: conversion_time
+        description: Timestamp when the conversion occurred.
+        data_tests:
+          - not_null
+      - name: conversion_name
+        description: Conversion name emitted by the source.
+        data_tests:
+          - not_null
+      - name: conversion_id
+        description: Stable conversion identifier from the upstream source.
+        data_tests:
+          - not_null
+      - name: conversion_value
+        description: Optional floating point conversion value.
+
   - name: identity_keys
     description: Canonical SegmentStream daily identity key spans composed from declared identity key observation sources.
     config:
