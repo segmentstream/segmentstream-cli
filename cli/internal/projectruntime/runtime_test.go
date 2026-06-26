@@ -172,6 +172,8 @@ func TestPrepareCreatesExpectedRuntimeFiles(t *testing.T) {
 		"identity_key_source_vars",
 		"parse_identity_link_keys",
 		"normalize_positive_int",
+		`if "scope" in raw_key`,
+		"identity keys are matched globally",
 		"discover_source_contract",
 		"discover_events_model_name",
 		`legacy_model = f"events_{name}"`,
@@ -186,6 +188,9 @@ func TestPrepareCreatesExpectedRuntimeFiles(t *testing.T) {
 	if strings.Contains(string(dagsterResolver), "write_core_events_model") ||
 		strings.Contains(string(dagsterResolver), "render_core_events_model") {
 		t.Fatalf("Dagster resolver should not generate core events SQL:\n%s", string(dagsterResolver))
+	}
+	if strings.Contains(string(dagsterResolver), `"scope":`) {
+		t.Fatalf("Dagster resolver should not emit scope in dbt vars:\n%s", string(dagsterResolver))
 	}
 
 	runtimeReadme, err := os.ReadFile(filepath.Join(root, RuntimeDirName, "README.md"))
@@ -278,11 +283,13 @@ func TestAnalyticsCoreIdentityLinksModelsUseExpectedShape(t *testing.T) {
 		"tier",
 		"window_days",
 		"max_distinct_anonymous_ids",
-		"scope",
 	} {
 		if !strings.Contains(string(configModel), want) {
 			t.Fatalf("identity link config model does not contain %q:\n%s", want, string(configModel))
 		}
+	}
+	if strings.Contains(string(configModel), "scope") {
+		t.Fatalf("identity link config model should not contain scope:\n%s", string(configModel))
 	}
 
 	observationsModel, err := os.ReadFile(filepath.Join("..", "..", "..", "analytics-core", "models", "intermediate", "identity", "links", "int_identity_link_key_observations.sql"))
@@ -292,11 +299,18 @@ func TestAnalyticsCoreIdentityLinksModelsUseExpectedShape(t *testing.T) {
 	for _, want := range []string{
 		"from {{ ref('identity_keys') }}",
 		"inner join identity_link_key_config",
-		"when identity_link_key_config.scope = 'source' then identity_keys.segmentstream_source",
-		"else '__segmentstream_project__'",
 	} {
 		if !strings.Contains(string(observationsModel), want) {
 			t.Fatalf("identity link observations model does not contain %q:\n%s", want, string(observationsModel))
+		}
+	}
+	for _, forbidden := range []string{
+		"identity_link_key_config.scope",
+		"__segmentstream_project__",
+		"scope_value",
+	} {
+		if strings.Contains(string(observationsModel), forbidden) {
+			t.Fatalf("identity link observations model should not contain %q:\n%s", forbidden, string(observationsModel))
 		}
 	}
 

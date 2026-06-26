@@ -1,15 +1,15 @@
 version: 2
 
 unit_tests:
-  - name: int_identity_link_key_observations__applies_configured_scope
+  - name: int_identity_link_key_observations__applies_configured_keys
     model: int_identity_link_key_observations
     given:
       - input: ref('int_identity_link_key_config')
         format: sql
         rows: |
-          select 'user_id' as key_name, 'deterministic' as tier, 180 as window_days, 1000 as max_distinct_anonymous_ids, 'project' as scope
+          select 'user_id' as key_name, 'deterministic' as tier, 180 as window_days, 1000 as max_distinct_anonymous_ids
           union all
-          select 'ip_address' as key_name, 'probabilistic' as tier, 3 as window_days, 100 as max_distinct_anonymous_ids, 'source' as scope
+          select 'ip_address' as key_name, 'probabilistic' as tier, 3 as window_days, 100 as max_distinct_anonymous_ids
       - input: ref('segmentstream_analytics_core', 'identity_keys')
         format: sql
         rows: |
@@ -23,8 +23,6 @@ unit_tests:
     expect:
       rows:
         - segmentstream_source: web
-          scope_value: __segmentstream_project__
-          scope: project
           anonymous_id: anon_1
           date: "2026-01-01"
           key_name: user_id
@@ -35,8 +33,6 @@ unit_tests:
           window_days: 180
           max_distinct_anonymous_ids: 1000
         - segmentstream_source: web
-          scope_value: web
-          scope: source
           anonymous_id: anon_1
           date: "2026-01-01"
           key_name: ip_address

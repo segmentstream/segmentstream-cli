@@ -8,13 +8,6 @@ identity_keys as (
 
 select
   identity_keys.segmentstream_source,
-  -- A single scope column lets the same link logic support source-local keys
-  -- like IP addresses and project-wide keys like authenticated user IDs.
-  case
-    when identity_link_key_config.scope = 'source' then identity_keys.segmentstream_source
-    else '__segmentstream_project__'
-  end as scope_value,
-  identity_link_key_config.scope,
   identity_keys.anonymous_id,
   identity_keys.date,
   identity_link_key_config.key_name,

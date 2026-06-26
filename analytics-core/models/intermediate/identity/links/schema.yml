@@ -12,17 +12,11 @@ models:
         data_type: int64
       - name: max_distinct_anonymous_ids
         data_type: int64
-      - name: scope
-        data_type: string
 
   - name: int_identity_link_key_observations
     description: Identity key observations filtered to keys configured for link generation.
     columns:
       - name: segmentstream_source
-        data_type: string
-      - name: scope_value
-        data_type: string
-      - name: scope
         data_type: string
       - name: anonymous_id
         data_type: string
@@ -54,12 +48,8 @@ models:
         data_type: date
 
   - name: int_identity_link_key_spans
-    description: Per-anonymous-ID timestamp spans for each configured key value and scope.
+    description: Per-anonymous-ID timestamp spans for each configured key value.
     columns:
-      - name: scope
-        data_type: string
-      - name: scope_value
-        data_type: string
       - name: key_name
         data_type: string
       - name: key_value
@@ -80,10 +70,6 @@ models:
   - name: int_identity_link_candidates
     description: Candidate anonymous-ID pairs that share a configured non-skewed key within its configured timestamp window.
     columns:
-      - name: scope
-        data_type: string
-      - name: scope_value
-        data_type: string
       - name: key_name
         data_type: string
       - name: key_value
@@ -106,10 +92,6 @@ models:
   - name: int_identity_link_deterministic_value_sets
     description: Per-user deterministic key value sets used as hard constraints for identity links.
     columns:
-      - name: scope
-        data_type: string
-      - name: scope_value
-        data_type: string
       - name: key_name
         data_type: string
       - name: anonymous_id
