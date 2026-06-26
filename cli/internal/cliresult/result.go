@@ -2,6 +2,7 @@ package cliresult
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"reflect"
@@ -130,14 +131,37 @@ func Error(command string, err error) Response {
 	if err != nil && err.Error() != "" {
 		message = err.Error()
 	}
+	diagnostics := []Diagnostic{{ID: "error", Message: message}}
+	var diagnosticProvider interface {
+		Diagnostics() []Diagnostic
+	}
+	if errors.As(err, &diagnosticProvider) {
+		if provided := diagnosticProvider.Diagnostics(); len(provided) > 0 {
+			diagnostics = provided
+		}
+	}
+	var actions []Action
+	var actionProvider interface {
+		Actions() []Action
+	}
+	if errors.As(err, &actionProvider) {
+		actions = actionProvider.Actions()
+	}
+	var data any
+	var dataProvider interface {
+		ErrorData() any
+	}
+	if errors.As(err, &dataProvider) {
+		data = dataProvider.ErrorData()
+	}
 	return Response{
 		SchemaVersion: SchemaVersion,
 		Command:       command,
 		Status:        StatusError,
-		Diagnostics: []Diagnostic{
-			{ID: "error", Message: message},
-		},
-		ExitCode: ExitGenericError,
+		Data:          data,
+		Diagnostics:   diagnostics,
+		Actions:       actions,
+		ExitCode:      ExitGenericError,
 	}
 }
 

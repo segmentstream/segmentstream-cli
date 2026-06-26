@@ -7,8 +7,9 @@ import (
 	"os"
 
 	"github.com/segmentstream/segmentstream-cli/cli/internal/cliresult"
-	"github.com/segmentstream/segmentstream-cli/cli/internal/initflow"
 	"github.com/segmentstream/segmentstream-cli/cli/internal/project"
+	"github.com/segmentstream/segmentstream-cli/cli/internal/projectcheck"
+	"github.com/segmentstream/segmentstream-cli/cli/internal/warehouse"
 	"github.com/spf13/cobra"
 )
 
@@ -39,11 +40,15 @@ func newInitCommand(out io.Writer, commandContext structuredCommandContext, cliO
 			return cliresult.Response{}, fmt.Errorf("find current directory: %w", err)
 		}
 
-		result, err := (initflow.Service{
+		if err := runInitSetup(projectRoot, options.Warehouse, cliOptions.WarehouseRegistry); err != nil {
+			return cliresult.Response{}, err
+		}
+
+		result, err := (projectcheck.Evaluator{
 			ProjectRoot:       projectRoot,
 			Credentials:       cliOptions.Credentials,
 			WarehouseRegistry: cliOptions.WarehouseRegistry,
-		}).Evaluate(cmdContext, initflow.Options{SelectWarehouse: options.Warehouse})
+		}).Evaluate(cmdContext)
 		if err != nil {
 			return cliresult.Response{}, err
 		}
@@ -56,13 +61,37 @@ func newInitCommand(out io.Writer, commandContext structuredCommandContext, cliO
 	return cmd
 }
 
+func runInitSetup(projectRoot, warehouseType string, registry warehouse.Registry) error {
+	if warehouseType == "" {
+		return nil
+	}
+
+	provider, err := registry.Provider(warehouseType)
+	if err != nil {
+		return err
+	}
+	if _, err := (project.Store{Root: projectRoot}).SelectWarehouse(warehouseType, provider.DefaultAuthName()); err != nil {
+		return err
+	}
+	if err := project.EnsureRuntimeGitignored(projectRoot); err != nil {
+		return err
+	}
+	if _, err := project.EnsureProjectReadme(projectRoot); err != nil {
+		return err
+	}
+	if _, err := project.EnsureAgentGuide(projectRoot); err != nil {
+		return err
+	}
+	return nil
+}
+
 func (data initResponseData) HumanDocument() cliresult.Document {
 	return textDocument(func(out io.Writer) {
-		writeInitResult(out, data.SelectedWarehouse, initflow.Result{Envelope: data.Envelope})
+		writeInitResult(out, data.SelectedWarehouse, projectcheck.Result{Envelope: data.Envelope})
 	})
 }
 
-func writeInitResult(out io.Writer, selectedWarehouse string, result initflow.Result) {
+func writeInitResult(out io.Writer, selectedWarehouse string, result projectcheck.Result) {
 	if selectedWarehouse != "" {
 		fmt.Fprintf(out, "Selected warehouse %q in %s\n", selectedWarehouse, project.ConfigFileName)
 	}

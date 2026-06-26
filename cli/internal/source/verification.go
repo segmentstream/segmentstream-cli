@@ -140,7 +140,10 @@ func Verify(ctx context.Context, request VerifyRequest) (VerifyResult, error) {
 	if !contractOK {
 		return VerifyResult{}, errors.New("source contract snapshot is missing")
 	}
-	if err := ValidateSupportedContractIdentity(contract); err != nil {
+	if err := ValidateSupportedContractIdentityForSource(contract, ContractValidationContext{
+		SourceName: source.Name,
+		SourcePath: sourcePath,
+	}); err != nil {
 		return VerifyResult{}, err
 	}
 	if err := RequireTemplateTests(sourcePath); err != nil {
@@ -245,7 +248,10 @@ func Check(projectRoot string, source project.Source) (Status, error) {
 	if !contractOK {
 		return Status{Valid: false, Reason: "source contract snapshot is missing", MarkerPath: markerPath}, nil
 	}
-	if err := ValidateSupportedContractIdentity(contract); err != nil {
+	if err := ValidateSupportedContractIdentityForSource(contract, ContractValidationContext{
+		SourceName: source.Name,
+		SourcePath: sourcePath,
+	}); err != nil {
 		return Status{Valid: false, Reason: err.Error(), MarkerPath: markerPath, Contract: contract}, nil
 	}
 
@@ -306,7 +312,10 @@ func SavePassing(projectRoot string, source project.Source, startDate, endExclus
 	if !ok {
 		return Marker{}, "", errors.New("source contract snapshot is missing")
 	}
-	if err := ValidateSupportedContractIdentity(contract); err != nil {
+	if err := ValidateSupportedContractIdentityForSource(contract, ContractValidationContext{
+		SourceName: source.Name,
+		SourcePath: sourcePath,
+	}); err != nil {
 		return Marker{}, "", err
 	}
 	fingerprint, err := Fingerprint(sourcePath)

@@ -337,8 +337,8 @@ def discover_source_contract(name: str, path: Path) -> tuple[str, str]:
         raise RuntimeError(
             f'source "{name}" uses {contract_type} schema_version {schema_version}, '
             f"but schema_version {expected_schema_version} is required; "
-            f"run segmentstream source scaffold {name} --type {contract_type} "
-            "and port your source SQL, or update contract.yml and verification tests"
+            f"run segmentstream source verify {name} outside the runtime to print the "
+            "embedded migration guide with the exact source files to edit"
         )
 
     model = contract.get("model") or {}

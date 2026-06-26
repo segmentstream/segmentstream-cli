@@ -2,6 +2,7 @@ package cli
 
 import (
 	"bytes"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -154,6 +155,62 @@ func TestSourceVerifyRunsTemplateDbtTestsInDocker(t *testing.T) {
 	}
 	if !status.Valid {
 		t.Fatalf("status = %+v, want valid marker", status)
+	}
+}
+
+func TestSourceVerifyJSONIncludesContractMigrationGuide(t *testing.T) {
+	root := t.TempDir()
+	withWorkingDirectory(t, root)
+	writeConfig(t, root, `version: 1
+warehouse:
+  type: bigquery
+  auth: production-bigquery
+  project: example-project
+  dataset: segmentstream
+sources:
+  - name: sdk_identity
+    path: ./sources/sdk_identity
+`)
+	sourcePath := filepath.Join(root, "sources", "sdk_identity")
+	if err := os.MkdirAll(sourcePath, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(sourcePath, "contract.yml"), []byte(`type: identity_keys
+schema_version: 1
+model:
+  name: identity_keys
+  partition: date
+`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	var out bytes.Buffer
+	var errOut bytes.Buffer
+	code := Main([]string{"source", "verify", "sdk_identity", "--json"}, &out, &errOut)
+
+	if code != cliresult.ExitGenericError {
+		t.Fatalf("exit code = %d, want %d", code, cliresult.ExitGenericError)
+	}
+	if errOut.String() != "" {
+		t.Fatalf("stderr = %q, want empty", errOut.String())
+	}
+	var result sourcepkg.ContractMigrationRequiredError
+	response := decodeJSONResponseData(t, out.Bytes(), &result)
+	if response.Command != "source.verify" || response.Status != string(cliresult.StatusError) {
+		t.Fatalf("response = %+v, want source.verify error", response)
+	}
+	if result.ContractType != "identity_keys" ||
+		result.FromSchemaVersion != 1 ||
+		result.ToSchemaVersion != 2 ||
+		result.SourceName != "sdk_identity" ||
+		!strings.Contains(result.MigrationGuide, "observed_at") ||
+		!strings.Contains(result.MigrationGuide, "models/identity_keys.sql") ||
+		result.NextCommand != "segmentstream source verify sdk_identity" {
+		t.Fatalf("migration data = %+v, want actionable migration guide", result)
+	}
+	if !strings.Contains(out.String(), "source_contract_migration_required") ||
+		!strings.Contains(out.String(), "Apply the migration guide") {
+		t.Fatalf("json output = %s, want structured migration diagnostic", out.String())
 	}
 }
 

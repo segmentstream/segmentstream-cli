@@ -16,6 +16,7 @@ import (
 	"github.com/segmentstream/segmentstream-cli/cli/internal/credentials"
 	"github.com/segmentstream/segmentstream-cli/cli/internal/dagster"
 	"github.com/segmentstream/segmentstream-cli/cli/internal/project"
+	"github.com/segmentstream/segmentstream-cli/cli/internal/projectcheck"
 	"github.com/segmentstream/segmentstream-cli/cli/internal/projectruntime"
 	"github.com/segmentstream/segmentstream-cli/cli/internal/warehouse"
 	"github.com/spf13/cobra"
@@ -68,19 +69,28 @@ func newRunCommand(out, errOut io.Writer, commandContext structuredCommandContex
 }
 
 func runAnalytics(ctx context.Context, projectRoot string, progressOut io.Writer, runner commandRunner, registry warehouse.Registry, credentialStore credentials.Store, options runOptions) (runResult, error) {
+	runRange, err := resolveRunDateRange(options)
+	if err != nil {
+		return runResult{}, err
+	}
+	readiness, err := (projectcheck.Evaluator{
+		ProjectRoot:       projectRoot,
+		Credentials:       credentialStore,
+		WarehouseRegistry: registry,
+	}).Evaluate(ctx)
+	if err != nil {
+		return runResult{}, err
+	}
+	if !readiness.Envelope.Ready {
+		return runResult{}, projectNotReadyError{Envelope: readiness.Envelope}
+	}
+
 	config, err := project.LoadConfig(projectRoot)
 	if err != nil {
 		return runResult{}, err
 	}
 	provider, err := registry.Provider(config.Warehouse.Type)
 	if err != nil {
-		return runResult{}, err
-	}
-	runRange, err := resolveRunDateRange(options)
-	if err != nil {
-		return runResult{}, err
-	}
-	if err := preflightProjectSanity(config, provider, credentialStore); err != nil {
 		return runResult{}, err
 	}
 
@@ -173,60 +183,68 @@ func (result runResult) HumanDocument() cliresult.Document {
 	}
 }
 
-func preflightProjectSanity(config project.Config, provider warehouse.Provider, credentialStore credentials.Store) error {
-	var failures []string
-
-	if err := preflightWarehouseAuth(config, provider, credentialStore); err != nil {
-		failures = append(failures, err.Error())
-	}
-	if len(config.Sources) == 0 {
-		failures = append(failures, "segmentstream.yml must declare at least one events source and one identity_keys source under sources; run segmentstream source contracts, then scaffold and verify both source contracts")
-	}
-	if len(failures) > 0 {
-		return runSanityError(failures)
-	}
-	return nil
+type projectNotReadyError struct {
+	Envelope cliresult.Envelope
 }
 
-func preflightWarehouseAuth(config project.Config, provider warehouse.Provider, credentialStore credentials.Store) error {
-	for _, diagnostic := range provider.ConfigDiagnostics(config.Warehouse) {
-		if diagnostic.Message != "" {
-			return errors.New(diagnostic.Message)
-		}
-	}
-
-	credentialsPath, err := provider.CredentialPath(credentialStore, config.Warehouse.Auth)
-	if err != nil {
-		return fmt.Errorf("check warehouse authentication: %w", err)
-	}
-
-	info, err := os.Stat(credentialsPath)
-	if err != nil {
-		if errors.Is(err, os.ErrNotExist) {
-			return fmt.Errorf("%s authentication for warehouse.auth %q was not found at %s; run segmentstream warehouse auth login or segmentstream warehouse auth --service-account-key=<path>", provider.DisplayName(), config.Warehouse.Auth, credentialsPath)
-		}
-		return fmt.Errorf("check warehouse authentication at %s: %w", credentialsPath, err)
-	}
-	if info.IsDir() {
-		return fmt.Errorf("%s authentication path %s is a directory; run segmentstream warehouse auth login or segmentstream warehouse auth --service-account-key=<path>", provider.DisplayName(), credentialsPath)
-	}
-
-	return nil
-}
-
-type runSanityError []string
-
-func (err runSanityError) Error() string {
-	if len(err) == 1 {
-		return "SegmentStream run sanity check failed: " + err[0]
-	}
-
+func (err projectNotReadyError) Error() string {
 	var message strings.Builder
-	message.WriteString("SegmentStream run sanity checks failed:")
-	for _, failure := range err {
-		fmt.Fprintf(&message, "\n- %s", failure)
+	message.WriteString("SegmentStream project is not ready.")
+	for _, diagnostic := range err.Envelope.Diagnostics {
+		if diagnostic.Message == "" {
+			continue
+		}
+		if diagnostic.Field != "" {
+			fmt.Fprintf(&message, "\n- %s: %s", diagnostic.Field, diagnostic.Message)
+		} else {
+			fmt.Fprintf(&message, "\n- %s", diagnostic.Message)
+		}
+		if diagnostic.Suggestion != "" {
+			fmt.Fprintf(&message, "\n  Suggestion: %s", diagnostic.Suggestion)
+		}
+	}
+	next := err.Envelope.NextAction
+	if next.Reason != "" {
+		fmt.Fprintf(&message, "\nNext action: %s", next.Reason)
+	}
+	if next.Command != "" {
+		fmt.Fprintf(&message, "\nRun: %s", next.Command)
+	}
+	for _, accept := range next.Accepts {
+		if accept.Command != "" {
+			fmt.Fprintf(&message, "\n- %s", accept.Command)
+		}
 	}
 	return message.String()
+}
+
+func (err projectNotReadyError) Diagnostics() []cliresult.Diagnostic {
+	if len(err.Envelope.Diagnostics) > 0 {
+		return err.Envelope.Diagnostics
+	}
+	return []cliresult.Diagnostic{{
+		ID:      "project_not_ready",
+		Message: "SegmentStream project is not ready.",
+	}}
+}
+
+func (err projectNotReadyError) Actions() []cliresult.Action {
+	next := err.Envelope.NextAction
+	if next.Type == "" && next.Command == "" && next.Reason == "" {
+		return nil
+	}
+	return []cliresult.Action{{
+		Type:    next.Type,
+		Label:   "Next action",
+		Command: next.Command,
+		Message: next.Reason,
+	}}
+}
+
+func (err projectNotReadyError) ErrorData() any {
+	return struct {
+		Envelope cliresult.Envelope `json:"envelope"`
+	}{Envelope: err.Envelope}
 }
 
 type runDateRange struct {

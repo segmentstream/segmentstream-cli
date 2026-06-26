@@ -1,4 +1,4 @@
-package initflow
+package projectcheck
 
 import (
 	"github.com/segmentstream/segmentstream-cli/cli/internal/credentials"
@@ -9,7 +9,6 @@ import (
 
 type ProjectStore interface {
 	LoadPartial() (project.Config, bool, error)
-	SelectWarehouse(warehouseType, defaultAuthName string) (project.Config, error)
 }
 
 type CredentialStore interface {
@@ -25,14 +24,6 @@ type SourceVerificationStatus struct {
 
 type SourceVerifier interface {
 	CheckSource(projectRoot string, source project.Source) (SourceVerificationStatus, error)
-}
-
-type ProjectScaffolder interface {
-	EnsureInitFiles() error
-}
-
-type projectScaffolder struct {
-	Root string
 }
 
 type sourceVerifier struct{}
@@ -54,46 +45,26 @@ func (verifier sourceVerifier) CheckSource(projectRoot string, source project.So
 	}, nil
 }
 
-func (scaffolder projectScaffolder) EnsureInitFiles() error {
-	if err := project.EnsureRuntimeGitignored(scaffolder.Root); err != nil {
-		return err
+func (evaluator Evaluator) projectStore() ProjectStore {
+	if evaluator.ProjectStore != nil {
+		return evaluator.ProjectStore
 	}
-	if _, err := project.EnsureProjectReadme(scaffolder.Root); err != nil {
-		return err
-	}
-	if _, err := project.EnsureAgentGuide(scaffolder.Root); err != nil {
-		return err
-	}
-	return nil
+	return project.Store{Root: evaluator.ProjectRoot}
 }
 
-func (service Service) projectStore() ProjectStore {
-	if service.ProjectStore != nil {
-		return service.ProjectStore
-	}
-	return project.Store{Root: service.ProjectRoot}
-}
-
-func (service Service) credentialStore() CredentialStore {
-	if service.CredentialStore != nil {
-		return service.CredentialStore
+func (evaluator Evaluator) credentialStore() CredentialStore {
+	if evaluator.CredentialStore != nil {
+		return evaluator.CredentialStore
 	}
 	return providerCredentialStore{
-		Store:    service.Credentials,
-		Registry: service.WarehouseRegistry,
+		Store:    evaluator.Credentials,
+		Registry: evaluator.WarehouseRegistry,
 	}
 }
 
-func (service Service) projectScaffolder() ProjectScaffolder {
-	if service.Scaffolder != nil {
-		return service.Scaffolder
-	}
-	return projectScaffolder{Root: service.ProjectRoot}
-}
-
-func (service Service) sourceVerifier() SourceVerifier {
-	if service.SourceVerifier != nil {
-		return service.SourceVerifier
+func (evaluator Evaluator) sourceVerifier() SourceVerifier {
+	if evaluator.SourceVerifier != nil {
+		return evaluator.SourceVerifier
 	}
 	return sourceVerifier{}
 }
