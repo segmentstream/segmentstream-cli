@@ -79,15 +79,15 @@ segmentstream source scaffold sdk_identity --type identity_keys
 ```
 
 This scaffolds project-owned source templates with pinned `contract.yml`
-snapshots, `README.md` files, dbt verification tests, and author-editable
-contract models:
+snapshots, dbt verification tests, and author-editable contract models:
 
 - `sources/ga4/models/events.sql`
 - `sources/crm_conversion_events/models/conversion_events.sql`
 - `sources/sdk_identity/models/identity_keys.sql`
 
-The scaffolds are not implemented yet; read each README to understand the
-source package and output contract.
+The scaffolds are not implemented yet. Use `--json` to inspect unresolved
+implementation items, then edit the generated files at their
+`SEGMENTSTREAM_TODO(...)` markers to map raw warehouse data to the contract.
 
 Declare the sources in `segmentstream.yml`:
 
@@ -311,7 +311,7 @@ other non-interactive environments.
 `segmentstream warehouse browse [--path <project>[/<dataset>[/<table>]]] [--json]`
 lists BigQuery projects, datasets, tables, or a table schema.
 
-`segmentstream warehouse query --sql "<select statement>" [--max-rows 100] [--timeout 30s] [--maximum-bytes-billed <bytes>] [--json]`
+`segmentstream warehouse query --sql "<select statement>" [--job-location <location>] [--max-rows 100] [--timeout 30s] [--maximum-bytes-billed <bytes>] [--json]`
 runs a dry-run-verified read-only SELECT query and returns rows.
 
 `segmentstream warehouse configure --project --dataset --location [--create-dataset]`

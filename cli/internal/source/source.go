@@ -28,7 +28,8 @@ type Source struct {
 	PackageName  string
 	Path         string
 	Contract     ContractIdentity
-	ModelName    string
+	Model        ContractModel
+	Columns      []ContractColumn
 	CreatedFiles []string
 }
 
@@ -418,7 +419,8 @@ func createWithContract(projectRoot, name string, contract Contract) (Source, er
 		PackageName:  data.PackageName,
 		Path:         target,
 		Contract:     contract.Identity(),
-		ModelName:    contract.Model.Name,
+		Model:        contract.Model,
+		Columns:      append([]ContractColumn(nil), contract.Columns...),
 		CreatedFiles: createdFiles,
 	}, nil
 }

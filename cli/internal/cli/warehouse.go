@@ -32,6 +32,7 @@ type warehouseQueryOptions struct {
 	MaxRows            int64
 	Timeout            time.Duration
 	MaximumBytesBilled int64
+	JobLocation        string
 }
 
 type warehouseConfigureOptions struct {
@@ -239,7 +240,8 @@ func newWarehouseQueryCommand(out io.Writer, commandContext structuredCommandCon
 		Use:   "query --sql <select statement>",
 		Short: "Run a read-only warehouse SELECT query",
 		Long: "Run a read-only warehouse SELECT query using the credential and location\n" +
-			"from segmentstream.yml.\n\n" +
+			"from segmentstream.yml, or --job-location when querying a raw dataset in\n" +
+			"another location.\n\n" +
 			"For BigQuery, the CLI first runs a dry-run job and executes the query only\n" +
 			"when BigQuery reports the statement type as SELECT.",
 		Args:    cobra.NoArgs,
@@ -258,6 +260,7 @@ func newWarehouseQueryCommand(out io.Writer, commandContext structuredCommandCon
 			MaxRows:            options.MaxRows,
 			Timeout:            options.Timeout,
 			MaximumBytesBilled: options.MaximumBytesBilled,
+			JobLocation:        strings.TrimSpace(options.JobLocation),
 		})
 		if err != nil {
 			var queryErr warehouse.QueryError
@@ -274,6 +277,7 @@ func newWarehouseQueryCommand(out io.Writer, commandContext structuredCommandCon
 	cmd.Flags().Int64Var(&options.MaxRows, "max-rows", defaultWarehouseQueryMaxRows, "Maximum rows to return, from 1 to 1000")
 	cmd.Flags().DurationVar(&options.Timeout, "timeout", defaultWarehouseQueryTimeout, "Maximum time to wait for query completion, up to 2m")
 	cmd.Flags().Int64Var(&options.MaximumBytesBilled, "maximum-bytes-billed", 0, "Optional BigQuery maximum bytes billed limit")
+	cmd.Flags().StringVar(&options.JobLocation, "job-location", "", "Optional BigQuery query execution location")
 	return cmd
 }
 
@@ -630,6 +634,9 @@ func writeBrowseResult(out io.Writer, result warehouse.BrowseResult) {
 		fmt.Fprintf(out, "Tables in %s:\n", result.Path)
 	case "schema":
 		fmt.Fprintf(out, "Schema for %s:\n", result.Path)
+		if result.DatasetLocation != "" {
+			fmt.Fprintf(out, "Dataset location: %s\n", result.DatasetLocation)
+		}
 		for _, field := range result.Schema {
 			writeBrowseField(out, field, "")
 		}
@@ -639,6 +646,9 @@ func writeBrowseResult(out io.Writer, result warehouse.BrowseResult) {
 	}
 	for _, child := range result.Children {
 		writeBrowseChild(out, child)
+	}
+	if result.DatasetLocation != "" {
+		fmt.Fprintf(out, "Dataset location: %s\n", result.DatasetLocation)
 	}
 }
 

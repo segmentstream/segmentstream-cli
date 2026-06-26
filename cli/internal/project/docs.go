@@ -100,15 +100,15 @@ segmentstream source verify sdk_identity
 ` + "```" + `
 
 This scaffolds project-owned source templates with pinned ` + "`contract.yml`" + `
-snapshots, ` + "`README.md`" + ` files, dbt verification tests, and author-editable
-contract models:
+snapshots, dbt verification tests, and author-editable contract models:
 
 - ` + "`sources/ga4/models/events.sql`" + `
 - ` + "`sources/crm_conversion_events/models/conversion_events.sql`" + `
 - ` + "`sources/sdk_identity/models/identity_keys.sql`" + `
 
-The scaffolds are not implemented yet; read each README to understand the
-source package and output contract.
+The scaffolds are not implemented yet. Use ` + "`--json`" + ` to inspect unresolved
+implementation items, then edit the generated files at their
+` + "`SEGMENTSTREAM_TODO(...)`" + ` markers to map raw warehouse data to the contract.
 
 Declare the sources in ` + "`segmentstream.yml`" + `:
 
@@ -192,8 +192,8 @@ Use ` + "`segmentstream warehouse browse --path <project> --json`" + ` to list d
 Use ` + "`segmentstream warehouse browse --path <project>/<dataset> --json`" + ` to list tables.
 Use ` + "`segmentstream warehouse browse --path <project>/<dataset>/<table> --json`" + ` to fetch a table schema.
 
-` + "`segmentstream warehouse query --sql \"<select statement>\" --json`" + ` runs a
-dry-run-verified read-only SELECT query and returns row objects under ` + "`data`" + `.
+` + "`segmentstream warehouse query --sql \"<select statement>\" [--job-location <location>] --json`" + ` runs
+a dry-run-verified read-only SELECT query and returns row objects under ` + "`data`" + `.
 Use it to inspect payload samples, null rates, distinct values, date ranges,
 and JSON fields after browsing table schemas.
 

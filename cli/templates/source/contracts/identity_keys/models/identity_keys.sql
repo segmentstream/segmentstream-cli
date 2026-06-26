@@ -11,6 +11,8 @@
   {{ exceptions.raise_compiler_error("Implement sources/__SOURCE_NAME__/models/identity_keys.sql by mapping raw inputs from models/schema.yml to the identity_keys contract.") }}
 {% endif %}
 
+-- SEGMENTSTREAM_TODO(model_mapping): Replace this query with source-specific SQL
+-- that maps raw inputs from models/schema.yml to the identity_keys contract.
 -- Template query. Replace this example with source-specific SQL.
 -- 1. Declare raw warehouse inputs in models/schema.yml.
 -- 2. Inspect the target contract with: segmentstream source contracts --type identity_keys --json

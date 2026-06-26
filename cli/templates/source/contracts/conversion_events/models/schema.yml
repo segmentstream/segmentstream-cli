@@ -1,5 +1,7 @@
 version: 2
 
+# SEGMENTSTREAM_TODO(raw_source_binding): Replace the raw project, dataset,
+# table, and descriptions below with values discovered from warehouse browse.
 # Example raw input declaration for this source package.
 # Replace these placeholders with the warehouse tables this source reads from.
 # For BigQuery, database is the project, schema is the dataset, and identifier

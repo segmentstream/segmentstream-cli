@@ -112,8 +112,8 @@ func TestCreateScaffoldsSourcePackageFromContract(t *testing.T) {
 	if source.Contract.Type != "events" || source.Contract.SchemaVersion != 1 {
 		t.Fatalf("Contract = %+v, want events schema version 1", source.Contract)
 	}
-	if source.ModelName != "events" {
-		t.Fatalf("ModelName = %q, want events", source.ModelName)
+	if source.Model.Name != "events" || source.Model.Partition != "event_date" {
+		t.Fatalf("Model = %+v, want events partitioned by event_date", source.Model)
 	}
 
 	expectedFiles := []string{
@@ -122,7 +122,6 @@ func TestCreateScaffoldsSourcePackageFromContract(t *testing.T) {
 		"dbt_project.yml",
 		filepath.Join("models", "events.sql"),
 		filepath.Join("models", "schema.yml"),
-		"README.md",
 		"source.yml",
 		filepath.Join("tests", "verify_events_contract.sql"),
 		filepath.Join("tests", "verify_events_non_empty.sql"),
@@ -135,6 +134,7 @@ func TestCreateScaffoldsSourcePackageFromContract(t *testing.T) {
 	}
 	for _, relative := range []string{
 		"IMPLEMENTATION_GUIDE.md",
+		"README.md",
 		"migrations",
 		"macros",
 		"seeds",
@@ -146,27 +146,12 @@ func TestCreateScaffoldsSourcePackageFromContract(t *testing.T) {
 		assertMissing(t, filepath.Join(source.Path, relative))
 	}
 
-	readme, err := os.ReadFile(filepath.Join(source.Path, "README.md"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	for _, want := range []string{
-		"# ga4 Events Source",
-		"generated SegmentStream source scaffold",
-		"contract.yml",
-		"models/schema.yml",
-		"Output Schema",
-	} {
-		if !strings.Contains(string(readme), want) {
-			t.Fatalf("README.md does not contain %q:\n%s", want, string(readme))
-		}
-	}
-
 	schema, err := os.ReadFile(filepath.Join(source.Path, "models", "schema.yml"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	for _, want := range []string{
+		"SEGMENTSTREAM_TODO(raw_source_binding)",
 		"name: ga4_raw",
 		"database: REPLACE_WITH_RAW_BIGQUERY_PROJECT",
 		"identifier: REPLACE_WITH_RAW_EVENTS_TABLE",
@@ -176,6 +161,13 @@ func TestCreateScaffoldsSourcePackageFromContract(t *testing.T) {
 		if !strings.Contains(string(schema), want) {
 			t.Fatalf("schema.yml does not contain %q:\n%s", want, string(schema))
 		}
+	}
+	sourceYAML, err := os.ReadFile(filepath.Join(source.Path, "source.yml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(sourceYAML), "SEGMENTSTREAM_TODO(raw_source_binding)") {
+		t.Fatalf("source.yml does not contain raw source TODO:\n%s", string(sourceYAML))
 	}
 
 	model, err := os.ReadFile(filepath.Join(source.Path, "models", "events.sql"))
@@ -189,6 +181,7 @@ func TestCreateScaffoldsSourcePackageFromContract(t *testing.T) {
 		"segmentstream_start_date",
 		"segmentstream_end_date",
 		"Implement sources/ga4/models/events.sql",
+		"SEGMENTSTREAM_TODO(model_mapping)",
 		"event_id",
 		"where false",
 	} {
@@ -247,8 +240,8 @@ func TestCreateScaffoldsIdentityKeysSourcePackageFromContract(t *testing.T) {
 	if source.Contract.Type != "identity_keys" || source.Contract.SchemaVersion != 2 {
 		t.Fatalf("Contract = %+v, want identity_keys schema version 2", source.Contract)
 	}
-	if source.ModelName != "identity_keys" {
-		t.Fatalf("ModelName = %q, want identity_keys", source.ModelName)
+	if source.Model.Name != "identity_keys" || source.Model.Partition != "date" {
+		t.Fatalf("Model = %+v, want identity_keys partitioned by date", source.Model)
 	}
 
 	expectedFiles := []string{
@@ -257,7 +250,6 @@ func TestCreateScaffoldsIdentityKeysSourcePackageFromContract(t *testing.T) {
 		"dbt_project.yml",
 		filepath.Join("models", "identity_keys.sql"),
 		filepath.Join("models", "schema.yml"),
-		"README.md",
 		"source.yml",
 		filepath.Join("tests", "verify_identity_keys_contract.sql"),
 		filepath.Join("tests", "verify_identity_keys_non_empty.sql"),
@@ -268,27 +260,15 @@ func TestCreateScaffoldsIdentityKeysSourcePackageFromContract(t *testing.T) {
 			t.Fatalf("CreatedFiles = %v, want %s", source.CreatedFiles, relative)
 		}
 	}
+	assertMissing(t, filepath.Join(source.Path, "README.md"))
 	assertMissing(t, filepath.Join(source.Path, "migrations"))
-
-	readme, err := os.ReadFile(filepath.Join(source.Path, "README.md"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	for _, want := range []string{
-		"# crm Identity Keys Source",
-		"identity_keys",
-		"Output Schema",
-	} {
-		if !strings.Contains(string(readme), want) {
-			t.Fatalf("README.md does not contain %q:\n%s", want, string(readme))
-		}
-	}
 
 	schema, err := os.ReadFile(filepath.Join(source.Path, "models", "schema.yml"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	for _, want := range []string{
+		"SEGMENTSTREAM_TODO(raw_source_binding)",
 		"name: crm_raw",
 		"identifier: REPLACE_WITH_RAW_IDENTITY_KEYS_TABLE",
 		"type: identity_keys",
@@ -300,6 +280,13 @@ func TestCreateScaffoldsIdentityKeysSourcePackageFromContract(t *testing.T) {
 			t.Fatalf("schema.yml does not contain %q:\n%s", want, string(schema))
 		}
 	}
+	sourceYAML, err := os.ReadFile(filepath.Join(source.Path, "source.yml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(sourceYAML), "SEGMENTSTREAM_TODO(raw_source_binding)") {
+		t.Fatalf("source.yml does not contain raw source TODO:\n%s", string(sourceYAML))
+	}
 
 	model, err := os.ReadFile(filepath.Join(source.Path, "models", "identity_keys.sql"))
 	if err != nil {
@@ -309,6 +296,7 @@ func TestCreateScaffoldsIdentityKeysSourcePackageFromContract(t *testing.T) {
 		"segmentstream_start_date",
 		"segmentstream_end_date",
 		"Implement sources/crm/models/identity_keys.sql",
+		"SEGMENTSTREAM_TODO(model_mapping)",
 		"observed_at",
 		"anonymous_id",
 		"key_name",
@@ -350,8 +338,8 @@ func TestCreateScaffoldsConversionEventsSourcePackageFromContract(t *testing.T) 
 	if source.Contract.Type != "conversion_events" || source.Contract.SchemaVersion != 1 {
 		t.Fatalf("Contract = %+v, want conversion_events schema version 1", source.Contract)
 	}
-	if source.ModelName != "conversion_events" {
-		t.Fatalf("ModelName = %q, want conversion_events", source.ModelName)
+	if source.Model.Name != "conversion_events" || source.Model.Partition != "date" {
+		t.Fatalf("Model = %+v, want conversion_events partitioned by date", source.Model)
 	}
 
 	expectedFiles := []string{
@@ -360,7 +348,6 @@ func TestCreateScaffoldsConversionEventsSourcePackageFromContract(t *testing.T) 
 		"dbt_project.yml",
 		filepath.Join("models", "conversion_events.sql"),
 		filepath.Join("models", "schema.yml"),
-		"README.md",
 		"source.yml",
 		filepath.Join("tests", "verify_conversion_events_contract.sql"),
 		filepath.Join("tests", "verify_conversion_events_non_empty.sql"),
@@ -371,27 +358,14 @@ func TestCreateScaffoldsConversionEventsSourcePackageFromContract(t *testing.T) 
 			t.Fatalf("CreatedFiles = %v, want %s", source.CreatedFiles, relative)
 		}
 	}
-
-	readme, err := os.ReadFile(filepath.Join(source.Path, "README.md"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	for _, want := range []string{
-		"# crm_conversion_events Conversion Events Source",
-		"conversion_events",
-		"may be null",
-		"Output Schema",
-	} {
-		if !strings.Contains(string(readme), want) {
-			t.Fatalf("README.md does not contain %q:\n%s", want, string(readme))
-		}
-	}
+	assertMissing(t, filepath.Join(source.Path, "README.md"))
 
 	schema, err := os.ReadFile(filepath.Join(source.Path, "models", "schema.yml"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	for _, want := range []string{
+		"SEGMENTSTREAM_TODO(raw_source_binding)",
 		"name: crm_conversion_events_raw",
 		"identifier: REPLACE_WITH_RAW_CONVERSION_EVENTS_TABLE",
 		"type: conversion_events",
@@ -404,6 +378,13 @@ func TestCreateScaffoldsConversionEventsSourcePackageFromContract(t *testing.T) 
 			t.Fatalf("schema.yml does not contain %q:\n%s", want, string(schema))
 		}
 	}
+	sourceYAML, err := os.ReadFile(filepath.Join(source.Path, "source.yml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(sourceYAML), "SEGMENTSTREAM_TODO(raw_source_binding)") {
+		t.Fatalf("source.yml does not contain raw source TODO:\n%s", string(sourceYAML))
+	}
 
 	model, err := os.ReadFile(filepath.Join(source.Path, "models", "conversion_events.sql"))
 	if err != nil {
@@ -413,6 +394,7 @@ func TestCreateScaffoldsConversionEventsSourcePackageFromContract(t *testing.T) 
 		"segmentstream_start_date",
 		"segmentstream_end_date",
 		"Implement sources/crm_conversion_events/models/conversion_events.sql",
+		"SEGMENTSTREAM_TODO(model_mapping)",
 		"conversion_name",
 		"conversion_id",
 		"cast(null as float64) as conversion_value",
@@ -546,7 +528,7 @@ func TestCreateUsesRequestedContract(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Create failed: %v", err)
 	}
-	if source.Contract.Type != "events" || source.ModelName != "events" {
+	if source.Contract.Type != "events" || source.Model.Name != "events" {
 		t.Fatalf("source = %+v, want events contract and model", source)
 	}
 
@@ -554,7 +536,7 @@ func TestCreateUsesRequestedContract(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Create failed: %v", err)
 	}
-	if identitySource.Contract.Type != "identity_keys" || identitySource.ModelName != "identity_keys" {
+	if identitySource.Contract.Type != "identity_keys" || identitySource.Model.Name != "identity_keys" {
 		t.Fatalf("source = %+v, want identity_keys contract and model", identitySource)
 	}
 
@@ -562,7 +544,7 @@ func TestCreateUsesRequestedContract(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Create failed: %v", err)
 	}
-	if conversionEventsSource.Contract.Type != "conversion_events" || conversionEventsSource.ModelName != "conversion_events" {
+	if conversionEventsSource.Contract.Type != "conversion_events" || conversionEventsSource.Model.Name != "conversion_events" {
 		t.Fatalf("source = %+v, want conversion_events contract and model", conversionEventsSource)
 	}
 }

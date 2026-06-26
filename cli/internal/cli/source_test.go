@@ -2,7 +2,9 @@ package cli
 
 import (
 	"bytes"
+	"errors"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -59,7 +61,7 @@ func TestSourceContractsConversionsJSONOutput(t *testing.T) {
 	}
 }
 
-func TestSourceScaffoldPointsToReadme(t *testing.T) {
+func TestSourceScaffoldReturnsActionableJSON(t *testing.T) {
 	root := t.TempDir()
 	withWorkingDirectory(t, root)
 	writeValidConfig(t, root)
@@ -73,17 +75,37 @@ func TestSourceScaffoldPointsToReadme(t *testing.T) {
 		t.Fatalf("source scaffold failed: %v", err)
 	}
 
-	assertFileExists(t, filepath.Join(root, "sources", "ga4", "README.md"))
+	assertFileMissing(t, filepath.Join(root, "sources", "ga4", "README.md"))
 
 	var result sourceScaffoldResult
 	response := decodeJSONResponseData(t, out.Bytes(), &result)
 	if response.Command != "source.scaffold" {
 		t.Fatalf("command = %q, want source.scaffold", response.Command)
 	}
-	if len(result.Actions) != 1 ||
-		result.Actions[0].Type != "read_scaffold_readme" ||
-		result.Actions[0].Path == "" {
-		t.Fatalf("actions = %+v, want a single README action", result.Actions)
+	if !containsString(result.CreatedFiles, "sources/ga4/models/events.sql") ||
+		containsString(result.CreatedFiles, "sources/ga4/README.md") {
+		t.Fatalf("created files = %+v, want template-derived files without README", result.CreatedFiles)
+	}
+	if result.Contract.Type != "events" ||
+		result.Contract.SchemaVersion != 1 ||
+		result.Contract.Model != "events" ||
+		result.Contract.Partition != "event_date" ||
+		!containsString(result.Contract.RequiredColumns, "event_id") ||
+		!containsString(result.Contract.RequiredColumns, "event_date") ||
+		len(result.Contract.Columns) != 7 {
+		t.Fatalf("contract = %+v, want events contract summary", result.Contract)
+	}
+	if len(result.Unresolved) != 2 ||
+		result.Unresolved[0].ID != "raw_source_binding" ||
+		result.Unresolved[0].Path != "sources/ga4/models/schema.yml" ||
+		result.Unresolved[0].Marker != "SEGMENTSTREAM_TODO(raw_source_binding)" ||
+		result.Unresolved[1].ID != "model_mapping" ||
+		result.Unresolved[1].Path != "sources/ga4/models/events.sql" ||
+		result.Unresolved[1].Marker != "SEGMENTSTREAM_TODO(model_mapping)" {
+		t.Fatalf("unresolved = %+v, want raw binding and model mapping items", result.Unresolved)
+	}
+	if result.Verify.Command != "segmentstream source verify ga4 --json" {
+		t.Fatalf("verify = %+v, want source verify command", result.Verify)
 	}
 }
 
@@ -184,6 +206,85 @@ func TestSourceVerifyRunsTemplateDbtTestsInDocker(t *testing.T) {
 	}
 }
 
+func TestSourceVerifyJSONFailsWhenDockerCLIIsMissing(t *testing.T) {
+	root := writeSourceVerifyPreflightProject(t)
+	withWorkingDirectory(t, root)
+
+	runner := &stubCommandRunner{lookPathErr: exec.ErrNotFound}
+	var out bytes.Buffer
+	var errOut bytes.Buffer
+	cmd := newRootCommand(&out, &errOut, cliOptions{CommandRunner: runner})
+	cmd.SetArgs([]string{"source", "verify", "ga4", "--json"})
+
+	err := cmd.Execute()
+	if cliresult.ExitCode(err) != cliresult.ExitGenericError {
+		t.Fatalf("exit code = %d, want %d; err=%v", cliresult.ExitCode(err), cliresult.ExitGenericError, err)
+	}
+	if !strings.Contains(out.String(), "Docker is required to run source verification") {
+		t.Fatalf("json output = %s, want missing Docker diagnostic", out.String())
+	}
+	if len(runner.calls) != 0 {
+		t.Fatalf("docker commands were run even though docker is missing: %v", runner.calls)
+	}
+}
+
+func TestSourceVerifyJSONFailsWhenDockerEngineIsUnavailable(t *testing.T) {
+	root := writeSourceVerifyPreflightProject(t)
+	withWorkingDirectory(t, root)
+
+	runner := &stubCommandRunner{
+		results: []stubCommandResult{
+			{output: "Cannot connect to Docker daemon", err: errors.New("docker info failed")},
+		},
+	}
+	var out bytes.Buffer
+	var errOut bytes.Buffer
+	cmd := newRootCommand(&out, &errOut, cliOptions{CommandRunner: runner})
+	cmd.SetArgs([]string{"source", "verify", "ga4", "--json"})
+
+	err := cmd.Execute()
+	if cliresult.ExitCode(err) != cliresult.ExitGenericError {
+		t.Fatalf("exit code = %d, want %d; err=%v", cliresult.ExitCode(err), cliresult.ExitGenericError, err)
+	}
+	if !strings.Contains(out.String(), "Docker Engine is not running") ||
+		!strings.Contains(out.String(), "Cannot connect to Docker daemon") {
+		t.Fatalf("json output = %s, want Docker Engine diagnostic", out.String())
+	}
+	if len(runner.calls) != 1 {
+		t.Fatalf("docker calls = %v, want docker info only", runner.calls)
+	}
+	assertCommand(t, runner.calls[0], "docker", []string{"info", "--format", "{{json .ServerVersion}}"}, "")
+}
+
+func TestSourceVerifyJSONFailsWhenDockerComposeIsUnavailable(t *testing.T) {
+	root := writeSourceVerifyPreflightProject(t)
+	withWorkingDirectory(t, root)
+
+	runner := &stubCommandRunner{
+		results: []stubCommandResult{
+			{output: "docker info"},
+			{output: "docker: 'compose' is not a docker command", err: errors.New("exit status 1")},
+		},
+	}
+	var out bytes.Buffer
+	var errOut bytes.Buffer
+	cmd := newRootCommand(&out, &errOut, cliOptions{CommandRunner: runner})
+	cmd.SetArgs([]string{"source", "verify", "ga4", "--json"})
+
+	err := cmd.Execute()
+	if cliresult.ExitCode(err) != cliresult.ExitGenericError {
+		t.Fatalf("exit code = %d, want %d; err=%v", cliresult.ExitCode(err), cliresult.ExitGenericError, err)
+	}
+	if !strings.Contains(out.String(), "Docker Compose V2 is required") ||
+		!strings.Contains(out.String(), "not a docker command") {
+		t.Fatalf("json output = %s, want Docker Compose diagnostic", out.String())
+	}
+	if len(runner.calls) != 2 {
+		t.Fatalf("docker calls = %v, want docker info and compose version", runner.calls)
+	}
+	assertCommand(t, runner.calls[1], "docker", []string{"compose", "version"}, "")
+}
+
 func TestSourceVerifyJSONIncludesContractMigrationGuide(t *testing.T) {
 	root := t.TempDir()
 	withWorkingDirectory(t, root)
@@ -240,6 +341,16 @@ model:
 	}
 }
 
+func writeSourceVerifyPreflightProject(t *testing.T) string {
+	t.Helper()
+	root := t.TempDir()
+	writeValidConfig(t, root)
+	if _, err := sourcepkg.Create(root, "ga4", "events"); err != nil {
+		t.Fatal(err)
+	}
+	return root
+}
+
 func TestSourceRejectsRemovedSubcommands(t *testing.T) {
 	for _, args := range [][]string{
 		{"source", "create", "ga4"},
@@ -258,4 +369,13 @@ func TestSourceRejectsRemovedSubcommands(t *testing.T) {
 			t.Fatalf("error = %v, want unknown source command", err)
 		}
 	}
+}
+
+func containsString(values []string, want string) bool {
+	for _, value := range values {
+		if value == want {
+			return true
+		}
+	}
+	return false
 }

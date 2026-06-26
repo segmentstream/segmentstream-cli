@@ -635,16 +635,21 @@ func TestBrowseDatasetsReadsAllPages(t *testing.T) {
 func TestBrowseTablesReadsAllPages(t *testing.T) {
 	var requests int
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/bigquery/v2/projects/example-project/datasets/dataset_one/tables" {
-			t.Fatalf("path = %q, want tables list path", r.URL.Path)
+		switch {
+		case r.Method == http.MethodGet && r.URL.Path == "/bigquery/v2/projects/example-project/datasets/dataset_one":
+			w.Header().Set("Content-Type", "application/json")
+			fmt.Fprint(w, `{"datasetReference":{"projectId":"example-project","datasetId":"dataset_one"},"location":"EU"}`)
+		case r.Method == http.MethodGet && r.URL.Path == "/bigquery/v2/projects/example-project/datasets/dataset_one/tables":
+			requests++
+			w.Header().Set("Content-Type", "application/json")
+			if r.URL.Query().Get("pageToken") == "" {
+				fmt.Fprint(w, `{"tables":[{"tableReference":{"tableId":"events"},"friendlyName":"Events","type":"TABLE"}],"nextPageToken":"next"}`)
+				return
+			}
+			fmt.Fprint(w, `{"tables":[{"tableReference":{"tableId":"events_view"},"type":"VIEW"}]}`)
+		default:
+			t.Fatalf("unexpected request %s %s", r.Method, r.URL.Path)
 		}
-		requests++
-		w.Header().Set("Content-Type", "application/json")
-		if r.URL.Query().Get("pageToken") == "" {
-			fmt.Fprint(w, `{"tables":[{"tableReference":{"tableId":"events"},"friendlyName":"Events","type":"TABLE"}],"nextPageToken":"next"}`)
-			return
-		}
-		fmt.Fprint(w, `{"tables":[{"tableReference":{"tableId":"events_view"},"type":"VIEW"}]}`)
 	}))
 	defer server.Close()
 
@@ -659,7 +664,7 @@ func TestBrowseTablesReadsAllPages(t *testing.T) {
 	if requests != 2 {
 		t.Fatalf("requests = %d, want two paged requests", requests)
 	}
-	if result.Level != "table" || result.Path != "example-project/dataset_one" {
+	if result.Level != "table" || result.Path != "example-project/dataset_one" || result.DatasetLocation != "EU" {
 		t.Fatalf("result = %+v, want table level and dataset path", result)
 	}
 	if len(result.Children) != 2 ||
@@ -681,7 +686,7 @@ func TestBrowseTableSchemaReturnsNestedFields(t *testing.T) {
 			t.Fatalf("view query param = %q, want BASIC", r.URL.Query().Get("view"))
 		}
 		w.Header().Set("Content-Type", "application/json")
-		fmt.Fprint(w, `{"schema":{"fields":[{"name":"event_id","type":"STRING","mode":"REQUIRED","description":"Stable event id"},{"name":"event_params","type":"RECORD","mode":"REPEATED","fields":[{"name":"key","type":"STRING"},{"name":"value","type":"RECORD","fields":[{"name":"string_value","type":"STRING"}]}]}]}}`)
+		fmt.Fprint(w, `{"location":"EU","schema":{"fields":[{"name":"event_id","type":"STRING","mode":"REQUIRED","description":"Stable event id"},{"name":"event_params","type":"RECORD","mode":"REPEATED","fields":[{"name":"key","type":"STRING"},{"name":"value","type":"RECORD","fields":[{"name":"string_value","type":"STRING"}]}]}]}}`)
 	}))
 	defer server.Close()
 
@@ -693,7 +698,7 @@ func TestBrowseTableSchemaReturnsNestedFields(t *testing.T) {
 	if err != nil {
 		t.Fatalf("browseTableSchema failed: %v", err)
 	}
-	if result.Level != "schema" || result.Path != "example-project/dataset_one/events" {
+	if result.Level != "schema" || result.Path != "example-project/dataset_one/events" || result.DatasetLocation != "EU" {
 		t.Fatalf("result = %+v, want schema level and table path", result)
 	}
 	if len(result.Children) != 0 {
@@ -745,11 +750,14 @@ func TestQueryDryRunsSelectThenExecutesAndMapsRows(t *testing.T) {
 	}))
 	defer cleanup()
 
-	rows, err := connector.Query(context.Background(), "unused.json", validWarehouseConfig(), warehouse.QueryOptions{
+	config := validWarehouseConfig()
+	config.Location = "US"
+	rows, err := connector.Query(context.Background(), "unused.json", config, warehouse.QueryOptions{
 		SQL:                "SELECT payload FROM events",
 		MaxRows:            7,
 		Timeout:            45 * time.Second,
 		MaximumBytesBilled: 12345,
+		JobLocation:        "EU",
 	})
 	if err != nil {
 		t.Fatalf("Query failed: %v", err)
@@ -846,7 +854,7 @@ func TestQueryReturnsExecutionDiagnostic(t *testing.T) {
 	assertQueryError(t, err, "query_execution_failed")
 }
 
-func TestQueryLocationMismatchReturnsRecoveryActions(t *testing.T) {
+func TestQueryLocationMismatchReturnsStructuredJobLocationDiagnostic(t *testing.T) {
 	connector, cleanup := connectorWithBigQueryServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch {
 		case r.Method == http.MethodPost && r.URL.Path == "/bigquery/v2/projects/example-project/jobs":
@@ -875,25 +883,33 @@ func TestQueryLocationMismatchReturnsRecoveryActions(t *testing.T) {
 	if !errors.As(err, &queryErr) {
 		t.Fatalf("error = %v, want warehouse.QueryError", err)
 	}
-	if len(queryErr.Diagnostics) != 1 || queryErr.Diagnostics[0].ID != "query_location_mismatch" {
-		t.Fatalf("diagnostics = %+v, want query_location_mismatch", queryErr.Diagnostics)
+	if len(queryErr.Diagnostics) != 1 || queryErr.Diagnostics[0].ID != "query_execution_location_mismatch" {
+		t.Fatalf("diagnostics = %+v, want query_execution_location_mismatch", queryErr.Diagnostics)
 	}
+	diagnostic := queryErr.Diagnostics[0]
 	for _, want := range []string{
-		"BigQuery looked for source dataset raw-project.raw_dataset in warehouse.location US, but it is in EU.",
+		"BigQuery query execution ran in US, but source dataset raw-project.raw_dataset is in EU.",
 		"Not found: Dataset raw-project:raw_dataset was not found in location US",
 	} {
-		if !strings.Contains(queryErr.Diagnostics[0].Message, want) {
-			t.Fatalf("diagnostic message = %q, want %q", queryErr.Diagnostics[0].Message, want)
+		if !strings.Contains(diagnostic.Message, want) {
+			t.Fatalf("diagnostic message = %q, want %q", diagnostic.Message, want)
 		}
 	}
-	if queryErr.Diagnostics[0].Suggestion != "Recreate the configured SegmentStream dataset example-project.segmentstream in EU, then rerun warehouse test." {
-		t.Fatalf("suggestion = %q, want clear recreate guidance", queryErr.Diagnostics[0].Suggestion)
+	if !strings.Contains(diagnostic.ProviderError, "Not found: Dataset raw-project:raw_dataset was not found in location US") {
+		t.Fatalf("provider error = %q, want raw provider error", diagnostic.ProviderError)
 	}
-	if len(queryErr.Actions) != 2 ||
-		queryErr.Actions[0].Command != "segmentstream warehouse destroy --json" ||
-		!strings.Contains(queryErr.Actions[1].Command, "--location EU") ||
-		!strings.Contains(queryErr.Actions[1].Command, "--create-dataset") {
-		t.Fatalf("actions = %+v, want destroy and reconfigure commands", queryErr.Actions)
+	if diagnostic.KnownState["referenced_dataset_location"] != "EU" ||
+		diagnostic.KnownState["configured_output_dataset_location"] != "US" ||
+		diagnostic.KnownState["query_execution_location"] != "US" {
+		t.Fatalf("known state = %+v, want location mismatch state", diagnostic.KnownState)
+	}
+	if len(diagnostic.Affordances) != 1 ||
+		diagnostic.Affordances[0].Flag != "--job-location" ||
+		diagnostic.Affordances[0].Value != "EU" {
+		t.Fatalf("affordances = %+v, want job-location EU", diagnostic.Affordances)
+	}
+	if len(queryErr.Actions) != 0 {
+		t.Fatalf("actions = %+v, want no destructive recovery actions", queryErr.Actions)
 	}
 }
 
@@ -919,10 +935,13 @@ func TestQueryCancelsIncompleteJob(t *testing.T) {
 	}))
 	defer cleanup()
 
-	_, err := connector.Query(context.Background(), "unused.json", validWarehouseConfig(), warehouse.QueryOptions{
-		SQL:     "SELECT * FROM slow_table",
-		MaxRows: 100,
-		Timeout: time.Second,
+	config := validWarehouseConfig()
+	config.Location = "US"
+	_, err := connector.Query(context.Background(), "unused.json", config, warehouse.QueryOptions{
+		SQL:         "SELECT * FROM slow_table",
+		MaxRows:     100,
+		Timeout:     time.Second,
+		JobLocation: "EU",
 	})
 	assertQueryError(t, err, "query_timeout")
 	if cancelRequests != 1 || cancelLocation != "EU" {

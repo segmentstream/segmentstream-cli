@@ -34,10 +34,18 @@ type Warning struct {
 }
 
 type Diagnostic struct {
-	ID         string `json:"id"`
-	Field      string `json:"field,omitempty"`
-	Message    string `json:"message"`
-	Suggestion string `json:"suggestion,omitempty"`
+	ID            string                 `json:"id"`
+	Field         string                 `json:"field,omitempty"`
+	Message       string                 `json:"message"`
+	Suggestion    string                 `json:"suggestion,omitempty"`
+	ProviderError string                 `json:"provider_error,omitempty"`
+	KnownState    map[string]string      `json:"known_state,omitempty"`
+	Affordances   []DiagnosticAffordance `json:"affordances,omitempty"`
+}
+
+type DiagnosticAffordance struct {
+	Flag  string `json:"flag"`
+	Value string `json:"value"`
 }
 
 type Action struct {
