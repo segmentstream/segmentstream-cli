@@ -61,6 +61,7 @@ type QueryOptions struct {
 	MaxRows            int64
 	Timeout            time.Duration
 	MaximumBytesBilled int64
+	JobLocation        string
 }
 
 type Registry struct {
@@ -96,12 +97,13 @@ func (registry Registry) Providers() []Provider {
 }
 
 type BrowseResult struct {
-	SchemaVersion string        `json:"schema_version"`
-	Warehouse     string        `json:"warehouse"`
-	Level         string        `json:"level"`
-	Path          string        `json:"path,omitempty"`
-	Children      []BrowseChild `json:"children"`
-	Schema        []BrowseField `json:"schema,omitempty"`
+	SchemaVersion   string        `json:"schema_version"`
+	Warehouse       string        `json:"warehouse"`
+	Level           string        `json:"level"`
+	Path            string        `json:"path,omitempty"`
+	DatasetLocation string        `json:"dataset_location,omitempty"`
+	Children        []BrowseChild `json:"children"`
+	Schema          []BrowseField `json:"schema,omitempty"`
 }
 
 type BrowseChild struct {
@@ -166,14 +168,18 @@ func NewQueryError(id, field, message, suggestion string) QueryError {
 }
 
 func NewQueryErrorWithActions(id, field, message, suggestion string, actions []cliresult.Action) QueryError {
+	return NewQueryErrorWithDiagnostics([]cliresult.Diagnostic{{
+		ID:         id,
+		Field:      field,
+		Message:    message,
+		Suggestion: suggestion,
+	}}, actions)
+}
+
+func NewQueryErrorWithDiagnostics(diagnostics []cliresult.Diagnostic, actions []cliresult.Action) QueryError {
 	return QueryError{
-		Diagnostics: []cliresult.Diagnostic{{
-			ID:         id,
-			Field:      field,
-			Message:    message,
-			Suggestion: suggestion,
-		}},
-		Actions: actions,
+		Diagnostics: diagnostics,
+		Actions:     actions,
 	}
 }
 

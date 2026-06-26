@@ -561,10 +561,8 @@ func (connector Connector) Query(ctx context.Context, credentialPath string, con
 		return nil, err
 	}
 
-	queryLocation := strings.TrimSpace(config.Location)
-	if queryLocation == "" {
-		queryLocation = defaultLocation
-	}
+	configuredLocation := configuredWarehouseLocation(config)
+	queryLocation := queryExecutionLocation(config, options)
 	dryRunQuery := &bq.JobConfigurationQuery{
 		Query:        options.SQL,
 		UseLegacySql: boolPointer(false),
@@ -583,7 +581,7 @@ func (connector Connector) Query(ctx context.Context, credentialPath string, con
 		},
 	}).Context(ctx).Do()
 	if err != nil {
-		return nil, connector.queryFailure(ctx, service, config, options.SQL, "query_dry_run_failed", "--sql", "BigQuery dry run failed", err)
+		return nil, connector.queryFailure(ctx, service, config, options.SQL, configuredLocation, queryLocation, "query_dry_run_failed", "--sql", "BigQuery dry run failed", err)
 	}
 	statementType := bigQueryStatementType(dryRunJob)
 	if statementType != "SELECT" {
@@ -611,7 +609,7 @@ func (connector Connector) Query(ctx context.Context, credentialPath string, con
 	}
 	response, err := service.Jobs.Query(config.Project, queryRequest).Context(ctx).Do()
 	if err != nil {
-		return nil, connector.queryFailure(ctx, service, config, options.SQL, "query_execution_failed", "--sql", "BigQuery query failed", err)
+		return nil, connector.queryFailure(ctx, service, config, options.SQL, configuredLocation, queryLocation, "query_execution_failed", "--sql", "BigQuery query failed", err)
 	}
 	if response != nil && !response.JobComplete {
 		cancelBigQueryQuery(ctx, service, config.Project, queryLocation, response.JobReference)
@@ -629,45 +627,60 @@ func (connector Connector) Query(ctx context.Context, credentialPath string, con
 	return rows, nil
 }
 
-func (connector Connector) queryFailure(ctx context.Context, service *bq.Service, config project.Warehouse, sql, id, field, prefix string, err error) warehouse.QueryError {
+func configuredWarehouseLocation(config project.Warehouse) string {
+	location := strings.TrimSpace(config.Location)
+	if location == "" {
+		return defaultLocation
+	}
+	return location
+}
+
+func queryExecutionLocation(config project.Warehouse, options warehouse.QueryOptions) string {
+	if location := strings.TrimSpace(options.JobLocation); location != "" {
+		return location
+	}
+	return configuredWarehouseLocation(config)
+}
+
+func (connector Connector) queryFailure(ctx context.Context, service *bq.Service, config project.Warehouse, sql, configuredLocation, queryLocation, id, field, prefix string, err error) warehouse.QueryError {
 	providerMessage := explainGoogleAPIError(err).Error()
 	message := fmt.Sprintf("%s: %s", prefix, providerMessage)
 	if !isBigQueryLocationError(providerMessage) {
 		return warehouse.NewQueryError(id, field, message, "")
 	}
 
-	queryLocation := strings.TrimSpace(config.Location)
-	if queryLocation == "" {
-		queryLocation = defaultLocation
-	}
 	inference, inferred := connector.inferSingleSourceLocation(ctx, service, sql, config.Project)
-	suggestion := "BigQuery reported a location mismatch. Confirm the raw dataset location with segmentstream warehouse browse, then recreate the configured dataset in that location."
-	var actions []cliresult.Action
+	suggestion := "BigQuery reported a location mismatch. Confirm the raw dataset location with segmentstream warehouse browse, then rerun the query with --job-location."
+	diagnostic := cliresult.Diagnostic{
+		ID:            "query_execution_location_mismatch",
+		Field:         field,
+		Message:       message,
+		Suggestion:    suggestion,
+		ProviderError: providerMessage,
+	}
 	if inferred && inference.Location != "" && !strings.EqualFold(inference.Location, queryLocation) {
-		message = fmt.Sprintf("%s: BigQuery looked for %s in warehouse.location %s, but %s in %s. Raw BigQuery error: %s",
+		diagnostic.Message = fmt.Sprintf("%s: BigQuery query execution ran in %s, but %s %s in %s. Raw BigQuery error: %s",
 			prefix,
-			formatBigQuerySourceDatasets(inference.References),
 			queryLocation,
+			formatBigQuerySourceDatasets(inference.References),
 			sourceDatasetVerb(inference.References),
 			inference.Location,
 			providerMessage,
 		)
-		configureCommand := fmt.Sprintf("segmentstream warehouse configure --project %s --dataset %s --location %s --create-dataset --json", config.Project, config.Dataset, inference.Location)
-		suggestion = fmt.Sprintf("Recreate the configured SegmentStream dataset %s.%s in %s, then rerun warehouse test.", config.Project, config.Dataset, inference.Location)
-		actions = []cliresult.Action{
+		diagnostic.Suggestion = fmt.Sprintf("Rerun this read-only query with --job-location %s.", inference.Location)
+		diagnostic.KnownState = map[string]string{
+			"referenced_dataset_location":        inference.Location,
+			"configured_output_dataset_location": configuredLocation,
+			"query_execution_location":           queryLocation,
+		}
+		diagnostic.Affordances = []cliresult.DiagnosticAffordance{
 			{
-				Type:    "run_command",
-				Label:   "Destroy the configured dataset",
-				Command: "segmentstream warehouse destroy --json",
-			},
-			{
-				Type:    "run_command",
-				Label:   "Recreate the configured dataset in the source location",
-				Command: configureCommand,
+				Flag:  "--job-location",
+				Value: inference.Location,
 			},
 		}
 	}
-	return warehouse.NewQueryErrorWithActions("query_location_mismatch", field, message, suggestion, actions)
+	return warehouse.NewQueryErrorWithDiagnostics([]cliresult.Diagnostic{diagnostic}, nil)
 }
 
 func isBigQueryLocationError(message string) bool {
@@ -730,9 +743,9 @@ func formatBigQuerySourceDatasets(refs []bigQueryTableReference) string {
 
 func sourceDatasetVerb(refs []bigQueryTableReference) string {
 	if len(refs) == 1 {
-		return "it is"
+		return "is"
 	}
-	return "they are"
+	return "are"
 }
 
 type bigQueryTableReference struct {
@@ -967,7 +980,9 @@ func (connector Connector) browseTables(ctx context.Context, service *bq.Service
 	if err != nil {
 		return warehouse.BrowseResult{}, fmt.Errorf("list BigQuery tables: %w", explainGoogleAPIError(err))
 	}
-	return warehouse.NewBrowseResult(connector.Type(), "table", joinBrowsePath(projectID, datasetID), children), nil
+	result := warehouse.NewBrowseResult(connector.Type(), "table", joinBrowsePath(projectID, datasetID), children)
+	result.DatasetLocation = connector.bestEffortDatasetLocation(ctx, service, projectID, datasetID)
+	return result, nil
 }
 
 func (connector Connector) browseTableSchema(ctx context.Context, service *bq.Service, projectID, datasetID, tableID string) (warehouse.BrowseResult, error) {
@@ -976,10 +991,33 @@ func (connector Connector) browseTableSchema(ctx context.Context, service *bq.Se
 		return warehouse.BrowseResult{}, fmt.Errorf("get BigQuery table schema: %w", explainGoogleAPIError(err))
 	}
 	result := warehouse.NewBrowseResult(connector.Type(), "schema", joinBrowsePath(projectID, datasetID, tableID), []warehouse.BrowseChild{})
+	result.DatasetLocation = strings.TrimSpace(table.Location)
+	if result.DatasetLocation == "" {
+		result.DatasetLocation = connector.bestEffortDatasetLocation(ctx, service, projectID, datasetID)
+	}
 	if table.Schema != nil {
 		result.Schema = browseSchemaFields(table.Schema.Fields)
 	}
 	return result, nil
+}
+
+func (connector Connector) bestEffortDatasetLocation(ctx context.Context, service *bq.Service, projectID, datasetID string) string {
+	location, err := connector.datasetLocation(ctx, service, projectID, datasetID)
+	if err != nil {
+		return ""
+	}
+	return location
+}
+
+func (connector Connector) datasetLocation(ctx context.Context, service *bq.Service, projectID, datasetID string) (string, error) {
+	dataset, err := service.Datasets.Get(projectID, datasetID).Context(ctx).Do()
+	if err != nil {
+		return "", fmt.Errorf("get BigQuery dataset location: %w", explainGoogleAPIError(err))
+	}
+	if dataset == nil {
+		return "", nil
+	}
+	return strings.TrimSpace(dataset.Location), nil
 }
 
 func parseBrowsePath(path string) ([]string, error) {

@@ -692,7 +692,7 @@ func TestWarehouseQueryHelpIncludesSafetyFlags(t *testing.T) {
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("warehouse query --help failed: %v", err)
 	}
-	for _, want := range []string{"--sql", "--max-rows", "--timeout", "--maximum-bytes-billed"} {
+	for _, want := range []string{"--sql", "--job-location", "--max-rows", "--timeout", "--maximum-bytes-billed"} {
 		if !strings.Contains(out.String(), want) {
 			t.Fatalf("help output = %s, want %s", out.String(), want)
 		}
@@ -779,6 +779,7 @@ warehouse:
 		"--max-rows", "7",
 		"--timeout", "45s",
 		"--maximum-bytes-billed", "12345",
+		"--job-location", "EU",
 		"--json",
 	})
 
@@ -788,7 +789,8 @@ warehouse:
 	if fake.queryOptions.SQL != "SELECT 1" ||
 		fake.queryOptions.MaxRows != 7 ||
 		fake.queryOptions.Timeout != 45*time.Second ||
-		fake.queryOptions.MaximumBytesBilled != 12345 {
+		fake.queryOptions.MaximumBytesBilled != 12345 ||
+		fake.queryOptions.JobLocation != "EU" {
 		t.Fatalf("query options = %+v, want custom limits", fake.queryOptions)
 	}
 }

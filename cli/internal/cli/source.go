@@ -59,24 +59,45 @@ type sourceContractDetailResult struct {
 	Actions       []sourceContractAction     `json:"actions"`
 }
 
-type sourceScaffoldAction struct {
-	Type    string `json:"type"`
-	Path    string `json:"path"`
-	Message string `json:"message"`
-}
-
 type sourceScaffoldResult struct {
-	SchemaVersion string                     `json:"schema_version"`
-	Source        sourceScaffoldResultSource `json:"source"`
-	Directory     string                     `json:"directory"`
-	CreatedFiles  []string                   `json:"created_files"`
-	Contract      sourcepkg.ContractIdentity `json:"contract"`
-	Actions       []sourceScaffoldAction     `json:"actions"`
+	SchemaVersion string                       `json:"schema_version"`
+	Source        sourceScaffoldResultSource   `json:"source"`
+	Directory     string                       `json:"directory"`
+	CreatedFiles  []string                     `json:"created_files"`
+	Contract      sourceScaffoldResultContract `json:"contract"`
+	Readme        sourceScaffoldReadme         `json:"readme"`
+	Unresolved    []sourceScaffoldUnresolved   `json:"unresolved"`
+	Verify        sourceScaffoldVerify         `json:"verify"`
 }
 
 type sourceScaffoldResultSource struct {
 	Name        string `json:"name"`
 	PackageName string `json:"package_name"`
+}
+
+type sourceScaffoldResultContract struct {
+	Type            string                     `json:"type"`
+	SchemaVersion   int                        `json:"schema_version"`
+	Model           string                     `json:"model"`
+	Partition       string                     `json:"partition"`
+	RequiredColumns []string                   `json:"required_columns"`
+	Columns         []sourcepkg.ContractColumn `json:"columns"`
+}
+
+type sourceScaffoldReadme struct {
+	Path    string `json:"path"`
+	Message string `json:"message"`
+}
+
+type sourceScaffoldUnresolved struct {
+	ID      string `json:"id"`
+	Path    string `json:"path"`
+	Marker  string `json:"marker"`
+	Message string `json:"message"`
+}
+
+type sourceScaffoldVerify struct {
+	Command string `json:"command"`
 }
 
 type sourceVerifyResult struct {
@@ -143,8 +164,8 @@ func newSourceScaffoldCommand(out io.Writer, commandContext structuredCommandCon
 		Use:   "scaffold <name> --type <contract>",
 		Short: "Scaffold a source template from a contract",
 		Long: "Scaffold a local source template from a contract.\n\n" +
-			"The generated source is not implemented yet. Read README.md inside the\n" +
-			"generated source directory to understand the scaffold and its contract.",
+			"The generated source is not implemented yet. Use the JSON unresolved\n" +
+			"items and TODO markers in generated files to bind raw inputs and map the contract.",
 		Args:    cobra.ExactArgs(1),
 		Command: "source.scaffold",
 	}, func(ctx context.Context, args []string) (cliresult.Response, error) {
@@ -289,13 +310,34 @@ func sourceScaffoldJSON(source sourcepkg.Source) sourceScaffoldResult {
 		},
 		Directory:    relativePath,
 		CreatedFiles: append([]string(nil), source.CreatedFiles...),
-		Contract:     source.Contract,
-		Actions: []sourceScaffoldAction{
+		Contract: sourceScaffoldResultContract{
+			Type:            source.Contract.Type,
+			SchemaVersion:   source.Contract.SchemaVersion,
+			Model:           source.Model.Name,
+			Partition:       source.Model.Partition,
+			RequiredColumns: requiredContractColumns(source.Columns),
+			Columns:         append([]sourcepkg.ContractColumn(nil), source.Columns...),
+		},
+		Readme: sourceScaffoldReadme{
+			Path:    sourceReadmePath(source),
+			Message: "Generated source implementation guide. Use unresolved items as the machine-readable checklist.",
+		},
+		Unresolved: []sourceScaffoldUnresolved{
 			{
-				Type:    "read_scaffold_readme",
-				Path:    sourceReadmePath(source),
-				Message: "Read this README to understand the source scaffold.",
+				ID:      "raw_source_binding",
+				Path:    sourceModelSchemaPath(source),
+				Marker:  "SEGMENTSTREAM_TODO(raw_source_binding)",
+				Message: "Replace raw project, dataset, and table placeholders.",
 			},
+			{
+				ID:      "model_mapping",
+				Path:    sourceModelSQLPath(source),
+				Marker:  "SEGMENTSTREAM_TODO(model_mapping)",
+				Message: "Map raw columns to the source contract.",
+			},
+		},
+		Verify: sourceScaffoldVerify{
+			Command: fmt.Sprintf("segmentstream source verify %s --json", source.Name),
 		},
 	}
 }
@@ -364,13 +406,15 @@ func (result sourceScaffoldResult) HumanDocument() cliresult.Document {
 	return textDocument(func(out io.Writer) {
 		fmt.Fprintf(out, "Scaffolded source template %q at %s\n", result.Source.Name, result.Directory)
 		fmt.Fprintf(out, "Contract: %s (schema_version: %d)\n", result.Contract.Type, result.Contract.SchemaVersion)
-		fmt.Fprintln(out)
-		fmt.Fprintln(out, "Next action:")
-		for _, action := range result.Actions {
-			if action.Type == "read_scaffold_readme" && action.Path != "" {
-				fmt.Fprintf(out, "- Read %s to understand this source scaffold.\n", action.Path)
-			}
+		if result.Readme.Path != "" {
+			fmt.Fprintf(out, "Guide: %s\n", result.Readme.Path)
 		}
+		fmt.Fprintln(out)
+		fmt.Fprintln(out, "Unresolved:")
+		for _, unresolved := range result.Unresolved {
+			fmt.Fprintf(out, "- %s in %s: %s\n", unresolved.ID, unresolved.Path, unresolved.Message)
+		}
+		fmt.Fprintf(out, "Verify: %s\n", strings.TrimSuffix(result.Verify.Command, " --json"))
 	})
 }
 
@@ -388,4 +432,22 @@ func sourceRelativePath(source sourcepkg.Source) string {
 
 func sourceReadmePath(source sourcepkg.Source) string {
 	return filepath.ToSlash(filepath.Join(sourceRelativePath(source), "README.md"))
+}
+
+func sourceModelSchemaPath(source sourcepkg.Source) string {
+	return filepath.ToSlash(filepath.Join(sourceRelativePath(source), "models", "schema.yml"))
+}
+
+func sourceModelSQLPath(source sourcepkg.Source) string {
+	return filepath.ToSlash(filepath.Join(sourceRelativePath(source), "models", source.Model.Name+".sql"))
+}
+
+func requiredContractColumns(columns []sourcepkg.ContractColumn) []string {
+	var required []string
+	for _, column := range columns {
+		if column.Required {
+			required = append(required, column.Name)
+		}
+	}
+	return required
 }

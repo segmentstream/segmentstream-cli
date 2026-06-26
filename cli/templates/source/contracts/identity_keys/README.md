@@ -10,6 +10,17 @@ core project. It is intentionally unfinished: an implementation agent or
 developer owns the source-specific mapping from raw data to timestamped identity
 key observations.
 
+## Implementation
+
+Use `segmentstream source scaffold __SOURCE_NAME__ --type identity_keys --json`
+for the machine-readable list of unresolved implementation items. Then edit:
+
+- `models/schema.yml` to bind raw warehouse inputs.
+- `models/identity_keys.sql` to map raw rows into the identity keys contract.
+
+The generated files include `SEGMENTSTREAM_TODO(...)` markers at the primary
+edit points.
+
 ## Output Schema
 
 The expected output schema is defined in `contract.yml`. The same
