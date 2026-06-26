@@ -8,8 +8,7 @@ select
   cast(null as string) as key_name,
   cast(null as string) as tier,
   cast(null as int64) as window_days,
-  cast(null as int64) as max_distinct_anonymous_ids,
-  cast(null as string) as scope
+  cast(null as int64) as max_distinct_anonymous_ids
 from (select 1) as empty_identity_link_config
 where false
 
@@ -22,8 +21,7 @@ select
   {{ key["name"] | tojson }} as key_name,
   {{ key["tier"] | tojson }} as tier,
   cast({{ key["window_days"] }} as int64) as window_days,
-  cast({{ key["max_distinct_anonymous_ids"] }} as int64) as max_distinct_anonymous_ids,
-  {{ key["scope"] | tojson }} as scope
+  cast({{ key["max_distinct_anonymous_ids"] }} as int64) as max_distinct_anonymous_ids
 {% if not loop.last %}
 
 union all

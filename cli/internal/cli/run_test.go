@@ -495,7 +495,6 @@ identity:
       tier: deterministic
       window_days: 180
       max_distinct_anonymous_ids: 1000
-      scope: project
 `)
 	home := filepath.Join(root, "home")
 	withRunAuthHome(t, home)
@@ -547,7 +546,6 @@ identity:
       tier: deterministic
       window_days: 180
       max_distinct_anonymous_ids: 1000
-      scope: project
 `)
 	writeRunAccessMarker(t, root)
 	if _, err := sourcepkg.Create(root, "ga4", "events"); err != nil {
@@ -602,7 +600,6 @@ identity:
       tier: deterministic
       window_days: 180
       max_distinct_anonymous_ids: 1000
-      scope: project
 `)
 	writeRunAccessMarker(t, root)
 	writeVerifiedSource(t, root, "ga4", "events")
@@ -651,7 +648,6 @@ identity:
       tier: deterministic
       window_days: 180
       max_distinct_anonymous_ids: 1000
-      scope: project
 `)
 	writeRunAccessMarker(t, root)
 	writeVerifiedSource(t, root, "sdk_identity", "identity_keys")
@@ -1128,7 +1124,6 @@ identity:
       tier: deterministic
       window_days: 180
       max_distinct_anonymous_ids: 1000
-      scope: project
 `)
 	if _, err := sourcepkg.Create(root, "ga4", "events"); err != nil {
 		t.Fatal(err)

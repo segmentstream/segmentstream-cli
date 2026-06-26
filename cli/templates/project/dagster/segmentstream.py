@@ -152,9 +152,10 @@ def parse_identity_link_keys(config: dict) -> list[dict]:
         if tier not in {"deterministic", "probabilistic"}:
             raise RuntimeError(f"{field}.tier must be deterministic or probabilistic")
 
-        scope = normalize_required_identity_string(raw_key.get("scope"), f"{field}.scope")
-        if scope not in {"project", "source"}:
-            raise RuntimeError(f"{field}.scope must be project or source")
+        if "scope" in raw_key:
+            raise RuntimeError(
+                f"{field}.scope is no longer supported; identity keys are matched globally"
+            )
 
         keys.append(
             {
@@ -167,7 +168,6 @@ def parse_identity_link_keys(config: dict) -> list[dict]:
                     raw_key.get("max_distinct_anonymous_ids"),
                     f"{field}.max_distinct_anonymous_ids",
                 ),
-                "scope": scope,
             }
         )
     return keys

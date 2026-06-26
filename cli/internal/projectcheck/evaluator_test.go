@@ -585,7 +585,6 @@ func configuredProjectStoreWithRequiredSourcesAndIdentity() *fakeProjectStore {
 				Tier:                    "deterministic",
 				WindowDays:              180,
 				MaxDistinctAnonymousIDs: 1000,
-				Scope:                   "project",
 			},
 		},
 	}

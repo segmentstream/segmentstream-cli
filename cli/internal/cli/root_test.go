@@ -407,7 +407,6 @@ identity:
       tier: deterministic
       window_days: 180
       max_distinct_anonymous_ids: 1000
-      scope: project
 `)
 	if _, err := sourcepkg.Create(root, "ga4", "events"); err != nil {
 		t.Fatal(err)
