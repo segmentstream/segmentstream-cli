@@ -9,7 +9,7 @@
 
 with source_rows as (
   select 1 as present
-  from {{ ref('conversions') }}
+  from {{ ref('conversion_events') }}
   limit 1
 )
 

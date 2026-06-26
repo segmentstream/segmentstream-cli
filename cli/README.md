@@ -66,7 +66,7 @@ transformations. Agents should start by discovering supported source contracts:
 ```sh
 segmentstream source contracts --json
 segmentstream source contracts --type events --json
-segmentstream source contracts --type conversions --json
+segmentstream source contracts --type conversion_events --json
 segmentstream source contracts --type identity_keys --json
 ```
 
@@ -74,7 +74,7 @@ Scaffold a local source template from a contract:
 
 ```sh
 segmentstream source scaffold ga4 --type events
-segmentstream source scaffold crm_conversions --type conversions
+segmentstream source scaffold crm_conversion_events --type conversion_events
 segmentstream source scaffold sdk_identity --type identity_keys
 ```
 
@@ -83,7 +83,7 @@ snapshots, `README.md` files, dbt verification tests, and author-editable
 contract models:
 
 - `sources/ga4/models/events.sql`
-- `sources/crm_conversions/models/conversions.sql`
+- `sources/crm_conversion_events/models/conversion_events.sql`
 - `sources/sdk_identity/models/identity_keys.sql`
 
 The scaffolds are not implemented yet; read each README to understand the
@@ -95,8 +95,8 @@ Declare the sources in `segmentstream.yml`:
 sources:
   - name: ga4
     path: ./sources/ga4
-  - name: crm_conversions
-    path: ./sources/crm_conversions
+  - name: crm_conversion_events
+    path: ./sources/crm_conversion_events
   - name: sdk_identity
     path: ./sources/sdk_identity
 ```
@@ -105,15 +105,15 @@ Verify implemented sources before running the pipeline:
 
 ```sh
 segmentstream source verify ga4
-segmentstream source verify crm_conversions
+segmentstream source verify crm_conversion_events
 segmentstream source verify sdk_identity
 ```
 
 On run, SegmentStream reads `segmentstream.yml`, installs analytics-core and
 declared sources as dbt packages, and materializes the core `events`,
-`conversions`, and `identity_keys` models from analytics-core.
+`conversion_events`, and `identity_keys` models from analytics-core.
 
-Source packages that use the `conversions` contract emit conversion rows with
+Source packages that use the `conversion_events` contract emit raw conversion events with
 `date`, `conversion_time`, `conversion_name`, `conversion_id`, and nullable
 `conversion_value`.
 
@@ -290,10 +290,10 @@ state-machine envelope under `data.envelope`.
 the configured warehouse. It runs the last 30 UTC daily partitions by default;
 use `segmentstream run --start-date YYYY-MM-DD` to start earlier or later.
 
-`segmentstream source contracts [--type events|conversions|identity_keys] [--json]` lists
+`segmentstream source contracts [--type events|conversion_events|identity_keys] [--json]` lists
 supported source contracts and returns their schemas.
 
-`segmentstream source scaffold <name> --type events|conversions|identity_keys [--json]`
+`segmentstream source scaffold <name> --type events|conversion_events|identity_keys [--json]`
 scaffolds a local source template under `sources/<name>/`. The template must be
 implemented next.
 

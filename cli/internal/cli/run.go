@@ -180,7 +180,7 @@ func preflightProjectSanity(config project.Config, provider warehouse.Provider, 
 		failures = append(failures, err.Error())
 	}
 	if len(config.Sources) == 0 {
-		failures = append(failures, "segmentstream.yml must declare at least one events source, one identity_keys source, and one conversions source under sources; run segmentstream source contracts, then scaffold and verify all required source contracts")
+		failures = append(failures, "segmentstream.yml must declare at least one events source, one identity_keys source, and one conversion_events source under sources; run segmentstream source contracts, then scaffold and verify all required source contracts")
 	}
 	if len(failures) > 0 {
 		return runSanityError(failures)

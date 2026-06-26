@@ -10,6 +10,6 @@ sources:
     database: REPLACE_WITH_RAW_BIGQUERY_PROJECT
     schema: REPLACE_WITH_RAW_BIGQUERY_DATASET
     tables:
-      - name: conversions
-        identifier: REPLACE_WITH_RAW_CONVERSIONS_TABLE
+      - name: conversion_events
+        identifier: REPLACE_WITH_RAW_CONVERSION_EVENTS_TABLE
         description: REPLACE_WITH_RAW_TABLE_DESCRIPTION

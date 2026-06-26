@@ -55,24 +55,24 @@ func TestContractsLoadFromEmbeddedTemplates(t *testing.T) {
 		t.Fatalf("second identity column = %+v, want required observed_at", identityContract.Columns[1])
 	}
 
-	conversionsContract := findContract(t, contracts, "conversions")
-	if conversionsContract.Default {
-		t.Fatal("conversions contract should not be the default")
+	conversionEventsContract := findContract(t, contracts, "conversion_events")
+	if conversionEventsContract.Default {
+		t.Fatal("conversion_events contract should not be the default")
 	}
-	if conversionsContract.Model.Name != "conversions" || conversionsContract.Model.Partition != "date" {
-		t.Fatalf("conversions model = %+v, want conversions partitioned by date", conversionsContract.Model)
+	if conversionEventsContract.Model.Name != "conversion_events" || conversionEventsContract.Model.Partition != "date" {
+		t.Fatalf("conversion_events model = %+v, want conversion_events partitioned by date", conversionEventsContract.Model)
 	}
-	if conversionsContract.SchemaVersion != 1 {
-		t.Fatalf("conversions schema version = %d, want 1", conversionsContract.SchemaVersion)
+	if conversionEventsContract.SchemaVersion != 1 {
+		t.Fatalf("conversion_events schema version = %d, want 1", conversionEventsContract.SchemaVersion)
 	}
-	if len(conversionsContract.Columns) != 5 {
-		t.Fatalf("conversions columns = %+v, want 5 columns", conversionsContract.Columns)
+	if len(conversionEventsContract.Columns) != 5 {
+		t.Fatalf("conversion_events columns = %+v, want 5 columns", conversionEventsContract.Columns)
 	}
-	if conversionsContract.Columns[0].Name != "date" || !conversionsContract.Columns[0].Required {
-		t.Fatalf("first conversions column = %+v, want required date", conversionsContract.Columns[0])
+	if conversionEventsContract.Columns[0].Name != "date" || !conversionEventsContract.Columns[0].Required {
+		t.Fatalf("first conversion_events column = %+v, want required date", conversionEventsContract.Columns[0])
 	}
-	if conversionsContract.Columns[4].Name != "conversion_value" || conversionsContract.Columns[4].Required {
-		t.Fatalf("conversion value column = %+v, want optional conversion_value", conversionsContract.Columns[4])
+	if conversionEventsContract.Columns[4].Name != "conversion_value" || conversionEventsContract.Columns[4].Required {
+		t.Fatalf("conversion value column = %+v, want optional conversion_value", conversionEventsContract.Columns[4])
 	}
 }
 
@@ -82,7 +82,7 @@ func TestContractByTypeRejectsUnknownType(t *testing.T) {
 		t.Fatal("expected unknown contract type error")
 	}
 	if !strings.Contains(err.Error(), `unknown source contract type "costs"`) ||
-		!strings.Contains(err.Error(), "supported types: conversions, events, identity_keys") {
+		!strings.Contains(err.Error(), "supported types: conversion_events, events, identity_keys") {
 		t.Fatalf("error = %v, want clear unknown type message", err)
 	}
 }
@@ -333,32 +333,32 @@ func TestCreateScaffoldsConversionsSourcePackageFromContract(t *testing.T) {
 	root := t.TempDir()
 	writeProjectConfig(t, root)
 
-	source, err := Create(root, "crm_conversions", "conversions")
+	source, err := Create(root, "crm_conversion_events", "conversion_events")
 	if err != nil {
 		t.Fatalf("Create failed: %v", err)
 	}
 
-	if source.Contract.Type != "conversions" || source.Contract.SchemaVersion != 1 {
-		t.Fatalf("Contract = %+v, want conversions schema version 1", source.Contract)
+	if source.Contract.Type != "conversion_events" || source.Contract.SchemaVersion != 1 {
+		t.Fatalf("Contract = %+v, want conversion_events schema version 1", source.Contract)
 	}
-	if source.ModelName != "conversions" {
-		t.Fatalf("ModelName = %q, want conversions", source.ModelName)
+	if source.ModelName != "conversion_events" {
+		t.Fatalf("ModelName = %q, want conversion_events", source.ModelName)
 	}
 
 	expectedFiles := []string{
 		".gitignore",
 		"contract.yml",
 		"dbt_project.yml",
-		filepath.Join("models", "conversions.sql"),
+		filepath.Join("models", "conversion_events.sql"),
 		filepath.Join("models", "schema.yml"),
 		"README.md",
 		"source.yml",
-		filepath.Join("tests", "verify_conversions_contract.sql"),
-		filepath.Join("tests", "verify_conversions_non_empty.sql"),
+		filepath.Join("tests", "verify_conversion_events_contract.sql"),
+		filepath.Join("tests", "verify_conversion_events_non_empty.sql"),
 	}
 	for _, relative := range expectedFiles {
 		assertGenerated(t, filepath.Join(source.Path, relative))
-		if !containsCreatedFile(source.CreatedFiles, filepath.ToSlash(filepath.Join("sources", "crm_conversions", relative))) {
+		if !containsCreatedFile(source.CreatedFiles, filepath.ToSlash(filepath.Join("sources", "crm_conversion_events", relative))) {
 			t.Fatalf("CreatedFiles = %v, want %s", source.CreatedFiles, relative)
 		}
 	}
@@ -368,8 +368,8 @@ func TestCreateScaffoldsConversionsSourcePackageFromContract(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, want := range []string{
-		"# crm_conversions Conversions Source",
-		"conversions",
+		"# crm_conversion_events Conversion Events Source",
+		"conversion_events",
 		"may be null",
 		"Output Schema",
 	} {
@@ -383,11 +383,11 @@ func TestCreateScaffoldsConversionsSourcePackageFromContract(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, want := range []string{
-		"name: crm_conversions_raw",
-		"identifier: REPLACE_WITH_RAW_CONVERSIONS_TABLE",
-		"type: conversions",
+		"name: crm_conversion_events_raw",
+		"identifier: REPLACE_WITH_RAW_CONVERSION_EVENTS_TABLE",
+		"type: conversion_events",
 		"schema_version: 1",
-		"name: conversions",
+		"name: conversion_events",
 		"conversion_time",
 		"conversion_value",
 	} {
@@ -396,14 +396,14 @@ func TestCreateScaffoldsConversionsSourcePackageFromContract(t *testing.T) {
 		}
 	}
 
-	model, err := os.ReadFile(filepath.Join(source.Path, "models", "conversions.sql"))
+	model, err := os.ReadFile(filepath.Join(source.Path, "models", "conversion_events.sql"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	for _, want := range []string{
 		"segmentstream_start_date",
 		"segmentstream_end_date",
-		"Implement sources/crm_conversions/models/conversions.sql",
+		"Implement sources/crm_conversion_events/models/conversion_events.sql",
 		"conversion_name",
 		"conversion_id",
 		"cast(null as float64) as conversion_value",
@@ -414,7 +414,7 @@ func TestCreateScaffoldsConversionsSourcePackageFromContract(t *testing.T) {
 		}
 	}
 
-	contractTest, err := os.ReadFile(filepath.Join(source.Path, "tests", "verify_conversions_contract.sql"))
+	contractTest, err := os.ReadFile(filepath.Join(source.Path, "tests", "verify_conversion_events_contract.sql"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -437,7 +437,7 @@ func TestCreateScaffoldsConversionsSourcePackageFromContract(t *testing.T) {
 		t.Fatalf("contract test should allow null conversion_value:\n%s", string(contractTest))
 	}
 
-	nonEmptyTest, err := os.ReadFile(filepath.Join(source.Path, "tests", "verify_conversions_non_empty.sql"))
+	nonEmptyTest, err := os.ReadFile(filepath.Join(source.Path, "tests", "verify_conversion_events_non_empty.sql"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -506,12 +506,12 @@ func TestCreateUsesRequestedContract(t *testing.T) {
 		t.Fatalf("source = %+v, want identity_keys contract and model", identitySource)
 	}
 
-	conversionsSource, err := Create(root, "crm_conversions", "conversions")
+	conversionEventsSource, err := Create(root, "crm_conversion_events", "conversion_events")
 	if err != nil {
 		t.Fatalf("Create failed: %v", err)
 	}
-	if conversionsSource.Contract.Type != "conversions" || conversionsSource.ModelName != "conversions" {
-		t.Fatalf("source = %+v, want conversions contract and model", conversionsSource)
+	if conversionEventsSource.Contract.Type != "conversion_events" || conversionEventsSource.ModelName != "conversion_events" {
+		t.Fatalf("source = %+v, want conversion_events contract and model", conversionEventsSource)
 	}
 }
 

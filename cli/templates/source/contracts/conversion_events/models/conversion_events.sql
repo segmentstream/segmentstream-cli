@@ -1,4 +1,4 @@
-{{ config(materialized='ephemeral', alias='__SOURCE_NAME___conversions') }}
+{{ config(materialized='ephemeral', alias='__SOURCE_NAME___conversion_events') }}
 
 {% set segmentstream_start_date = var('segmentstream_start_date', none) %}
 {% set segmentstream_end_date = var('segmentstream_end_date', none) %}
@@ -8,12 +8,12 @@
 {% endif %}
 
 {% if execute %}
-  {{ exceptions.raise_compiler_error("Implement sources/__SOURCE_NAME__/models/conversions.sql by mapping raw inputs from models/schema.yml to the conversions contract.") }}
+  {{ exceptions.raise_compiler_error("Implement sources/__SOURCE_NAME__/models/conversion_events.sql by mapping raw inputs from models/schema.yml to the conversion_events contract.") }}
 {% endif %}
 
 -- Template query. Replace this example with source-specific SQL.
 -- 1. Declare raw warehouse inputs in models/schema.yml.
--- 2. Inspect the target contract with: segmentstream source contracts --type conversions --json
+-- 2. Inspect the target contract with: segmentstream source contracts --type conversion_events --json
 -- 3. Return the contract columns below, filtered to the SegmentStream date window.
 select
   cast(null as date) as date,

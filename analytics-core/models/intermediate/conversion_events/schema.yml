@@ -1,8 +1,8 @@
 version: 2
 
 models:
-  - name: int_conversions__unioned
-    description: Internal union of declared source conversion models before publishing the canonical conversions mart.
+  - name: int_conversion_events__unioned
+    description: Internal union of declared source conversion event models before publishing the canonical conversion_events mart.
     columns:
       - name: date
         data_type: date

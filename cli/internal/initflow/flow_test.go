@@ -344,15 +344,15 @@ func TestEvaluateNeedsConversionsSourceAfterEventAndIdentitySources(t *testing.T
 
 	assertInitEnvelopeV2(t, result.Envelope)
 	if result.ExitCode != cliresult.ExitReady || result.Envelope.Ready {
-		t.Fatalf("result = %+v, want not ready without conversions source", result)
+		t.Fatalf("result = %+v, want not ready without conversion_events source", result)
 	}
 	if result.Envelope.NextAction.Type != actionRunCommand ||
 		result.Envelope.NextAction.Stage != string(stageSources) ||
-		result.Envelope.NextAction.Command != "segmentstream source contracts --type conversions" {
-		t.Fatalf("next action = %+v, want conversions source contract command", result.Envelope.NextAction)
+		result.Envelope.NextAction.Command != "segmentstream source contracts --type conversion_events" {
+		t.Fatalf("next action = %+v, want conversion_events source contract command", result.Envelope.NextAction)
 	}
-	if len(result.Envelope.Diagnostics) != 1 || result.Envelope.Diagnostics[0].ID != "missing_conversions_source" {
-		t.Fatalf("diagnostics = %+v, want missing_conversions_source", result.Envelope.Diagnostics)
+	if len(result.Envelope.Diagnostics) != 1 || result.Envelope.Diagnostics[0].ID != "missing_conversion_events_source" {
+		t.Fatalf("diagnostics = %+v, want missing_conversion_events_source", result.Envelope.Diagnostics)
 	}
 }
 
@@ -689,7 +689,7 @@ func configuredProjectStoreWithRequiredSources() *fakeProjectStore {
 	store := configuredProjectStore()
 	store.config.Sources = []project.Source{
 		{Name: "ga4", Path: "./sources/ga4"},
-		{Name: "crm_conversions", Path: "./sources/crm_conversions"},
+		{Name: "crm_conversion_events", Path: "./sources/crm_conversion_events"},
 		{Name: "sdk_identity", Path: "./sources/sdk_identity"},
 	}
 	return store
@@ -724,9 +724,9 @@ func fakeRequiredSourceVerifier() *fakeSourceVerifier {
 	return &fakeSourceVerifier{
 		valid: true,
 		contracts: map[string]string{
-			"ga4":             "events",
-			"crm_conversions": "conversions",
-			"sdk_identity":    "identity_keys",
+			"ga4":                   "events",
+			"crm_conversion_events": "conversion_events",
+			"sdk_identity":          "identity_keys",
 		},
 	}
 }

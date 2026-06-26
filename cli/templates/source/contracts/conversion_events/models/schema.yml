@@ -4,20 +4,20 @@ version: 2
 # Replace these placeholders with the warehouse tables this source reads from.
 # For BigQuery, database is the project, schema is the dataset, and identifier
 # is the physical table name. Add or remove tables as needed, then reference
-# them from models/conversions.sql.
+# them from models/conversion_events.sql.
 sources:
   - name: __SOURCE_NAME___raw
     description: REPLACE_WITH_RAW_INPUT_DESCRIPTION
     database: REPLACE_WITH_RAW_BIGQUERY_PROJECT
     schema: REPLACE_WITH_RAW_BIGQUERY_DATASET
     tables:
-      - name: conversions
-        identifier: REPLACE_WITH_RAW_CONVERSIONS_TABLE
+      - name: conversion_events
+        identifier: REPLACE_WITH_RAW_CONVERSION_EVENTS_TABLE
         description: REPLACE_WITH_RAW_TABLE_DESCRIPTION
 
 models:
-  - name: conversions
-    description: Canonical conversion stream emitted by the __SOURCE_NAME__ source.
+  - name: conversion_events
+    description: Raw conversion event stream emitted by the __SOURCE_NAME__ source.
     config:
       tags:
         - segmentstream_source
@@ -25,16 +25,16 @@ models:
         segmentstream:
           source_name: __SOURCE_NAME__
           contract:
-            type: conversions
+            type: conversion_events
             schema_version: 1
     columns:
       - name: date
-        description: UTC date partition for this conversion row.
+        description: UTC date partition for this conversion event row.
       - name: conversion_time
-        description: UTC timestamp when the conversion occurred.
+        description: UTC timestamp when the conversion event occurred.
       - name: conversion_name
-        description: Conversion name emitted by the source.
+        description: Conversion event name emitted by the source.
       - name: conversion_id
-        description: Stable conversion identifier from the upstream source.
+        description: Stable conversion event identifier from the upstream source.
       - name: conversion_value
         description: Optional floating point conversion value.

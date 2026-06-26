@@ -1,10 +1,10 @@
 version: 2
 
 unit_tests:
-  - name: conversions__publishes_unioned_conversions
-    model: conversions
+  - name: conversion_events__publishes_unioned_conversion_events
+    model: conversion_events
     given:
-      - input: ref('int_conversions__unioned')
+      - input: ref('int_conversion_events__unioned')
         format: sql
         rows: |
           select

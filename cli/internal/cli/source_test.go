@@ -36,7 +36,7 @@ func TestSourceContractsConversionsJSONOutput(t *testing.T) {
 	var out bytes.Buffer
 	var errOut bytes.Buffer
 	cmd := NewRootCommand(&out, &errOut)
-	cmd.SetArgs([]string{"source", "contracts", "--type", "conversions", "--json"})
+	cmd.SetArgs([]string{"source", "contracts", "--type", "conversion_events", "--json"})
 
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("source contracts failed: %v", err)
@@ -48,10 +48,10 @@ func TestSourceContractsConversionsJSONOutput(t *testing.T) {
 		t.Fatalf("command = %q, want source.contracts", response.Command)
 	}
 	if result.SchemaVersion != cliresult.SchemaVersion ||
-		result.Contract.Type != "conversions" ||
-		result.Model.Name != "conversions" ||
+		result.Contract.Type != "conversion_events" ||
+		result.Model.Name != "conversion_events" ||
 		len(result.Columns) != 5 {
-		t.Fatalf("result = %+v, want conversions contract with columns", result)
+		t.Fatalf("result = %+v, want conversion_events contract with columns", result)
 	}
 	if result.Columns[4].Name != "conversion_value" || result.Columns[4].Required {
 		t.Fatalf("conversion value column = %+v, want optional conversion_value", result.Columns[4])

@@ -14,7 +14,7 @@ with source_rows as (
     cast(conversion_name as string) as conversion_name,
     cast(conversion_id as string) as conversion_id,
     cast(conversion_value as float64) as conversion_value
-  from {{ ref('conversions') }}
+  from {{ ref('conversion_events') }}
 )
 
 select *
