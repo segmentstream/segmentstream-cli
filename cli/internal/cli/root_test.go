@@ -399,6 +399,8 @@ warehouse:
 sources:
   - name: ga4
     path: ./sources/ga4
+  - name: crm_conversion_events
+    path: ./sources/crm_conversion_events
   - name: sdk_identity
     path: ./sources/sdk_identity
 identity:
@@ -414,10 +416,16 @@ identity:
 	if _, err := sourcepkg.Create(root, "sdk_identity", "identity_keys"); err != nil {
 		t.Fatal(err)
 	}
+	if _, err := sourcepkg.Create(root, "crm_conversion_events", "conversion_events"); err != nil {
+		t.Fatal(err)
+	}
 	if _, _, err := sourcepkg.SavePassing(root, project.Source{Name: "ga4", Path: "./sources/ga4"}, "2026-06-16", "2026-06-23", time.Date(2026, 6, 22, 12, 0, 0, 0, time.UTC)); err != nil {
 		t.Fatal(err)
 	}
 	if _, _, err := sourcepkg.SavePassing(root, project.Source{Name: "sdk_identity", Path: "./sources/sdk_identity"}, "2026-06-16", "2026-06-23", time.Date(2026, 6, 22, 12, 0, 0, 0, time.UTC)); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := sourcepkg.SavePassing(root, project.Source{Name: "crm_conversion_events", Path: "./sources/crm_conversion_events"}, "2026-06-16", "2026-06-23", time.Date(2026, 6, 22, 12, 0, 0, 0, time.UTC)); err != nil {
 		t.Fatal(err)
 	}
 	writeNamedCredential(t, home, "default-bigquery")
@@ -468,6 +476,8 @@ warehouse:
 sources:
   - name: ga4
     path: ./sources/ga4
+  - name: crm_conversion_events
+    path: ./sources/crm_conversion_events
   - name: sdk_identity
     path: ./sources/sdk_identity
 `)
@@ -477,10 +487,16 @@ sources:
 	if _, err := sourcepkg.Create(root, "sdk_identity", "identity_keys"); err != nil {
 		t.Fatal(err)
 	}
+	if _, err := sourcepkg.Create(root, "crm_conversion_events", "conversion_events"); err != nil {
+		t.Fatal(err)
+	}
 	if _, _, err := sourcepkg.SavePassing(root, project.Source{Name: "ga4", Path: "./sources/ga4"}, "2026-06-16", "2026-06-23", time.Date(2026, 6, 22, 12, 0, 0, 0, time.UTC)); err != nil {
 		t.Fatal(err)
 	}
 	if _, _, err := sourcepkg.SavePassing(root, project.Source{Name: "sdk_identity", Path: "./sources/sdk_identity"}, "2026-06-16", "2026-06-23", time.Date(2026, 6, 22, 12, 0, 0, 0, time.UTC)); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := sourcepkg.SavePassing(root, project.Source{Name: "crm_conversion_events", Path: "./sources/crm_conversion_events"}, "2026-06-16", "2026-06-23", time.Date(2026, 6, 22, 12, 0, 0, 0, time.UTC)); err != nil {
 		t.Fatal(err)
 	}
 	writeNamedCredential(t, home, "default-bigquery")

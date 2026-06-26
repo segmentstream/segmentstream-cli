@@ -277,6 +277,40 @@ func TestEvaluateNeedsIdentityConfigAfterRequiredSources(t *testing.T) {
 	assertStage(t, result.Envelope.Stages, 6, stageIdentity, statusMissing, true)
 }
 
+func TestEvaluateNeedsConversionEventsSourceAfterEventAndIdentitySources(t *testing.T) {
+	result, err := (Evaluator{
+		WarehouseRegistry: testRegistry(),
+		ProjectStore:      configuredProjectStoreWithEventAndIdentitySources(),
+		CredentialStore: &fakeCredentialStore{
+			hasBigQueryCredential: true,
+			hasAccessMarker:       true,
+		},
+		SourceVerifier: &fakeSourceVerifier{
+			valid: true,
+			contracts: map[string]string{
+				"ga4":          "events",
+				"sdk_identity": "identity_keys",
+			},
+		},
+	}).Evaluate(context.Background())
+	if err != nil {
+		t.Fatalf("Evaluate failed: %v", err)
+	}
+
+	assertInitEnvelopeV2(t, result.Envelope)
+	if result.ExitCode != cliresult.ExitReady || result.Envelope.Ready {
+		t.Fatalf("result = %+v, want not ready without conversion_events source", result)
+	}
+	if result.Envelope.NextAction.Type != actionRunCommand ||
+		result.Envelope.NextAction.Stage != string(stageSources) ||
+		result.Envelope.NextAction.Command != "segmentstream source contracts --type conversion_events" {
+		t.Fatalf("next action = %+v, want conversion_events source contract command", result.Envelope.NextAction)
+	}
+	if len(result.Envelope.Diagnostics) != 1 || result.Envelope.Diagnostics[0].ID != "missing_conversion_events_source" {
+		t.Fatalf("diagnostics = %+v, want missing_conversion_events_source", result.Envelope.Diagnostics)
+	}
+}
+
 func TestEvaluateReadyAfterAccessMarkerSourcesAndIdentityConfig(t *testing.T) {
 	result, err := (Evaluator{
 		WarehouseRegistry: testRegistry(),
@@ -571,6 +605,16 @@ func configuredProjectStoreWithRequiredSources() *fakeProjectStore {
 	store := configuredProjectStore()
 	store.config.Sources = []project.Source{
 		{Name: "ga4", Path: "./sources/ga4"},
+		{Name: "crm_conversion_events", Path: "./sources/crm_conversion_events"},
+		{Name: "sdk_identity", Path: "./sources/sdk_identity"},
+	}
+	return store
+}
+
+func configuredProjectStoreWithEventAndIdentitySources() *fakeProjectStore {
+	store := configuredProjectStore()
+	store.config.Sources = []project.Source{
+		{Name: "ga4", Path: "./sources/ga4"},
 		{Name: "sdk_identity", Path: "./sources/sdk_identity"},
 	}
 	return store
@@ -595,8 +639,9 @@ func fakeRequiredSourceVerifier() *fakeSourceVerifier {
 	return &fakeSourceVerifier{
 		valid: true,
 		contracts: map[string]string{
-			"ga4":          "events",
-			"sdk_identity": "identity_keys",
+			"ga4":                   "events",
+			"crm_conversion_events": "conversion_events",
+			"sdk_identity":          "identity_keys",
 		},
 	}
 }

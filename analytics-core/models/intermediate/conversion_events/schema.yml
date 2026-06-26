@@ -1,0 +1,16 @@
+version: 2
+
+models:
+  - name: int_conversion_events__unioned
+    description: Internal union of declared source conversion event models before publishing the canonical conversion_events mart.
+    columns:
+      - name: date
+        data_type: date
+      - name: conversion_time
+        data_type: timestamp
+      - name: conversion_name
+        data_type: string
+      - name: conversion_id
+        data_type: string
+      - name: conversion_value
+        data_type: float64

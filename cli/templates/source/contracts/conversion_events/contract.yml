@@ -1,0 +1,29 @@
+type: conversion_events
+schema_version: 1
+description: Raw conversion event stream emitted by a custom source package.
+default: false
+status: supported
+model:
+  name: conversion_events
+  partition: date
+columns:
+  - name: date
+    type: DATE
+    required: true
+    description: UTC date partition for this conversion event row.
+  - name: conversion_time
+    type: TIMESTAMP
+    required: true
+    description: UTC timestamp when the conversion event occurred.
+  - name: conversion_name
+    type: STRING
+    required: true
+    description: Conversion event name emitted by the source.
+  - name: conversion_id
+    type: STRING
+    required: true
+    description: Stable conversion event identifier from the upstream source.
+  - name: conversion_value
+    type: FLOAT
+    required: false
+    description: Optional floating point conversion value.

@@ -13,8 +13,8 @@ func TestContractsLoadFromEmbeddedTemplates(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Contracts failed: %v", err)
 	}
-	if len(contracts) != 2 {
-		t.Fatalf("contracts = %+v, want exactly two supported contracts", contracts)
+	if len(contracts) != 3 {
+		t.Fatalf("contracts = %+v, want exactly three supported contracts", contracts)
 	}
 	contract := findContract(t, contracts, "events")
 	if contract.Type != "events" || contract.SchemaVersion != 1 {
@@ -61,6 +61,26 @@ func TestContractsLoadFromEmbeddedTemplates(t *testing.T) {
 		identityContract.Migrations[0].Guide != "migrations/1_to_2.md" {
 		t.Fatalf("identity migrations = %+v, want v1 to v2 guide", identityContract.Migrations)
 	}
+
+	conversionEventsContract := findContract(t, contracts, "conversion_events")
+	if conversionEventsContract.Default {
+		t.Fatal("conversion_events contract should not be the default")
+	}
+	if conversionEventsContract.Model.Name != "conversion_events" || conversionEventsContract.Model.Partition != "date" {
+		t.Fatalf("conversion_events model = %+v, want conversion_events partitioned by date", conversionEventsContract.Model)
+	}
+	if conversionEventsContract.SchemaVersion != 1 {
+		t.Fatalf("conversion_events schema version = %d, want 1", conversionEventsContract.SchemaVersion)
+	}
+	if len(conversionEventsContract.Columns) != 5 {
+		t.Fatalf("conversion_events columns = %+v, want 5 columns", conversionEventsContract.Columns)
+	}
+	if conversionEventsContract.Columns[0].Name != "date" || !conversionEventsContract.Columns[0].Required {
+		t.Fatalf("first conversion_events column = %+v, want required date", conversionEventsContract.Columns[0])
+	}
+	if conversionEventsContract.Columns[4].Name != "conversion_value" || conversionEventsContract.Columns[4].Required {
+		t.Fatalf("conversion value column = %+v, want optional conversion_value", conversionEventsContract.Columns[4])
+	}
 }
 
 func TestContractByTypeRejectsUnknownType(t *testing.T) {
@@ -69,7 +89,7 @@ func TestContractByTypeRejectsUnknownType(t *testing.T) {
 		t.Fatal("expected unknown contract type error")
 	}
 	if !strings.Contains(err.Error(), `unknown source contract type "costs"`) ||
-		!strings.Contains(err.Error(), "supported types: events, identity_keys") {
+		!strings.Contains(err.Error(), "supported types: conversion_events, events, identity_keys") {
 		t.Fatalf("error = %v, want clear unknown type message", err)
 	}
 }
@@ -318,6 +338,123 @@ func TestCreateScaffoldsIdentityKeysSourcePackageFromContract(t *testing.T) {
 	}
 }
 
+func TestCreateScaffoldsConversionEventsSourcePackageFromContract(t *testing.T) {
+	root := t.TempDir()
+	writeProjectConfig(t, root)
+
+	source, err := Create(root, "crm_conversion_events", "conversion_events")
+	if err != nil {
+		t.Fatalf("Create failed: %v", err)
+	}
+
+	if source.Contract.Type != "conversion_events" || source.Contract.SchemaVersion != 1 {
+		t.Fatalf("Contract = %+v, want conversion_events schema version 1", source.Contract)
+	}
+	if source.ModelName != "conversion_events" {
+		t.Fatalf("ModelName = %q, want conversion_events", source.ModelName)
+	}
+
+	expectedFiles := []string{
+		".gitignore",
+		"contract.yml",
+		"dbt_project.yml",
+		filepath.Join("models", "conversion_events.sql"),
+		filepath.Join("models", "schema.yml"),
+		"README.md",
+		"source.yml",
+		filepath.Join("tests", "verify_conversion_events_contract.sql"),
+		filepath.Join("tests", "verify_conversion_events_non_empty.sql"),
+	}
+	for _, relative := range expectedFiles {
+		assertGenerated(t, filepath.Join(source.Path, relative))
+		if !containsCreatedFile(source.CreatedFiles, filepath.ToSlash(filepath.Join("sources", "crm_conversion_events", relative))) {
+			t.Fatalf("CreatedFiles = %v, want %s", source.CreatedFiles, relative)
+		}
+	}
+
+	readme, err := os.ReadFile(filepath.Join(source.Path, "README.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		"# crm_conversion_events Conversion Events Source",
+		"conversion_events",
+		"may be null",
+		"Output Schema",
+	} {
+		if !strings.Contains(string(readme), want) {
+			t.Fatalf("README.md does not contain %q:\n%s", want, string(readme))
+		}
+	}
+
+	schema, err := os.ReadFile(filepath.Join(source.Path, "models", "schema.yml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		"name: crm_conversion_events_raw",
+		"identifier: REPLACE_WITH_RAW_CONVERSION_EVENTS_TABLE",
+		"type: conversion_events",
+		"schema_version: 1",
+		"name: conversion_events",
+		"conversion_time",
+		"conversion_value",
+	} {
+		if !strings.Contains(string(schema), want) {
+			t.Fatalf("schema.yml does not contain %q:\n%s", want, string(schema))
+		}
+	}
+
+	model, err := os.ReadFile(filepath.Join(source.Path, "models", "conversion_events.sql"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		"segmentstream_start_date",
+		"segmentstream_end_date",
+		"Implement sources/crm_conversion_events/models/conversion_events.sql",
+		"conversion_name",
+		"conversion_id",
+		"cast(null as float64) as conversion_value",
+		"where false",
+	} {
+		if !strings.Contains(string(model), want) {
+			t.Fatalf("model does not contain %q:\n%s", want, string(model))
+		}
+	}
+
+	contractTest, err := os.ReadFile(filepath.Join(source.Path, "tests", "verify_conversion_events_contract.sql"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		"segmentstream_source_verify",
+		"cast(date as date)",
+		"cast(conversion_time as timestamp)",
+		"cast(conversion_value as float64)",
+		"conversion_time is null",
+		"conversion_name is null",
+		"conversion_id is null",
+		"date >= date('{{ segmentstream_end_date }}')",
+		"date != date(conversion_time)",
+	} {
+		if !strings.Contains(string(contractTest), want) {
+			t.Fatalf("contract test does not contain %q:\n%s", want, string(contractTest))
+		}
+	}
+	if strings.Contains(string(contractTest), "conversion_value is null") {
+		t.Fatalf("contract test should allow null conversion_value:\n%s", string(contractTest))
+	}
+
+	nonEmptyTest, err := os.ReadFile(filepath.Join(source.Path, "tests", "verify_conversion_events_non_empty.sql"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(nonEmptyTest), "Source returned no conversion rows") {
+		t.Fatalf("non-empty test is missing failure message:\n%s", string(nonEmptyTest))
+	}
+}
+
 func TestValidateSupportedContractIdentityReturnsMigrationGuide(t *testing.T) {
 	err := ValidateSupportedContractIdentityForSource(
 		ContractIdentity{Type: "identity_keys", SchemaVersion: 1},
@@ -419,6 +556,14 @@ func TestCreateUsesRequestedContract(t *testing.T) {
 	}
 	if identitySource.Contract.Type != "identity_keys" || identitySource.ModelName != "identity_keys" {
 		t.Fatalf("source = %+v, want identity_keys contract and model", identitySource)
+	}
+
+	conversionEventsSource, err := Create(root, "crm_conversion_events", "conversion_events")
+	if err != nil {
+		t.Fatalf("Create failed: %v", err)
+	}
+	if conversionEventsSource.Contract.Type != "conversion_events" || conversionEventsSource.ModelName != "conversion_events" {
+		t.Fatalf("source = %+v, want conversion_events contract and model", conversionEventsSource)
 	}
 }
 

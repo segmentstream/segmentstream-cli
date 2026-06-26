@@ -24,6 +24,8 @@ clean-targets:
 models:
   segmentstream_analytics_core:
     intermediate:
+      conversion_events:
+        +materialized: ephemeral
       events:
         +materialized: ephemeral
       identity:
@@ -35,6 +37,11 @@ models:
       events:
         +partition_by:
           field: event_date
+          data_type: date
+          granularity: day
+      conversion_events:
+        +partition_by:
+          field: date
           data_type: date
           granularity: day
       identity_keys:

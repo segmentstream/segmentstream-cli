@@ -163,12 +163,14 @@ func TestPrepareCreatesExpectedRuntimeFiles(t *testing.T) {
 		"build_ingestion_assets",
 		"dbt_partition_vars",
 		"segmentstream_sources",
+		"segmentstream_conversion_event_sources",
 		"segmentstream_identity_key_sources",
 		"segmentstream_identity_link_keys",
 		"segmentstream_start_date",
 		"segmentstream_end_date",
 		"SUPPORTED_SOURCE_CONTRACT_SCHEMA_VERSIONS",
 		"event_source_vars",
+		"conversion_event_source_vars",
 		"identity_key_source_vars",
 		"parse_identity_link_keys",
 		"normalize_positive_int",
@@ -213,6 +215,46 @@ func TestAnalyticsCoreIntermediateEventsModelUsesValidBigQueryZeroRowQuery(t *te
 	} {
 		if !strings.Contains(string(eventsModel), want) {
 			t.Fatalf("analytics-core events model does not contain %q:\n%s", want, string(eventsModel))
+		}
+	}
+}
+
+func TestAnalyticsCoreConversionsModelUsesExpectedUnionShape(t *testing.T) {
+	conversionEventsModel, err := os.ReadFile(filepath.Join("..", "..", "..", "analytics-core", "models", "intermediate", "conversion_events", "int_conversion_events__unioned.sql"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		"segmentstream_conversion_event_sources",
+		"from (select 1) as empty_project",
+		"where false",
+		`ref(source["package_name"], source["conversion_events_model_name"])`,
+		"conversion_time",
+		"conversion_name",
+		"conversion_id",
+		"conversion_value",
+		"date >= date('{{ segmentstream_start_date }}')",
+		"date < date('{{ segmentstream_end_date }}')",
+	} {
+		if !strings.Contains(string(conversionEventsModel), want) {
+			t.Fatalf("analytics-core conversion_events union model does not contain %q:\n%s", want, string(conversionEventsModel))
+		}
+	}
+
+	conversionEventsMart, err := os.ReadFile(filepath.Join("..", "..", "..", "analytics-core", "models", "marts", "conversion_events.sql"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		"date",
+		"conversion_time",
+		"conversion_name",
+		"conversion_id",
+		"conversion_value",
+		"from {{ ref('int_conversion_events__unioned') }}",
+	} {
+		if !strings.Contains(string(conversionEventsMart), want) {
+			t.Fatalf("analytics-core conversion_events mart does not contain %q:\n%s", want, string(conversionEventsMart))
 		}
 	}
 }

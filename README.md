@@ -67,7 +67,7 @@ cannot defend is a measurement number you cannot use.
 1. **Initialize** — scaffold a version-controlled project.
 2. **Connect** — authenticate to your warehouse (BigQuery today; Snowflake &
    Databricks on the roadmap); credentials stay in your OS keychain.
-3. **Add sources** — events, costs and conversions from built-in or custom
+3. **Add sources** — events, costs and conversion events from built-in or custom
    connectors.
 4. **Configure** — identity keys, dimensions and attribution models, built-in or
    custom SQL.
@@ -95,7 +95,7 @@ on the [public roadmap board](#).
 | ------------------ | ----------- | ---------------------------------------------- |
 | Event sources      | ✅ Live      | Typed contract + dbt scaffold, contract-verified |
 | Cost sources       | 📋 Planned  | Same contract rails                            |
-| Conversion sources | 📋 Planned  | Simple / custom / combined / lead-scoring      |
+| Conversion event sources | ✅ Live      | Typed contract + dbt scaffold, contract-verified |
 
 ### Identity graph (deterministic — no fingerprinting)
 

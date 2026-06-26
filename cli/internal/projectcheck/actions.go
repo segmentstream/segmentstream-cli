@@ -9,12 +9,13 @@ import (
 )
 
 const (
-	testWarehouseCommand             = "segmentstream warehouse test --json"
-	sourceContractsCommand           = "segmentstream source contracts"
-	eventSourceContractCommand       = "segmentstream source contracts --type events"
-	identityKeySourceContractCommand = "segmentstream source contracts --type identity_keys"
-	initVerifyCommand                = "segmentstream init --json"
-	runCommand                       = "segmentstream run"
+	testWarehouseCommand                 = "segmentstream warehouse test --json"
+	sourceContractsCommand               = "segmentstream source contracts"
+	eventSourceContractCommand           = "segmentstream source contracts --type events"
+	conversionEventSourceContractCommand = "segmentstream source contracts --type conversion_events"
+	identityKeySourceContractCommand     = "segmentstream source contracts --type identity_keys"
+	initVerifyCommand                    = "segmentstream init --json"
+	runCommand                           = "segmentstream run"
 
 	actionHumanInput = "human_input"
 	actionRunCommand = "run_command"
@@ -78,7 +79,7 @@ func selectSourceAction() cliresult.NextAction {
 		Type:    actionRunCommand,
 		Stage:   string(stageSources),
 		Command: sourceContractsCommand,
-		Reason:  "No sources are configured. Inspect supported source contracts, then configure at least one events source and one identity_keys source.",
+		Reason:  "No sources are configured. Inspect supported source contracts, then configure at least one events source, one conversion_events source, and one identity_keys source.",
 	}
 }
 

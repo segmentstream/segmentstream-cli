@@ -1,0 +1,13 @@
+version: 2
+
+unit_tests:
+  - name: int_conversion_events__unioned__empty_without_sources
+    model: int_conversion_events__unioned
+    overrides:
+      vars:
+        segmentstream_conversion_event_sources: []
+        segmentstream_start_date: "2026-01-01"
+        segmentstream_end_date: "2026-01-02"
+    given: []
+    expect:
+      rows: []

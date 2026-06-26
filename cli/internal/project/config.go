@@ -69,6 +69,8 @@ func DefaultConfigYAML() string {
 		"# sources:\n" +
 		"#   - name: ga4\n" +
 		"#     path: ./sources/ga4\n" +
+		"#   - name: crm_conversion_events\n" +
+		"#     path: ./sources/crm_conversion_events\n" +
 		"#   - name: sdk_identity\n" +
 		"#     path: ./sources/sdk_identity\n" +
 		"#\n" +
